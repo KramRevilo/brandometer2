@@ -25,6 +25,9 @@ gcloud services enable cloudbuild.googleapis.com
 gcloud services enable firestore.googleapis.com
 gcloud services enable appengine.googleapis.com
 gcloud services enable cloudfunctions.googleapis.com
+gcloud services enable bigquery.googleapis.com
+gcloud services enable run.googleapis.com
+gcloud services enable artifactregistry.googleapis.com
 
 # Deploy receiver endpoint.
 cd receiver
@@ -35,15 +38,32 @@ bq --location=$LOCATION mk \
     --description "Main response data set for Sonar" \
     $PROJECT_ID:responses
 
-echo -e "\n-- Deploy Cloud Function for receiver"
+echo -e "\n-- Deploy Cloud Function for receiver (2nd gen)"
 gcloud functions deploy receiver \
+    --gen2 \
     --trigger-http \
     --allow-unauthenticated \
     --runtime python312 \
     --entry-point=receiver \
     --region=$LOCATION \
     --set-env-vars TABLE_ID=$PROJECT_ID.responses.responses
-    # --no-gen2   # Future provision to avoid v2 cloud function install
+
+echo -e "\n-- Read deployed receiver URL"
+RECEIVER_URL=$(gcloud functions describe receiver \
+    --gen2 \
+    --region=$LOCATION \
+    --format='value(serviceConfig.uri)')
+if [ -z "$RECEIVER_URL" ]; then
+    RECEIVER_URL=$(gcloud functions describe receiver \
+        --gen2 \
+        --region=$LOCATION \
+        --format='value(url)')
+fi
+if [ -z "$RECEIVER_URL" ]; then
+    echo "ERROR: could not determine the receiver function URL."
+    exit 1
+fi
+echo "Receiver URL: $RECEIVER_URL"
 
 # Exit receiver dir.
 cd ..
@@ -56,10 +76,7 @@ fi
 echo -e "\n-- Deploy Firestore for survey configuration"
 
 # check to see if '(default)' firestore database already installed
-gcloud firestore databases list | grep '(default)'
-RETVAL=$?
-if [ $RETVAL -eq 0 ];
-then
+if gcloud firestore databases list --format='value(name)' | grep -q '(default)'; then
     echo "Firestore database named (default) found in this project - skipping install"
 else
     gcloud firestore databases create --location=$LOCATION
@@ -77,8 +94,17 @@ echo -e "\n-- Set your authentication login credentials"
 read -p 'Username: ' AUTH_USERNAME
 read -sp 'Password: ' AUTH_PASSWORD
 echo -e "\n-- Thank you, the authentication credentials has been set as $AUTH_USERNAME & $AUTH_PASSWORD"
+
+SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+
 echo -e "\n-- Set up app engine config"
-sed -e "s/{{LOCATION}}/$LOCATION/" -e "s/{{PROJECT_ID}}/$PROJECT_ID/" -e "s/{{AUTH_USERNAME}}/$AUTH_USERNAME/" -e "s/{{AUTH_PASSWORD}}/$AUTH_PASSWORD/" creative/app/app.yaml.template >./creative/app/$PROJECT_ID.yaml
+sed \
+    -e "s|{{RECEIVER_URL}}|$RECEIVER_URL|" \
+    -e "s|{{PROJECT_ID}}|$PROJECT_ID|" \
+    -e "s|{{AUTH_USERNAME}}|$AUTH_USERNAME|" \
+    -e "s|{{AUTH_PASSWORD}}|$AUTH_PASSWORD|" \
+    -e "s|{{SECRET_KEY}}|$SECRET_KEY|" \
+    creative/app/app.yaml.template >./creative/app/$PROJECT_ID.yaml
 echo -e "\n-- Deploy app engine"
 
 cd creative/app
