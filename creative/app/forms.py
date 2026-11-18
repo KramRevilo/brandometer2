@@ -25,6 +25,7 @@ from wtforms import TextAreaField
 from wtforms.validators import DataRequired
 from wtforms.validators import ValidationError
 from wtforms.validators import Length
+import creative_size
 
 BRAND_TRACK = 'brand_track'
 BRAND_LIFT = 'brand_lift'
@@ -32,6 +33,9 @@ ANSWERS_ORDERED = 'ORDERED'
 ANSWERS_SHUFFLED = 'SHUFFLED'
 RESPONSES_AT_END = "Submit Responses at End of Survey"
 RESPONSES_IMMEDIATELY = "Submit Responses after each Question"
+ANSWER_LETTERS = ('a', 'b', 'c', 'd', 'e')
+MIN_ANSWERS = 2
+MAX_ANSWERS = 5
 
 # this is the default stylesheet for the custom creative
 DEFAULT_CSS = """
@@ -236,7 +240,7 @@ def validate_next_question(form, field):
   questionNumberMatch = re.search(r'\d', field.name)
   questionNumber = questionNumberMatch.group()
   for questionIndex in range(1, 6):
-    for answerChoice in ['a', 'b', 'c', 'd']:
+    for answerChoice in ANSWER_LETTERS:
       answerFieldName = 'answer' + str(questionIndex) + answerChoice + 'next'
       answerLinkData = form.data[answerFieldName]
       if answerLinkData == questionNumber and question_section_is_empty(
@@ -297,53 +301,68 @@ class QuestionForm(FlaskForm):
   # adding portion of form to customize creative
   custom_css = TextAreaField('custom_css', default=DEFAULT_CSS)
 
+  creativesize = SelectField(
+      'creativeSize',
+      choices=creative_size.SIZE_CHOICES,
+      default=creative_size.DEFAULT_SIZE)
+
   question1 = StringField('question1', validators=[DataRequired()])
   answer1a = StringField('answer1a', validators=[DataRequired()])
   answer1b = StringField('answer1b', validators=[DataRequired()])
   answer1c = StringField('answer1c')
   answer1d = StringField('answer1d')
+  answer1e = StringField('answer1e')
   answer1anext = StringField(
       'answer1aNext', default='end', validators=[DataRequired()])
   answer1bnext = StringField(
       'answer1bNext', default='end', validators=[DataRequired()])
   answer1cnext = StringField('answer1cNext', default='end')
   answer1dnext = StringField('answer1dNext', default='end')
+  answer1enext = StringField('answer1eNext', default='end')
   answer2anext = StringField('answer2aNext', default='end')
   answer2bnext = StringField('answer2bNext', default='end')
   answer2cnext = StringField('answer2cNext', default='end')
   answer2dnext = StringField('answer2dNext', default='end')
+  answer2enext = StringField('answer2eNext', default='end')
   answer3anext = StringField('answer3aNext', default='end')
   answer3bnext = StringField('answer3bNext', default='end')
   answer3cnext = StringField('answer3cNext', default='end')
   answer3dnext = StringField('answer3dNext', default='end')
+  answer3enext = StringField('answer3eNext', default='end')
   answer4anext = StringField('answer4aNext', default='end')
   answer4bnext = StringField('answer4bNext', default='end')
   answer4cnext = StringField('answer4cNext', default='end')
   answer4dnext = StringField('answer4dNext', default='end')
+  answer4enext = StringField('answer4eNext', default='end')
   answer5anext = StringField('answer5aNext', default='end')
   answer5bnext = StringField('answer5bNext', default='end')
   answer5cnext = StringField('answer5cNext', default='end')
   answer5dnext = StringField('answer5dNext', default='end')
+  answer5enext = StringField('answer5eNext', default='end')
   question2 = StringField('question2')
   answer2a = StringField('answer2a')
   answer2b = StringField('answer2b')
   answer2c = StringField('answer2c')
   answer2d = StringField('answer2d')
+  answer2e = StringField('answer2e')
   question3 = StringField('question3')
   answer3a = StringField('answer3a')
   answer3b = StringField('answer3b')
   answer3c = StringField('answer3c')
   answer3d = StringField('answer3d')
+  answer3e = StringField('answer3e')
   question4 = StringField('question4')
   answer4a = StringField('answer4a')
   answer4b = StringField('answer4b')
   answer4c = StringField('answer4c')
   answer4d = StringField('answer4d')
+  answer4e = StringField('answer4e')
   question5 = StringField('question5')
   answer5a = StringField('answer5a')
   answer5b = StringField('answer5b')
   answer5c = StringField('answer5c')
   answer5d = StringField('answer5d')
+  answer5e = StringField('answer5e')
   submit = SubmitField('Submit')
 
   def validate_question1(form, field):

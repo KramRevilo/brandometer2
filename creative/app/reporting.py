@@ -187,7 +187,7 @@ def build_report(df, survey_info, is_lift=False):
     if not text and not any(q in parsed for parsed in work['_parsed']):
       continue
     labels = {}
-    for letter in 'abcd':
+    for letter in 'abcde':
       label = survey_info.get('answer' + str(q) + letter) or ''
       if label:
         labels[letter.upper()] = label
@@ -197,7 +197,7 @@ def build_report(df, survey_info, is_lift=False):
       if token:
         seen.add(token)
     answer_ids = []
-    for letter in 'ABCD':
+    for letter in 'ABCDE':
       if letter in seen:
         answer_ids.append(letter)
     for token in sorted(seen):

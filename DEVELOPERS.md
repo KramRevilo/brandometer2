@@ -146,11 +146,17 @@ Status chips: **Active** up to 3 days since last response, **Stale** up to 7 day
 
 The homepage paginates at 50 surveys, projects list fields only (no `custom_css`), and caches the BigQuery count query in-process for 90 seconds (`STATS_CACHE_SECONDS`). Each App Engine instance has its own cache; values can be up to that TTL stale. Count / last-response / status cells poll every 30s via htmx against that cache (polling pauses while the tab is hidden).
 
-The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. The live 300×250 preview is an iframe so it cannot strip page styles. Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
+The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. **Presets** (Classic green, Dark, High contrast, Ocean) fill the pickers only. The live preview iframe resizes to the selected **creative size** (300×250 default, or 160×600). Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
 
-Redeploy **App Engine** (`./deploy` or `gcloud app deploy creative/app`) to pick up reporting, consolidation, and CSV streaming. No new Firestore index is required; archive filtering is done in the app (a missing `archived` field counts as active). Optional: `export GTAG_ID=AW-…` before `./deploy` if creatives should load gtag.js.
+**Creative size.** Stored as `creativesize`. Missing on old docs means 300×250. Zip names include the size (`…_survey_300x250.zip`). The creative `ad.size` meta, `#master_container` CSS, and `creative_size` posted to the receiver all use that size.
 
-**Receiver redeploy is optional.** The function already writes `Type` from `type=` on the query string. It now defaults empty `Type` to `survey` so REQUIRED inserts do not fail if `type` is omitted. Redeploy the function only if you want that default on new rows; existing rows and in-app reporting do not depend on it.
+**Answers.** Each question supports 2–5 answers (a–e). Empty rows are skipped in the creative JSON, reporting, and CSV. Existing four-answer surveys are unchanged (no `e` field).
+
+**Version history.** Each zip download writes an immutable snapshot to the Firestore subcollection `Surveys/{id}/versions/{n}` (questions, CSS, size, type, timestamp, version number). The edit page lists them with **Download this version**. Editing the live survey does not change past snapshots. No GCS. No new index.
+
+Redeploy **App Engine** (`./deploy` or `gcloud app deploy creative/app`) to pick up size, variable answers, versioning, and reporting. No new Firestore index is required; archive filtering and version listing are done in the app. Optional: `export GTAG_ID=AW-…` before `./deploy` if creatives should load gtag.js.
+
+**Receiver redeploy is not required for Phase 4.** Creatives already post `creative_size={width}x{height}` from `ui_config`; once App Engine serves sized HTML, new rows get `300x250` or `160x600`. The optional `Type=survey` default from Phase 3 still only needs a receiver redeploy if you want that default.
 
 ```shell
 gcloud functions deploy receiver \
@@ -241,7 +247,7 @@ post() {
     --data-urlencode "seg=$1" \
     --data-urlencode "response=$2" \
     --data-urlencode "visual=none" \
-    --data-urlencode "creative_size=300x250" \
+    --data-urlencode "creative_size=${4:-300x250}" \
     --data-urlencode "bomid=$3"
   echo
 }
@@ -294,3 +300,22 @@ Web Preview → port 5000.
 7. Optional: `bq query --nouse_legacy_sql "SELECT BomID, Response FROM \`$TABLE_ID\` WHERE ID='$SURVEY_ID' ORDER BY CreatedAt"` to compare raw vs consolidated.
 
 Redeploy App Engine before this is live in production. Receiver redeploy is only for the `Type` default.
+
+# Cloud Shell test (Phase 4)
+
+Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, Web Preview port 5000). Then:
+
+1. **Size.** Create survey → Creative size **160×600**. Live preview iframe should grow to 160×600. Save, download zip: filename contains `_160x600`. Unzip `index.html` and check `<meta name="ad.size" content="width=160,height=600">` and `#master_container` width/height 160/600. Open preview: same meta. Optional curl with `creative_size=160x600` then `bq query` that `CreativeSize` column.
+2. **Answers.** On question 1, **Add answer** until E is visible; **Remove last answer** hides it and clears the field. Save a 2-answer question and a 5-answer question. Preview should show only filled options. Reporting/CSV should list A–E when present and skip blanks.
+3. **Versions.** Homepage → download zip. Edit the survey: **Version history** shows version 1. Change a question and size, save, download zip again. History has version 2. **Download this version** on v1 should still zip the old questions/size. Edit must not rewrite v1 (download v1 after further edits and confirm old copy).
+4. **Presets.** Style → Classic green / Dark / High contrast / Ocean updates the pickers and preview. Advanced CSS is kept.
+
+Existing 300×250 four-answer surveys should look the same until you change them.
+
+# Assessments (not built)
+
+**Free-form responses (backlog ID 12).** Not small enough to ship here. The 300×250/160×600 creative has no usable text field today; Response is tokenised `1:A|2:B`. A write-in needs creative JS (keyboard in a display ad), a storage choice (stuff text into the token vs a new BQ column — schema is REQUIRED and already full), and reporting that cannot run lift on free text. Recommend a later optional “Other” answer that reveals a short input and stores `1:OTHER:text` in `Response`, skipped for lift, shown in CSV. Do not add a sixth BQ column unless you are willing to migrate the table.
+
+**Video creative.** Do not build yet. DV360/CM video line items serve **VAST** (2/3/4), not an HTML5 zip. Typical brand-lift-on-video setup is a linear video plus an IAB **companion banner** (300×250) that is our existing survey. Recommended path: keep the HTML5 survey as the companion; generate a VAST XML that references a hosted video file and a public URL for the companion (that URL is the extra piece — App Engine or GCS). In-stream SIMID/VPAID overlays are a much larger project and VPAID is on the way out. Effort: companion-VAST generator is a later phase of its own (hosting + XML + CM/DV360 video placement docs); not a small add-on to this zip.
+
+**Asset templates (backlog ID 4 / old #8).** Implemented as **style presets** in the editor (Classic green, Dark, High contrast, Ocean). They only write picker values into `custom_css`. Full “asset packs” (logos, CM placement kits, multi-size zips as one template library) would be a separate piece of work and are not in this phase.

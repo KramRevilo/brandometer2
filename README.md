@@ -47,15 +47,15 @@ If the deploy fails with an error, wait 5 minutes and try again. Sometimes a new
 1. Open the Sonar app and click on "Create survey"
 2. Input details (check below) then submit
 ![Survey creation input details](survey_creation_screenshot.png)
-3. In the home page, download the zip file which will have 2 HTML5 creatives “Control & Expose” for Brand Lift surveys and only one creative for Brand Track surveys (survey only, no lift)
-4. Use both the creatives to run a Brand Lift survey or only one of the two creatives to run a Brand Track survey on Display only inventory through DV360.
+3. In the home page, download the zip file which will have 2 HTML5 creatives “Control & Expose” for Brand Lift surveys and only one creative for Brand Track surveys (survey only, no lift). Zip names include the creative size (`300x250` default, or `160x600`). Each download is snapshotted on the edit page as a version you can re-download.
+4. Use both the creatives to run a Brand Lift survey or only one of the two creatives to run a Brand Track survey on Display only inventory through DV360. Match the CM/DV360 placement dimension to the size you selected.
 
 # Campaign Manager setup
 
 1. Create a new campaign in DCM within the Advertiser (No other channel should be part of this)
 2. Create Sonar Audiences within the campaign with Control(wt:1) and Expose(wt:7) Segments (See Below)
    a. Navigation: Campaign -> Property -> Audience segmentation
-3. Create a placement within the Campaign with the naming convention containing the dimensions. NOTE: Brand-O-Meter setup will happen for 300x250 dimension.
+3. Create a placement within the Campaign with the naming convention containing the dimensions. Use 300x250 or 160x600 to match the survey’s creative size.
 4. Upload all the survey creatives/default creatives
 5. Default Ad should be assigned to all placements (Use brand neutral creative[Its a creative that does not have any brand related comms/logos/names etc] for default ads
 6. Create a Control Survey Ad and assign it to 300x250 placement with following details

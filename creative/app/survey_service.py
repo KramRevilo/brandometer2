@@ -27,8 +27,10 @@ from google.cloud import bigquery
 from google.cloud import bigquery_storage
 import numpy as np
 import pandas as pd
+import creative_size
 import reporting
 import survey_collection
+from forms import ANSWER_LETTERS
 from forms import BRAND_LIFT
 from forms import BRAND_TRACK
 from forms import DEFAULT_CSS
@@ -257,7 +259,7 @@ def set_form_data(form, edit_doc):
       form[key].data = edit_doc.get(key,)
 
 
-def zip_file(survey_id, survey_dict):
+def zip_file(survey_id, survey_dict, record_version=True):
   """File download function."""
   # Make these use temp files in '/tmp/' to work around
   # App Engine read only filesystem
@@ -265,7 +267,8 @@ def zip_file(survey_id, survey_dict):
   # Prepare data
   current_datetime = datetime.datetime.now().strftime('%Y%m%d')
   surveyname = survey_dict['surveyname'].replace(' ', '-')
-  prefix_filename = current_datetime + '_' + surveyname
+  size_key = creative_size.resolve(survey_dict)['key']
+  prefix_filename = current_datetime + '_' + surveyname + '_' + size_key
   # Missing surveytype matches the form default (Brand Track): one creative.
   survey_type = survey_dict.get('surveytype', BRAND_TRACK)
   if survey_type == BRAND_LIFT:
@@ -293,6 +296,9 @@ def zip_file(survey_id, survey_dict):
 
   # clean up tmp files
   delete_tmp_zip_files([combined_zip] + template_zips)
+
+  if record_version:
+    survey_collection.add_version(survey_id, survey_dict)
 
   return os.path.basename(combined_zip.filename), file_data
 
@@ -326,6 +332,8 @@ def get_html_template(survey_id, survey_dict, seg_type):
     custom_css = survey_dict['custom_css']
   else:
     custom_css = DEFAULT_CSS
+  size = creative_size.resolve(survey_dict)
+  custom_css = creative_size.apply_overlay(custom_css, size)
 
   return render_template(
       'creative.html',
@@ -336,6 +344,9 @@ def get_html_template(survey_id, survey_dict, seg_type):
       all_question_json=get_question_json(survey_dict),
       seg=seg_type,
       custom_css=custom_css,
+      creative_width=size['width'],
+      creative_height=size['height'],
+      ad_size_meta=creative_size.ad_size_meta(size),
       thankyou_text=get_thank_you_text(survey_dict),
       next_text=get_next_text(survey_dict),
       comment_text=get_comment_text(survey_dict))
@@ -356,32 +367,45 @@ def get_all_question_text(survey):
 
 
 def get_question_json(survey):
-  """Retrieving questions from survey in JSON format."""
+  """Retrieving questions from survey in JSON format.
+
+  Answers a–e with empty text are skipped so 2–5 option questions all work.
+  Missing next values default to 'end'.
+  """
   all_question_json = []
   for i in range(1, 6):
     question_text = survey.get('question' + str(i), '')
+    if not question_text:
+      continue
     options = []
     next_question = {}
     question_type = survey.get('question' + str(i) + 'type')
     answers_order = survey.get('question' + str(i) + 'order')
-    if question_text:
-      question = {
-          'id': i,
-          'type': question_type,
-          'text': question_text,
-          'options': options,
-          'answersOrder': answers_order,
-          'next_question': next_question
-      }
-    for j in ['a', 'b', 'c', 'd']:
+    question = {
+        'id': i,
+        'type': question_type,
+        'text': question_text,
+        'options': options,
+        'answersOrder': answers_order,
+        'next_question': next_question
+    }
+    for j in ANSWER_LETTERS:
       answer_text = survey.get('answer' + str(i) + j, '')
       if answer_text:
         answer_id = j.capitalize()
         options.append({'id': answer_id, 'role': 'option', 'text': answer_text})
-        next_question[answer_id] = survey.get('answer' + str(i) + j + 'next',
-                                              '')
+        next_question[answer_id] = (
+            survey.get('answer' + str(i) + j + 'next', '') or 'end')
     all_question_json.append(question)
   return all_question_json
+
+
+def list_versions(survey_id):
+  return survey_collection.list_versions(survey_id)
+
+
+def get_version(survey_id, version):
+  return survey_collection.get_version(survey_id, version)
 
 
 def fetch_survey_response_rows(surveyid, client=None):

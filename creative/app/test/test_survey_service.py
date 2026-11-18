@@ -112,8 +112,9 @@ class TestSurveyService(unittest.TestCase):
     survey_service.set_form_data(form, ref.get())
     self.assertEqual(form['surveyname'].data, 'Keep')
 
+  @mock.patch.object(survey_collection, 'add_version')
   @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
-  def test_zip_file_returns_user_readable_filename(self, _html_mock):
+  def test_zip_file_returns_user_readable_filename(self, _html_mock, version_mock):
     survey_id = 'some_test_id'
     survey_dict = {
         'surveyname': 'test survey',
@@ -121,10 +122,12 @@ class TestSurveyService(unittest.TestCase):
     }
 
     filename, _ = survey_service.zip_file(survey_id, survey_dict)
-    self.assertRegex(filename, '.*_test-survey.zip$')
+    self.assertRegex(filename, '.*_test-survey_300x250.zip$')
+    version_mock.assert_called_once_with(survey_id, survey_dict)
 
+  @mock.patch.object(survey_collection, 'add_version')
   @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
-  def test_zip_file_track_has_single_creative_zip(self, _html_mock):
+  def test_zip_file_track_has_single_creative_zip(self, _html_mock, _version_mock):
     survey_id = 'some_test_id'
     survey_dict = {
         'surveyname': 'test survey',
@@ -135,10 +138,23 @@ class TestSurveyService(unittest.TestCase):
     zf = zipfile.ZipFile(data)
     names = [nzf.filename for nzf in zf.filelist]
     self.assertEqual(len(names), 1)
-    self.assertRegex(names[0], '.*_test-survey_creative.zip$')
+    self.assertRegex(names[0], '.*_test-survey_300x250_creative.zip$')
 
+  @mock.patch.object(survey_collection, 'add_version')
   @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
-  def test_zip_file_brand_lift_has_control_and_expose(self, _html_mock):
+  def test_zip_file_includes_size_in_name(self, _html_mock, _version_mock):
+    filename, data = survey_service.zip_file('id1', {
+        'surveyname': 'sky',
+        'question1': 'q',
+        'creativesize': '160x600',
+    })
+    self.assertRegex(filename, '.*_sky_160x600.zip$')
+    zf = zipfile.ZipFile(data)
+    self.assertRegex(zf.filelist[0].filename, '.*_sky_160x600_creative.zip$')
+
+  @mock.patch.object(survey_collection, 'add_version')
+  @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
+  def test_zip_file_brand_lift_has_control_and_expose(self, _html_mock, _version_mock):
     survey_id = 'some_test_id'
     survey_dict = {
         'surveyname': 'test survey',
@@ -150,8 +166,8 @@ class TestSurveyService(unittest.TestCase):
     zf = zipfile.ZipFile(data)
     names = sorted([nzf.filename for nzf in zf.filelist])
     self.assertEqual(len(names), 2)
-    self.assertRegex(names[0], '.*_test-survey_default_control.zip$')
-    self.assertRegex(names[1], '.*_test-survey_default_expose.zip$')
+    self.assertRegex(names[0], '.*_test-survey_300x250_default_control.zip$')
+    self.assertRegex(names[1], '.*_test-survey_300x250_default_expose.zip$')
 
   def test_write_html_template(self):
     segments = ['segment1', 'segment2', 'segment3']
@@ -248,6 +264,21 @@ class TestSurveyService(unittest.TestCase):
             ]
         })
     self.assertEqual(json[1]['text'], 'q2 text')
+
+  def test_get_question_json_skips_empty_and_includes_answer_e(self):
+    survey = {
+        'question1': 'q1',
+        'answer1a': 'a',
+        'answer1b': 'b',
+        'answer1d': 'd-skip-c',
+        'answer1e': 'e',
+        'answer1enext': 'end',
+    }
+    json = survey_service.get_question_json(survey)
+    ids = [opt['id'] for opt in json[0]['options']]
+    self.assertEqual(ids, ['A', 'B', 'D', 'E'])
+    self.assertEqual(json[0]['next_question']['E'], 'end')
+    self.assertEqual(len(json), 1)
 
   def test_get_thank_you_text_default(self):
     text = survey_service.get_thank_you_text({'language': 'ms'})

@@ -206,6 +206,12 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'scrolling="no"', response.data)
     self.assertIn(b'width: 302px', response.data)
     self.assertIn(b'height: 252px', response.data)
+    self.assertIn(b'creativesize', response.data)
+    self.assertIn(b'160x600', response.data)
+    self.assertIn(b'answer1e', response.data)
+    self.assertIn(b'Add answer', response.data)
+    self.assertIn(b'Classic green', response.data)
+    self.assertIn(b'previewFrameStyle', response.data)
 
   @mock.patch.object(survey_service, 'copy_by_id')
   def test_copy_opens_editor(self, copy_mock):

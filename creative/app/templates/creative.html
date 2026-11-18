@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <meta name="ad.size" content="width=300,height=250">
+    <meta name="ad.size" content="{{ ad_size_meta|default('width=300,height=250') }}">
     <meta charset="UTF-8">
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
     <meta http-equiv="Pragma" content="no-cache" />
@@ -43,8 +43,8 @@
             },
             "ui_config": {
                 "creative_size": {
-                    "width": 300,
-                    "height": 250
+                    "width": {{ creative_width|default(300) }},
+                    "height": {{ creative_height|default(250) }}
                 },
                 "background_color": "#008000",
                 "carousel_config": {},
@@ -64,7 +64,7 @@
                             "container": "question_container"
                         },
                         "options": {
-                            "max_options": 4,
+                            "max_options": 5,
                             "option_prefix": {
                                 "text": "option_text_",
                                 "container": "option_container_",
@@ -713,9 +713,9 @@
             <div id="option_container_3" class="Abox">
                 <div id="option_text_3" class="AText">opt4</div>
             </div>
-            <!-- <div id="option_container_4" class="Abox">
+            <div id="option_container_4" class="Abox">
                 <div id="option_text_4" class="AText">opt5</div>
-            </div> -->
+            </div>
 
         </div>
         <div id="thankyou_container" class="invisible">

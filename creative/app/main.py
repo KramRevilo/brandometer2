@@ -31,6 +31,7 @@ from flask import url_for
 from flask_basicauth import BasicAuth
 
 # local file imports
+import creative_size
 import css_theme
 import forms
 from forms import DEFAULT_CSS
@@ -114,10 +115,11 @@ def _editor_context(form):
       'theme': parsed['theme'],
       'extra_css': parsed['extra'],
       'font_choices': css_theme.FONT_CHOICES,
+      'presets': css_theme.STYLE_PRESETS,
   }
 
 
-def _render_editor(form, page_title):
+def _render_editor(form, page_title, survey_id=None, versions=None):
   ctx = _editor_context(form)
   return render_template(
       'questions.html',
@@ -125,7 +127,10 @@ def _render_editor(form, page_title):
       form=form,
       theme=ctx['theme'],
       extra_css=ctx['extra_css'],
-      font_choices=ctx['font_choices'])
+      font_choices=ctx['font_choices'],
+      presets=ctx['presets'],
+      survey_id=survey_id,
+      versions=versions or [])
 
 
 @app.route('/survey/create', methods=['GET', 'POST'])
@@ -155,6 +160,9 @@ def preview(survey_id):
     else:
         response_type = RESPONSES_AT_END
 
+    size = creative_size.resolve(survey_info)
+    custom_css = creative_size.apply_overlay(custom_css, size)
+
     return render_template(
         'creative.html',
         survey=survey_info,
@@ -165,6 +173,9 @@ def preview(survey_id):
         seg='preview',
         custom_css=custom_css,
         response_type=response_type,
+        creative_width=size['width'],
+        creative_height=size['height'],
+        ad_size_meta=creative_size.ad_size_meta(size),
         # Do not post preview answers to BigQuery.
         receiver_url='',
         thankyou_text=survey_service.get_thank_you_text(survey_info),
@@ -228,20 +239,42 @@ def edit():
   if form.validate_on_submit():
     survey_service.update_by_id(docref_id, form)
     return redirect(url_for('index'))
-  return _render_editor(form, 'Edit survey')
+  versions = []
+  if edit_doc and getattr(edit_doc, 'exists', False):
+    versions = survey_service.list_versions(docref_id)
+  return _render_editor(
+      form, 'Edit survey', survey_id=docref_id, versions=versions)
 
 
 @app.route('/survey/download_zip/<string:survey_id>', methods=['GET'])
 def download_zip(survey_id):
-  """Download zip of survey creative(s)."""
+  """Download zip of survey creative(s) and snapshot a version."""
   survey_doc = survey_service.get_doc_by_id(survey_id)
-
-  # check the survey to see if it's of the type that needs an alternate creative
-  # print(f'in ZIP handler - survey_doc: {survey_doc.to_dict()}')
 
   # this is the standard survey
   filename, data = survey_service.zip_file(survey_id, survey_doc.to_dict())
 
+  return send_file(
+      data,
+      mimetype='application/zip',
+      etag=False,
+      max_age=0,
+      last_modified=datetime.datetime.now(),
+      as_attachment=True,
+      download_name=filename)
+
+
+@app.route(
+    '/survey/download_zip/<string:survey_id>/version/<int:version>',
+    methods=['GET'])
+def download_zip_version(survey_id, version):
+  """Re-zip a stored snapshot. Does not write a new version."""
+  snapshot = survey_service.get_version(survey_id, version)
+  if not snapshot:
+    flash('Version not found')
+    return redirect(url_for('edit', survey_id=survey_id))
+  filename, data = survey_service.zip_file(
+      survey_id, snapshot, record_version=False)
   return send_file(
       data,
       mimetype='application/zip',

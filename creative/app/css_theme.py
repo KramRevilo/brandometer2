@@ -40,6 +40,58 @@ DEFAULT_THEME = {
     'bg_image': '',
 }
 
+# Editor style presets (backlog asset templates). Applied to pickers only.
+STYLE_PRESETS = [
+    {
+        'id': 'classic',
+        'label': 'Classic green',
+        'bg': '#008000',
+        'question_color': '#ffffff',
+        'answer_bg': '#ffffff',
+        'answer_bg_opacity': 15,
+        'answer_color': '#ffffff',
+        'font_family': "'Open Sans', sans-serif",
+        'font_size': '13',
+        'bg_image': '',
+    },
+    {
+        'id': 'dark',
+        'label': 'Dark',
+        'bg': '#1a1a1a',
+        'question_color': '#f5f5f5',
+        'answer_bg': '#ffffff',
+        'answer_bg_opacity': 18,
+        'answer_color': '#f5f5f5',
+        'font_family': 'Arial, Helvetica, sans-serif',
+        'font_size': '13',
+        'bg_image': '',
+    },
+    {
+        'id': 'contrast',
+        'label': 'High contrast',
+        'bg': '#000000',
+        'question_color': '#ffff00',
+        'answer_bg': '#ffffff',
+        'answer_bg_opacity': 100,
+        'answer_color': '#000000',
+        'font_family': 'Verdana, Geneva, sans-serif',
+        'font_size': '14',
+        'bg_image': '',
+    },
+    {
+        'id': 'ocean',
+        'label': 'Ocean',
+        'bg': '#0b3d91',
+        'question_color': '#ffffff',
+        'answer_bg': '#ffffff',
+        'answer_bg_opacity': 22,
+        'answer_color': '#e8f4ff',
+        'font_family': 'Tahoma, Geneva, sans-serif',
+        'font_size': '13',
+        'bg_image': '',
+    },
+]
+
 _NAMED_COLORS = {
     'white': '#ffffff',
     'black': '#000000',

@@ -117,6 +117,15 @@
     var qParsed = namedOrHex(theme.question_color) || { hex: '#ffffff', opacity: 1 };
     var aParsed = namedOrHex(theme.answer_color) || { hex: '#ffffff', opacity: 1 };
     var fontSize = String(theme.font_size || '13px').replace(/px$/i, '');
+    var letters = ['a', 'b', 'c', 'd', 'e'];
+
+    function filledAnswerCount(q) {
+      var count = 2;
+      for (var i = 0; i < letters.length; i++) {
+        if (fieldValue('answer' + q + letters[i])) count = i + 1;
+      }
+      return Math.max(2, Math.min(5, count));
+    }
 
     return {
       bg: bgParsed.hex,
@@ -129,8 +138,77 @@
       bgImage: theme.bg_image || '',
       extraCss: boot.extra || '',
       previewSrcdoc: '',
+      answerCounts: {
+        1: filledAnswerCount(1),
+        2: filledAnswerCount(2),
+        3: filledAnswerCount(3),
+        4: filledAnswerCount(4),
+        5: filledAnswerCount(5)
+      },
 
       init: function () {
+        this.syncCss();
+      },
+
+      currentSize: function () {
+        var raw = fieldValue('creativesize') || '300x250';
+        var parts = String(raw).toLowerCase().split('x');
+        var width = parseInt(parts[0], 10) || 300;
+        var height = parseInt(parts[1], 10) || 250;
+        return { width: width, height: height, key: width + 'x' + height };
+      },
+
+      sizeLabel: function () {
+        return this.currentSize().key.replace('x', '×');
+      },
+
+      previewFrameStyle: function () {
+        var size = this.currentSize();
+        return 'width:' + (size.width + 2) + 'px;height:' + (size.height + 2) + 'px';
+      },
+
+      answerVisible: function (question, letter) {
+        var idx = letters.indexOf(letter);
+        return idx > -1 && idx < (this.answerCounts[question] || 2);
+      },
+
+      addAnswer: function (question) {
+        var current = this.answerCounts[question] || 2;
+        if (current >= 5) return;
+        this.answerCounts[question] = current + 1;
+        this.syncCss();
+      },
+
+      removeAnswer: function (question) {
+        var current = this.answerCounts[question] || 2;
+        if (current <= 2) return;
+        var letter = letters[current - 1];
+        var text = document.querySelector('[name="answer' + question + letter + '"]');
+        var next = document.querySelector('[name="answer' + question + letter + 'next"]');
+        if (text) text.value = '';
+        if (next) next.value = 'end';
+        this.answerCounts[question] = current - 1;
+        this.syncCss();
+      },
+
+      applyPreset: function (id) {
+        var presets = boot.presets || [];
+        var preset = null;
+        for (var i = 0; i < presets.length; i++) {
+          if (presets[i].id === id) {
+            preset = presets[i];
+            break;
+          }
+        }
+        if (!preset) return;
+        this.bg = preset.bg;
+        this.questionColor = preset.question_color;
+        this.answerBg = preset.answer_bg;
+        this.answerBgOpacity = preset.answer_bg_opacity;
+        this.answerColor = preset.answer_color;
+        this.fontFamily = preset.font_family;
+        this.fontSize = preset.font_size;
+        this.bgImage = preset.bg_image || '';
         this.syncCss();
       },
 
@@ -166,7 +244,8 @@
 
       buildPreview: function (css) {
         var q = fieldValue('question1') || 'Sample question';
-        var answers = ['a', 'b', 'c', 'd'].map(function (letter) {
+        var visible = this.answerCounts[1] || 2;
+        var answers = letters.slice(0, visible).map(function (letter) {
           return fieldValue('answer1' + letter);
         }).filter(Boolean);
         if (!answers.length) answers = ['Option A', 'Option B'];
@@ -175,11 +254,14 @@
           return '<div id="option_container_' + index + '" class="Abox">' +
             '<div id="option_text_' + index + '" class="AText">' + escapeHtml(text) + '</div></div>';
         }).join('');
+        var size = this.currentSize();
+        var w = size.width;
+        var h = size.height;
         var chromeCss = 'html,body{margin:0!important;padding:0!important;overflow:hidden!important;' +
-          'width:300px;height:250px;box-sizing:border-box;}' +
+          'width:' + w + 'px;height:' + h + 'px;box-sizing:border-box;}' +
           '*,*::before,*::after{box-sizing:border-box;}' +
-          '#master_container{box-sizing:border-box;width:300px!important;height:250px!important;' +
-          'overflow:hidden;margin:0;max-width:300px;max-height:250px;}';
+          '#master_container{box-sizing:border-box;width:' + w + 'px!important;height:' + h + 'px!important;' +
+          'overflow:hidden;margin:0;max-width:' + w + 'px;max-height:' + h + 'px;}';
         return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
           '<style>' + safeCss + '</style>' +
           '<style>' + chromeCss + '</style></head><body>' +

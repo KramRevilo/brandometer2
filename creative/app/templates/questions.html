@@ -2,7 +2,7 @@
 {% block styles %}
 <style>
   .preview-frame {
-    /* 300x250 inner viewport; 1px border on each side. */
+    /* Default 300x250 inner viewport; 1px border on each side. Alpine resizes. */
     width: 302px;
     height: 252px;
     border: 1px solid #212529;
@@ -13,6 +13,7 @@
   }
   .preview-sticky { top: 1rem; }
   .color-row input[type="color"] { width: 3rem; height: 2.25rem; padding: 0.15rem; }
+  [x-cloak] { display: none !important; }
 </style>
 {% endblock %}
 {% block content %}
@@ -48,6 +49,11 @@
             <label class="form-label" for="responsetype">Response mode</label>
             {{ form.responsetype(class="form-select", id="responsetype") }}
           </div>
+          <div class="col-md-4">
+            <label class="form-label" for="creativesize">Creative size</label>
+            {{ form.creativesize(class="form-select", id="creativesize") }}
+            <div class="form-text">300×250 is the default for existing surveys. 160×600 is a wide skyscraper.</div>
+          </div>
         </div>
       </div>
     </section>
@@ -57,6 +63,15 @@
         <section class="card mb-4">
           <div class="card-body">
             <h2 class="h5 mb-3">Style</h2>
+            <div class="mb-3">
+              <div class="form-label">Presets</div>
+              <div class="d-flex flex-wrap gap-2">
+                {% for preset in presets %}
+                <button type="button" class="btn btn-sm btn-outline-secondary" @click="applyPreset('{{ preset.id }}')">{{ preset.label }}</button>
+                {% endfor %}
+              </div>
+              <div class="form-text">Sets the pickers. You can still tweak colours after applying a preset.</div>
+            </div>
             <div class="row g-3">
               <div class="col-sm-6 color-row">
                 <label class="form-label" for="theme-bg">Background colour</label>
@@ -103,7 +118,7 @@
               <div class="col-12">
                 <label class="form-label" for="theme-image">Background image URL (optional)</label>
                 <input id="theme-image" type="url" class="form-control" placeholder="https://…" x-model="bgImage">
-                <div class="form-text">https URL only. The image covers the 300×250 creative.</div>
+                <div class="form-text">https URL only. The image covers the creative.</div>
               </div>
             </div>
           </div>
@@ -112,9 +127,9 @@
       <div class="col-lg-5">
         <section class="card mb-4 preview-sticky sticky-top">
           <div class="card-body">
-            <h2 class="h5 mb-3">Live preview (300×250)</h2>
-            <iframe class="preview-frame" title="Survey creative preview" scrolling="no" :srcdoc="previewSrcdoc"></iframe>
-            <p class="form-text mb-0 mt-2">Updates as you type. Styles stay inside the iframe so they cannot strip the editor page.</p>
+            <h2 class="h5 mb-3">Live preview (<span x-text="sizeLabel()"></span>)</h2>
+            <iframe class="preview-frame" title="Survey creative preview" scrolling="no" :srcdoc="previewSrcdoc" :style="previewFrameStyle()"></iframe>
+            <p class="form-text mb-0 mt-2">Updates as you type. The iframe matches the selected creative size.</p>
           </div>
         </section>
       </div>
@@ -144,9 +159,9 @@
               {{ form[question + "order"](class="form-select", id=question + "order") }}
             </div>
           </div>
-          {% for letter in ['a', 'b', 'c', 'd'] %}
+          {% for letter in ['a', 'b', 'c', 'd', 'e'] %}
           {% set answer = 'answer' + n|string + letter %}
-          <div class="row g-3 mb-2">
+          <div class="row g-3 mb-2" x-show="answerVisible({{ n }}, '{{ letter }}')" x-cloak>
             <div class="col-md-8">
               <label class="form-label" for="{{ answer }}">Answer {{ letter|upper }}</label>
               {{ form[answer](class="form-control", id=answer) }}
@@ -157,6 +172,11 @@
             </div>
           </div>
           {% endfor %}
+          <div class="d-flex gap-2 mt-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" @click="addAnswer({{ n }})" :disabled="answerCounts[{{ n }}] >= 5">Add answer</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary" @click="removeAnswer({{ n }})" :disabled="answerCounts[{{ n }}] <= 2">Remove last answer</button>
+          </div>
+          <div class="form-text">2 to 5 answers. Empty rows are skipped in the creative, reporting, and CSV.</div>
         </div>
       </div>
       {% endfor %}
@@ -175,13 +195,53 @@
       <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Cancel</a>
     </div>
   </form>
+
+  {% if survey_id %}
+  <section class="card mt-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Version history</h2>
+      <p class="form-text">Each zip download stores a snapshot of questions, CSS, size, and type. Editing the survey does not change past snapshots.</p>
+      {% if versions %}
+      <div class="table-responsive">
+      <table class="table table-sm table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">Version</th>
+            <th scope="col">Saved</th>
+            <th scope="col">Size</th>
+            <th scope="col">Type</th>
+            <th scope="col"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ver in versions %}
+          <tr>
+            <td>{{ ver.version }}</td>
+            <td class="small">{{ ver.created_at }}</td>
+            <td>{{ ver.creativesize or '300x250' }}</td>
+            <td>{{ ver.surveytype or '' }}</td>
+            <td>
+              <a class="btn btn-sm btn-success" href="{{ url_for('download_zip_version', survey_id=survey_id, version=ver.version) }}">Download this version</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">No zip downloads yet. Download a creative from the homepage to create version 1.</p>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
 </div>
 {% endblock %}
 {% block scripts %}
 <script>
   window.SONAR_EDITOR = {
     theme: {{ theme|tojson }},
-    extra: {{ extra_css|tojson }}
+    extra: {{ extra_css|tojson }},
+    presets: {{ presets|tojson }}
   };
 </script>
 <script src="{{ url_for('static', filename='survey-editor.js') }}"></script>

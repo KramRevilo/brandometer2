@@ -59,6 +59,24 @@ class QuestionFormTest(unittest.TestCase):
             test_invalid = forms.question_section_is_empty(invalid_form, '1')
             self.assertTrue(test_invalid)
 
+    def test_two_answers_is_enough_and_fifth_is_optional(self):
+        two = dict(COMPLETE_QUESTION1, answer1c=None, answer1cnext=None,
+                   answer1d=None, answer1dnext=None)
+        self.assertFalse(forms.question_section_is_empty(self.create_form(two), '1'))
+        with_e = dict(COMPLETE_QUESTION1, answer1e='answerE', answer1enext='end')
+        form = self.create_form(with_e)
+        self.assertEqual(form.answer1e.data, 'answerE')
+        self.assertFalse(forms.question_section_is_empty(form, '1'))
+
+    def test_creativesize_defaults_to_300x250(self):
+        form = self.create_form({})
+        self.assertEqual(form.creativesize.data, '300x250')
+        values = [
+            c[0] if isinstance(c, (list, tuple)) else c
+            for c in form.creativesize.choices
+        ]
+        self.assertEqual(values, ['300x250', '160x600'])
+
     def test_language_dropdown_matches_translation_dicts(self):
         form = self.create_form({})
         choice_values = [
