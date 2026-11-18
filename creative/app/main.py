@@ -15,6 +15,7 @@
 
 # OS imports
 import datetime
+import math
 import os
 
 # Flask imports
@@ -25,6 +26,7 @@ from flask import render_template
 from flask import request
 from flask import Response
 from flask import send_file
+from flask import stream_with_context
 from flask import url_for
 from flask_basicauth import BasicAuth
 
@@ -252,42 +254,43 @@ def download_zip(survey_id):
 
 @app.route('/survey/download_responses/<string:survey_id>', methods=['GET'])
 def download_responses(survey_id):
-  """Download survey responses."""
-  if request.method == 'GET':
-    csv = survey_service.download_responses(survey_id)
-    return Response(
-        csv,
-        mimetype='text/csv',
-        headers={'Content-disposition': 'attachment; filename=surveydata.csv'})
+  """Download survey responses as a streamed CSV (chunked, not one string)."""
+  return Response(
+      stream_with_context(survey_service.iter_response_csv(survey_id)),
+      mimetype='text/csv',
+      headers={'Content-disposition': 'attachment; filename=surveydata.csv'})
 
 
 @app.route('/survey/download_responses_context/<string:survey_id>', methods=['GET'])
 def download_responses_context(survey_id):
-  """Download survey responses with context"""
-  if request.method == 'GET':
-    csv = survey_service.download_responses_with_context(survey_id)
-    return Response(
-        csv,
-        mimetype='text/csv',
-        headers={'Content-disposition': 'attachment; filename=surveydata_context.csv'})
+  """Download survey responses with question text as a streamed CSV."""
+  return Response(
+      stream_with_context(
+          survey_service.iter_response_csv(survey_id, with_context=True)),
+      mimetype='text/csv',
+      headers={
+          'Content-disposition':
+              'attachment; filename=surveydata_context.csv'
+      })
 
 
 @app.route('/survey/reporting/<string:survey_id>', methods=['GET'])
 def reporting(survey_id):
-  """Survey reporting."""
+  """Survey reporting (Brand Lift with CIs; Brand Track distributions)."""
   survey_doc = survey_service.get_doc_by_id(survey_id)
 
   if survey_doc.exists:
     survey_info = survey_doc.to_dict()
-    if not survey_service.is_brand_lift(survey_info):
-      flash('Reporting is available for Brand Lift surveys only')
-      return redirect(url_for('index'))
-    results = survey_service.get_brand_lift_results(survey_id)
+    report = survey_service.get_report(survey_id)
+    page_title = (
+        'Brand Lift stats' if survey_service.is_brand_lift(survey_info)
+        else 'Survey stats')
     return render_template(
         'reporting.html',
-        results=results,
+        report=report,
         survey=survey_info,
-        survey_id=survey_id)
+        survey_id=survey_id,
+        title=page_title)
   else:
     flash('Survey not found')
     return redirect(url_for('index'))
@@ -313,13 +316,29 @@ def survey_label_filter(survey):
 
 @app.template_filter('format_percentage')
 def format_percentage(num):
+  if num is None or (isinstance(num, float) and math.isnan(num)):
+    return '—'
   return '{:.2%}'.format(num)
+
+
+@app.template_filter('format_pvalue')
+def format_pvalue(num):
+  if num is None or (isinstance(num, float) and math.isnan(num)):
+    return '—'
+  if num < 0.001:
+    return '< 0.001'
+  return '{:.3f}'.format(num)
+
+
+@app.template_filter('is_brand_lift')
+def is_brand_lift_filter(survey):
+  return survey_service.is_brand_lift(survey)
 
 
 @app.template_filter('has_reporting')
 def has_reporting(survey):
-  """True only for Brand Lift surveys (stats / reporting)."""
-  return survey_service.is_brand_lift(survey)
+  """Stats are available for Brand Lift and Brand Track."""
+  return True
 
 
 if __name__ == '__main__':

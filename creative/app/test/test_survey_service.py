@@ -286,6 +286,36 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(text, 'Choose all applicable')
 
   @mock.patch.object(survey_service, '_get_bqstorage_client')
+  def test_fetch_survey_response_rows_is_parameterized(self, _storage_mock):
+    mock_bigquery_client = mock.create_autospec(bigquery.Client)
+    with mock.patch.dict(os.environ, {'TABLE_ID': 'project.responses.responses'}):
+      survey_service.fetch_survey_response_rows(
+          'sid-1', client=mock_bigquery_client)
+
+    query_call = mock_bigquery_client.query.mock_calls[0]
+    sql = query_call.args[0]
+    survey_param = query_call.kwargs['job_config'].query_parameters[0]
+    self.assertRegex(sql, 'WHERE ID = @survey_id')
+    self.assertIn('BomID', sql)
+    self.assertNotIn('STARTS_WITH', sql)
+    self.assertEqual(survey_param.name, 'survey_id')
+    self.assertEqual(survey_param.value, 'sid-1')
+
+  @mock.patch.object(survey_service, '_get_bq_client')
+  def test_homepage_counts_sql_collapses_bomid(self, bq_client_mock):
+    client = mock.Mock()
+    client.query.side_effect = NotFound('Table not found')
+    bq_client_mock.return_value = client
+
+    survey_service._fetch_all_response_counts()
+
+    sql = client.query.call_args[0][0]
+    self.assertIn('BomID', sql)
+    self.assertIn('session_key', sql)
+    self.assertIn('n_answers', sql)
+    self.assertIn('PARTITION BY ID, session_key', sql)
+
+  @mock.patch.object(survey_service, '_get_bqstorage_client')
   def test_get_survey_responses_limits_to_given_survey(self, _storage_mock):
     mock_bigquery_client = mock.create_autospec(bigquery.Client)
     query = """
@@ -313,7 +343,8 @@ class TestSurveyService(unittest.TestCase):
 
     self.assertTrue(df.empty)
     self.assertEqual(
-        list(df.columns), ['CreatedAt', 'Segmentation', 'Response'])
+        list(df.columns),
+        ['CreatedAt', 'Segmentation', 'Response', 'BomID'])
 
   @mock.patch.object(survey_service, '_get_bq_client')
   def test_get_all_response_counts_missing_table_returns_empty_frame(
@@ -415,6 +446,51 @@ class TestSurveyService(unittest.TestCase):
     raw_csv = survey_service.download_responses(surveyid=1234)
     self.assertEqual(raw_csv.strip(), 'Date,Segment')
 
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  def test_download_responses_consolidates_bomid(
+      self, responses_mock, doc_mock):
+    doc_mock.return_value = self._missing_survey_doc()
+    t1 = datetime.datetime(2026, 11, 1, 10, 0, 0)
+    t2 = datetime.datetime(2026, 11, 1, 10, 1, 0)
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [t1, t2],
+        'Segmentation': ['seg1', 'seg1'],
+        'Response': ['1:A', '1:A|2:B'],
+        'BomID': ['b1', 'b1'],
+    })
+
+    raw_csv = survey_service.download_responses(1)
+    responses = list(csv.DictReader(raw_csv.splitlines()))
+
+    self.assertEqual(len(responses), 1)
+    self.assertEqual(responses[0]['Response 1'], 'A')
+    self.assertEqual(responses[0]['Response 2'], 'B')
+    self.assertEqual(responses[0]['Date'], str(t2))
+
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  def test_iter_response_csv_streams_chunks(self, responses_mock, doc_mock):
+    doc_mock.return_value = self._missing_survey_doc()
+    t = datetime.datetime.now()
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [t, t, t],
+        'Segmentation': ['seg1', 'seg2', 'seg3'],
+        'Response': ['1:A', '1:B', '1:C'],
+        'BomID': ['b1', 'b2', 'b3'],
+    })
+
+    gen = survey_service.iter_response_csv(1, chunksize=1)
+    self.assertTrue(hasattr(gen, '__next__'))
+    chunks = list(gen)
+    self.assertEqual(len(chunks), 3)
+    self.assertTrue(chunks[0].startswith('Date,'))
+    self.assertIn('seg1', chunks[0])
+    self.assertFalse(chunks[1].startswith('Date,'))
+    self.assertIn('seg2', chunks[1])
+    joined = ''.join(chunks)
+    self.assertEqual(len(list(csv.DictReader(joined.splitlines()))), 3)
+
   @mock.patch.object(survey_service, 'get_survey_responses')
   def test_get_brand_lift_results(self, responses_mock):
     responses_mock.return_value = pandas.DataFrame({
@@ -483,6 +559,23 @@ class TestSurveyService(unittest.TestCase):
     results = survey_service.get_brand_lift_results(1)
 
     self.assertEqual(results, [])
+
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  def test_get_brand_lift_results_consolidates_bomid(self, responses_mock):
+    t1 = datetime.datetime(2026, 11, 1, 10, 0, 0)
+    t2 = datetime.datetime(2026, 11, 1, 10, 1, 0)
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [t1, t2, t1, t1],
+        'Segmentation': ['expose', 'expose', 'control', 'control'],
+        'Response': ['1:A', '1:A|2:B', '1:A', '1:B'],
+        'BomID': ['e1', 'e1', 'c1', 'c2'],
+    })
+
+    results = survey_service.get_brand_lift_results(1)
+    # One expose respondent (the cumulative 1:A|2:B) and two control.
+    q1_expose = results[0][0]
+    self.assertEqual(1, q1_expose[0])
+    self.assertEqual(0, q1_expose[1])
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   def test_get_brand_lift_results_corrects_segment_names(self, responses_mock):

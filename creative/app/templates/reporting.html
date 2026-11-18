@@ -1,42 +1,204 @@
 {% extends "base.html" %}
 {% block content %}
+{% set is_lift = report.is_lift %}
+<div class="container pb-5">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h1 class="h3 mb-1">{{ survey.get('displayname') or survey.get('surveyname') or survey_id }}</h1>
+      <p class="text-muted mb-0">
+        {% if is_lift %}Brand Lift stats{% else %}Brand Track stats{% endif %}
+        · {{ report.n_total }} respondent{% if report.n_total != 1 %}s{% endif %}
+        {% if report.n_raw and report.n_raw != report.n_total %}
+          ({{ report.n_raw }} raw BigQuery rows before consolidating per-question submits)
+        {% endif %}
+      </p>
+    </div>
+    <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
+  </div>
 
-<div class="container pb-4">
-    {% for i in range(1, results|length + 1) %}
-    <h2 class="h4 mt-4">{{ 'Question ' + i|string + ': ' + survey.get('question' + i|string, '') }}</h2>
-    <table class="table table-bordered table-striped">
-        <thead class="table-light">
+  <p class="small text-muted">
+    Each BomID is one respondent: the latest, most complete cumulative response is kept.
+    Surveys that submit after each question therefore show fewer people than raw row counts.
+    Segments are the values stored on the response (<code>seg</code>), not renamed labels.
+  </p>
+
+  {% if report.empty_reason == 'no_data' %}
+  <div class="alert alert-secondary" role="alert">
+    No responses yet. Preview does not post to BigQuery — send test rows to the receiver
+    (see DEVELOPERS.md) or wait for live creatives.
+  </div>
+  {% else %}
+
+    {% if is_lift and report.empty_reason == 'no_control' %}
+    <div class="alert alert-warning" role="alert">
+      No control segment in this data (look for <code>control</code> in the stored seg).
+      Lift, confidence intervals, and the z-test are not computed.
+    </div>
+    {% elif is_lift and report.empty_reason == 'no_expose' %}
+    <div class="alert alert-warning" role="alert">
+      No exposed segment in this data (look for <code>expos</code> in the stored seg).
+      Lift, confidence intervals, and the z-test are not computed.
+    </div>
+    {% elif is_lift and report.empty_reason == 'no_control_or_expose' %}
+    <div class="alert alert-warning" role="alert">
+      No control or exposed segment in this data. Lift is not computed.
+      Distributions below use the stored seg values as-is.
+    </div>
+    {% endif %}
+
+    {% if is_lift and report.warning_n_small and report.has_control and report.has_expose %}
+    <div class="alert alert-warning" role="alert">
+      Sample is small (control n={{ report.control_n }}, exposed n={{ report.expose_n }}).
+      Treat lift and p-values as directional until each arm has at least {{ report.min_n }} respondents.
+    </div>
+    {% endif %}
+
+    <div class="card mb-4">
+      <div class="card-body">
+        <h2 class="h5">Responses per day</h2>
+        {% if report.daily %}
+        <canvas id="dailyChart" height="90" aria-label="Responses per day by segment"></canvas>
+        {% else %}
+        <p class="text-muted mb-0">No dated responses to chart.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% for question in report.questions %}
+    <div class="card mb-4">
+      <div class="card-body">
+        <h2 class="h5">Question {{ question.index }}: {{ question.text }}</h2>
+
+        <h3 class="h6 mt-3">Answer distribution</h3>
+        <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle">
+          <thead class="table-light">
             <tr>
-                <th scope="col"></th>
-                <th scope="col">{{ survey.get('answer' + i|string + 'a', '') }}</th>
-                <th scope="col">{{ survey.get('answer' + i|string + 'b', '') }}</th>
-                <th scope="col">{{ survey.get('answer' + i|string + 'c', '') }}</th>
-                <th scope="col">{{ survey.get('answer' + i|string + 'd', '') }}</th>
+              <th scope="col">Answer</th>
+              {% for seg in report.segments %}
+              <th scope="col">{{ seg or '(no seg)' }}</th>
+              {% endfor %}
+              <th scope="col">Total</th>
             </tr>
-        </thead>
-        <tr>
-            <td>Expose</td>
-            {% for value in results[i-1][0] %}
-            <td>{{ value|format_percentage }}</td>
+          </thead>
+          <tbody>
+            {% for answer in question.answers %}
+            <tr>
+              <td>{{ answer.text }}</td>
+              {% for seg in report.segments %}
+              <td>{{ answer.counts.get(seg, 0) }}</td>
+              {% endfor %}
+              <td>{{ answer.total }}</td>
+            </tr>
             {% endfor %}
-        </tr>
-        <tr>
-            <td>Control</td>
-            {% for value in results[i-1][1] %}
-            <td>{{ value|format_percentage }}</td>
-            {% endfor %}
-        </tr>
-        <tr>
-            <td>Lift</td>
-            {% for value in results[i-1][2] %}
-            <td class="{{ 'table-success' if value >= 0 else 'table-danger' }}">
-                {{ value|format_percentage }}
-            </td>
-            {% endfor %}
-        </tr>
+            {% if not question.answers %}
+            <tr><td colspan="{{ 2 + report.segments|length }}" class="text-muted">No answers for this question.</td></tr>
+            {% endif %}
+          </tbody>
+        </table>
+        </div>
 
-    </table>
+        {% if is_lift %}
+        <h3 class="h6 mt-4">Control vs exposed</h3>
+        {% if not report.has_control or not report.has_expose %}
+        <p class="text-muted">Lift needs both a control and an exposed segment.</p>
+        {% else %}
+        <p class="small text-muted">
+          Percentages are of respondents who answered this question
+          (control n={{ question.n_control }}, exposed n={{ question.n_expose }}).
+          Intervals are Wilson 95% CIs on each arm. p-value is a two-proportion z-test
+          of exposed vs control.
+        </p>
+        <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th scope="col">Answer</th>
+              <th scope="col">Control n</th>
+              <th scope="col">Control %</th>
+              <th scope="col">Exposed n</th>
+              <th scope="col">Exposed %</th>
+              <th scope="col">Lift</th>
+              <th scope="col">p-value</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for answer in question.answers %}
+            <tr>
+              <td>{{ answer.text }}</td>
+              <td>{{ answer.k_control }}</td>
+              <td>
+                {{ answer.p_control | format_percentage }}
+                <span class="text-muted small d-block">
+                  {{ answer.ci_control[0] | format_percentage }}–{{ answer.ci_control[1] | format_percentage }}
+                </span>
+              </td>
+              <td>{{ answer.k_expose }}</td>
+              <td>
+                {{ answer.p_expose | format_percentage }}
+                <span class="text-muted small d-block">
+                  {{ answer.ci_expose[0] | format_percentage }}–{{ answer.ci_expose[1] | format_percentage }}
+                </span>
+              </td>
+              <td class="{% if answer.lift == answer.lift %}{% if answer.lift >= 0 %}table-success{% else %}table-danger{% endif %}{% endif %}">
+                {{ answer.lift | format_percentage }}
+              </td>
+              <td>{{ answer.pvalue | format_pvalue }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% endif %}
+        {% endif %}
+      </div>
+    </div>
     {% endfor %}
-</div>
 
+    {% if not report.questions %}
+    <div class="alert alert-secondary" role="alert">No questions with answers to show.</div>
+    {% endif %}
+  {% endif %}
+</div>
 {% endblock content %}
+
+{% block scripts %}
+{% if report.daily %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+  const daily = {{ report.daily | tojson }};
+  const dates = Array.from(new Set(daily.map(function (row) { return row.date; }))).sort();
+  const segments = Array.from(new Set(daily.map(function (row) { return row.segment; })));
+  const palette = ['#0d6efd', '#198754', '#dc3545', '#fd7e14', '#6f42c1', '#20c997', '#6c757d'];
+  const datasets = segments.map(function (seg, i) {
+    const byDate = {};
+    daily.forEach(function (row) {
+      if (row.segment === seg) byDate[row.date] = row.count;
+    });
+    return {
+      label: seg || '(no seg)',
+      data: dates.map(function (d) { return byDate[d] || 0; }),
+      borderColor: palette[i % palette.length],
+      backgroundColor: palette[i % palette.length],
+      tension: 0.15
+    };
+  });
+  const canvas = document.getElementById('dailyChart');
+  if (!canvas || typeof Chart === 'undefined') return;
+  new Chart(canvas, {
+    type: 'line',
+    data: { labels: dates, datasets: datasets },
+    options: {
+      responsive: true,
+      plugins: { legend: { position: 'bottom' } },
+      scales: {
+        y: { beginAtZero: true, ticks: { precision: 0 }, title: { display: true, text: 'Respondents' } },
+        x: { title: { display: true, text: 'Date' } }
+      }
+    }
+  });
+})();
+</script>
+{% endif %}
+{% endblock %}

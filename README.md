@@ -102,7 +102,7 @@ If the deploy fails with an error, wait 5 minutes and try again. Sometimes a new
 Use [this template](https://docs.google.com/spreadsheets/d/1hMe8AdjjzDHPUO9y9J3vZpDmGkPLzbiNpc6b_iAfl-k/edit?usp=sharing) to add responses & generate lift
 Sample report [here](https://docs.google.com/spreadsheets/d/1aRtO7PdeXqrjC9J8ItmEPkK012c2JIzRGDbPIyI8OQI/edit?usp=sharing).
 
-In the app, Brand Lift stats are on the homepage stats button (Brand Lift surveys only). Brand Track surveys download CSV instead.
+In the app, the homepage stats button opens reporting for **Brand Lift and Brand Track**. Counts and CSV collapse one BomID to the latest/most complete response (per-question submit surveys will show fewer people than raw BigQuery rows). Brand Lift adds control vs exposed, Wilson 95% CIs, and a two-proportion z-test; Brand Track shows distributions and responses/day only. Preview does not post answers — see DEVELOPERS.md for a curl recipe against the receiver.
 
 # Download Responses
 To download the responses, go to the homepage and click on the Download

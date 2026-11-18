@@ -68,11 +68,9 @@
                     <a class="btn btn-sm btn-info" href="{{ url_for('preview', survey_id=survey.id) }}" title="View Survey">
                         <i class="bi bi-eye"></i>
                     </a>
-                    {% if survey|has_reporting %}
-                    <a class="btn btn-sm btn-warning" href="{{ url_for('reporting', survey_id=survey.id) }}" title="View Brand Lift Stats">
+                    <a class="btn btn-sm btn-warning" href="{{ url_for('reporting', survey_id=survey.id) }}" title="{{ 'View Brand Lift Stats' if survey|is_brand_lift else 'View survey stats' }}">
                         <i class="bi bi-bar-chart"></i>
                     </a>
-                    {% endif %}
             </td>
             <td class="text-center small">
                 <div id="count-{{ survey.id }}">{{ count_content(stats_by_id.get(survey.id)) }}</div>
@@ -140,5 +138,9 @@
     </ul>
     </nav>
     {% endif %}
+    <p class="text-muted small mt-3">
+      Response counts treat each BomID as one respondent (latest/most complete row).
+      Surveys that submit after each question will show fewer responses than raw BigQuery row counts.
+    </p>
 </div>
 {% endblock content %}

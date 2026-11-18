@@ -67,7 +67,7 @@ def receiver(request):
 
   row_to_insert = {
       "CreatedAt": datetime.datetime.now().isoformat(),
-      "Type": params.get("type"),
+      "Type": params.get("type") or "survey",
       "ID": params.get("id"),
       "Segmentation": params.get("seg"),
       "Response": params.get("response"),

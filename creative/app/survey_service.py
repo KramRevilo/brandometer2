@@ -27,6 +27,7 @@ from google.cloud import bigquery
 from google.cloud import bigquery_storage
 import numpy as np
 import pandas as pd
+import reporting
 import survey_collection
 from forms import BRAND_LIFT
 from forms import BRAND_TRACK
@@ -65,7 +66,13 @@ def _get_bqstorage_client():
   return _bqstorage_client
 
 
-_EMPTY_RESPONSES_COLUMNS = ['CreatedAt', 'Segmentation', 'Response']
+_EMPTY_RESPONSES_COLUMNS = ['CreatedAt', 'Segmentation', 'Response', 'BomID']
+CSV_CHUNK_ROWS = 500
+_RESPONSE_SELECT = """
+        SELECT CreatedAt, Segmentation, Response, BomID
+        FROM `{table}`
+        WHERE ID = @survey_id
+    """
 _EMPTY_COUNTS_COLUMNS = [
     'ID', 'Segmentation', 'max_date', 'days_since_response', 'response_count'
 ]
@@ -377,15 +384,42 @@ def get_question_json(survey):
   return all_question_json
 
 
-def get_brand_lift_results(surveyid):
+def fetch_survey_response_rows(surveyid, client=None):
+  """All response rows for one survey. Parameterized by ID. Includes BomID."""
   table_id = os.environ.get('TABLE_ID')
-  query = f"""
-        SELECT CreatedAt, Segmentation, Response
-        FROM `{table_id}`
-        WHERE ID = @survey_id
-        AND NOT STARTS_WITH(Response, '1:|')
-    """
-  df = get_survey_responses(surveyid, query)
+  query = _RESPONSE_SELECT.format(table=table_id)
+  return get_survey_responses(surveyid, query, client=client)
+
+
+def get_report(surveyid, client=None):
+  """Honest in-app report: consolidated respondents, distributions, optional lift."""
+  survey_doc = get_doc_by_id(surveyid)
+  survey_info = {}
+  is_lift = False
+  if survey_doc and getattr(survey_doc, 'exists', False):
+    survey_info = survey_doc.to_dict() or {}
+    is_lift = is_brand_lift(survey_info)
+  df = fetch_survey_response_rows(surveyid, client=client)
+  return reporting.build_report(df, survey_info, is_lift=is_lift)
+
+
+def get_brand_lift_results(surveyid):
+  """Legacy lift matrices (expose/control proportions + lift).
+
+  Used by tests and as a thin adapter. The reporting page uses get_report.
+  Segment roles come from the stored seg values (control / expos), not a
+  hardcoded rename of default_*.
+  """
+  df = fetch_survey_response_rows(surveyid)
+  df = reporting.consolidate_frame(df)
+  if df.empty or not df['Response'].any():
+    return []
+  df = df.copy()
+  roles = df['Segmentation'].map(reporting.segment_role)
+  df['Segmentation'] = [
+      role if role != 'other' else seg
+      for role, seg in zip(roles, df['Segmentation'])
+  ]
   if df['Response'].any():
     responselist = df['Response'].str.split(pat=('|'), expand=True)
   else:
@@ -394,8 +428,7 @@ def get_brand_lift_results(surveyid):
   for i in columns:
     responselist[i] = responselist[i].str.slice(start=2)
   df = pd.concat([df, responselist], axis=1)
-  df.drop(['CreatedAt', 'Response'], axis=1, inplace=True)
-  df.replace(regex='default_', value='', inplace=True)
+  df = df.drop(columns=['CreatedAt', 'Response', 'BomID'], errors='ignore')
 
   output = []
   for i in range(len(df.columns) - 1):
@@ -434,21 +467,8 @@ def get_survey_responses(surveyid, query, client=None):
 
 
 def get_survey_responses_context(surveyid, client=None):
- 
-  """Get data from survey"""
-  table_id = os.environ.get('TABLE_ID')
-  query = f"""
-        SELECT CreatedAt, Segmentation, Response
-        FROM `{table_id}`
-        WHERE ID = @survey_id
-        AND NOT STARTS_WITH(Response, '1:|')
-    """
-  job_config = bigquery.QueryJobConfig(query_parameters=[
-      bigquery.ScalarQueryParameter('survey_id', 'STRING', surveyid),
-  ])
-  return _query_to_dataframe(
-      query, job_config=job_config, client=client,
-      empty_columns=_EMPTY_RESPONSES_COLUMNS)
+  """Get data from survey (same rows as fetch_survey_response_rows)."""
+  return fetch_survey_response_rows(surveyid, client=client)
 
 def stats_cache_seconds():
   raw = os.environ.get('STATS_CACHE_SECONDS', str(_DEFAULT_STATS_CACHE_SECONDS))
@@ -465,18 +485,53 @@ def clear_stats_cache():
 
 
 def _fetch_all_response_counts():
+  """Homepage counts: one respondent per BomID (latest/most complete row).
+
+  Surveys that submit after each question used to be counted once per
+  question. Those homepage numbers will drop after this consolidation.
+  Blank BomID rows (submit-at-end) stay as individual respondents.
+  """
   table_id = os.environ.get('TABLE_ID')
   query = f"""
+    WITH numbered AS (
+      SELECT
+        ID,
+        Segmentation,
+        CreatedAt,
+        Response,
+        BomID,
+        ARRAY_LENGTH(REGEXP_EXTRACT_ALL(IFNULL(Response, ''), r'[1-5]:[^|]+')) AS n_answers,
+        ROW_NUMBER() OVER () AS row_id
+      FROM `{table_id}`
+      WHERE ID IS NOT NULL
+    ),
+    keyed AS (
+      SELECT
+        *,
+        IF(BomID IS NOT NULL AND TRIM(BomID) != '', TRIM(BomID),
+           CONCAT('row:', CAST(row_id AS STRING))) AS session_key
+      FROM numbered
+    ),
+    best AS (
+      SELECT * EXCEPT(rn) FROM (
+        SELECT *,
+          ROW_NUMBER() OVER (
+            PARTITION BY ID, session_key
+            ORDER BY n_answers DESC, CreatedAt DESC
+          ) AS rn
+        FROM keyed
+      )
+      WHERE rn = 1
+    )
     SELECT
-    ID,
-    Segmentation,
-    EXTRACT(DATE FROM max(CreatedAt)) as max_date,
-    DATE_DIFF(CURRENT_DATE(), EXTRACT(DATE FROM max(CreatedAt)), DAY) AS days_since_response,
-    count(*) as response_count
-    FROM `{table_id}`
-    WHERE ID is not null
-    GROUP BY 1,2
-    ORDER BY 1,2
+      ID,
+      Segmentation,
+      EXTRACT(DATE FROM MAX(CreatedAt)) AS max_date,
+      DATE_DIFF(CURRENT_DATE(), EXTRACT(DATE FROM MAX(CreatedAt)), DAY) AS days_since_response,
+      COUNT(*) AS response_count
+    FROM best
+    GROUP BY 1, 2
+    ORDER BY 1, 2
     """
   return _query_to_dataframe(
       query, empty_columns=_EMPTY_COUNTS_COLUMNS)
@@ -510,96 +565,79 @@ def _segmentation_csv_column(surveyid):
   return 'Segment'
 
 
+def _response_columns_for_csv(df, question_names):
+  if df.empty or not df['Response'].any():
+    return pd.DataFrame()
+  responselist = df['Response'].str.split(pat=('|'), expand=True)
+  for i in list(responselist):
+    responselist[i] = responselist[i].str.slice(start=2)
+  rename = {}
+  defaults = ['Response 1', 'Response 2', 'Response 3', 'Response 4',
+              'Response 5']
+  for i, default in enumerate(defaults):
+    if i in responselist.columns:
+      rename[i] = question_names[i] if i < len(question_names) else default
+  return responselist.rename(columns=rename).reset_index(drop=True)
+
+
+def _csv_dataframe(surveyid, with_context=False):
+  """Consolidated response table ready for CSV. One row per BomID."""
+  df = reporting.consolidate_frame(fetch_survey_response_rows(surveyid))
+  question_names = [
+      'Response 1', 'Response 2', 'Response 3', 'Response 4', 'Response 5'
+  ]
+  survey_info = {}
+  survey_doc = get_doc_by_id(surveyid)
+  if survey_doc and getattr(survey_doc, 'exists', False):
+    survey_info = survey_doc.to_dict() or {}
+    if with_context:
+      question_names = [
+          survey_info.get('question1') or question_names[0],
+          survey_info.get('question2') or question_names[1],
+          survey_info.get('question3') or question_names[2],
+          survey_info.get('question4') or question_names[3],
+          survey_info.get('question5') or question_names[4],
+      ]
+  if with_context:
+    segment_col = 'Control/Expose' if is_brand_lift(survey_info) else 'Segment'
+  else:
+    segment_col = _segmentation_csv_column(surveyid)
+  outputdf = pd.DataFrame({'Date': [], segment_col: []})
+  if not df.empty:
+    outputdf['Date'] = df['CreatedAt'].values
+    outputdf[segment_col] = df['Segmentation'].values
+  responselist = _response_columns_for_csv(df, question_names)
+  if not responselist.empty:
+    outputdf = pd.concat(
+        [outputdf.reset_index(drop=True), responselist], axis=1)
+  return outputdf
+
+
+def iter_response_csv(surveyid, with_context=False, chunksize=CSV_CHUNK_ROWS):
+  """Yield CSV chunks so downloads are not built as one in-memory string."""
+  outputdf = _csv_dataframe(surveyid, with_context=with_context)
+  try:
+    chunksize = max(1, int(chunksize))
+  except (TypeError, ValueError):
+    chunksize = CSV_CHUNK_ROWS
+  if outputdf.empty:
+    yield outputdf.to_csv(index=False)
+    return
+  header = True
+  for start in range(0, len(outputdf), chunksize):
+    chunk = outputdf.iloc[start:start + chunksize]
+    yield chunk.to_csv(index=False, header=header)
+    header = False
+
+
 def download_responses(surveyid):
   """Download survey responses in a CSV format file."""
-  table_id = os.environ.get('TABLE_ID')
-  query = f"""
-        SELECT CreatedAt, Segmentation, Response
-        FROM `{table_id}`
-        WHERE ID = @survey_id
-        AND NOT STARTS_WITH(Response, '1:|')
-    """
-  df = get_survey_responses(surveyid, query)
-  segment_col = _segmentation_csv_column(surveyid)
-  output = {'Date': [], segment_col: []}
-  outputdf = pd.DataFrame(data=output)
-  outputdf['Date'] = df['CreatedAt'].values
-  outputdf[segment_col] = df['Segmentation'].values
-  if df['Response'].any():
-    responselist = df['Response'].str.split(pat=('|'), expand=True)
-  else:
-    responselist = pd.DataFrame()
-  columns = list(responselist)
-  for i in columns:
-    responselist[i] = responselist[i].str.slice(start=2)
-  responselist = responselist.rename(
-      columns={
-          0: 'Response 1',
-          1: 'Response 2',
-          2: 'Response 3',
-          3: 'Response 4',
-          4: 'Response 5'
-      })
-  responselist = responselist.reset_index(drop=True)
-  outputdf = pd.concat([outputdf, responselist], axis=1)
-  csv = outputdf.to_csv(index=False)
-  return csv
+  return ''.join(iter_response_csv(surveyid, with_context=False))
+
 
 def download_responses_with_context(surveyid):
   """Download survey responses in a CSV format file."""
-  # get a dataframe of the survey responses
-  table_id = os.environ.get('TABLE_ID')
-  query = f"""
-        SELECT CreatedAt, Segmentation, Response
-        FROM `{table_id}`
-        WHERE ID = @survey_id
-        AND NOT STARTS_WITH(Response, '1:|')
-    """
-  df = get_survey_responses(surveyid, query)
-
-  # Set the question texts to default values in case we can't talk to
-  # the Firestore DB
-  question1 = 'Response 1'
-  question2 = 'Response 2'
-  question3 = 'Response 3'
-  question4 = 'Response 4'
-  question5 = 'Response 5'
-
-  # Get the survey document object using the convenience function.
-  survey_doc = get_doc_by_id(surveyid)
-  survey_info = {}
-  if survey_doc and getattr(survey_doc, 'exists', False):
-    survey_info = survey_doc.to_dict() or {}
-    question1 = survey_info.get('question1') or question1
-    question2 = survey_info.get('question2') or question2
-    question3 = survey_info.get('question3') or question3
-    question4 = survey_info.get('question4') or question4
-    question5 = survey_info.get('question5') or question5
-
-  segment_col = 'Control/Expose' if is_brand_lift(survey_info) else 'Segment'
-  output = {'Date': [], segment_col: []}
-  outputdf = pd.DataFrame(data=output)
-  outputdf['Date'] = df['CreatedAt'].values
-  outputdf[segment_col] = df['Segmentation'].values
-  if df['Response'].any():
-    responselist = df['Response'].str.split(pat=('|'), expand=True)
-  else:
-    responselist = pd.DataFrame()
-  columns = list(responselist)
-  for i in columns:
-    responselist[i] = responselist[i].str.slice(start=2)
-  responselist = responselist.rename(
-      columns={
-          0: question1,
-          1: question2,
-          2: question3,
-          3: question4,
-          4: question5
-      })
-  responselist = responselist.reset_index(drop=True)
-  outputdf = pd.concat([outputdf, responselist], axis=1)
-  csv = outputdf.to_csv(index=False)
-  return csv
+  return ''.join(iter_response_csv(surveyid, with_context=True))
 
 
 #def get_thank_you_text(survey):

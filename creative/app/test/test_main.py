@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import datetime
 import os
 import unittest
 from unittest import mock
@@ -73,7 +74,7 @@ class MainRoutesTest(unittest.TestCase):
 
   @mock.patch.object(survey_service, 'get_all_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
-  def test_index_status_chip_and_no_stats_for_track(
+  def test_index_status_chip_and_stats_for_track(
       self, list_mock, counts_mock):
     list_mock.return_value = [
         self._survey('s1', {
@@ -89,9 +90,11 @@ class MainRoutesTest(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'No data', response.data)
     self.assertIn(b'text-bg-secondary', response.data)
+    self.assertIn(b'View survey stats', response.data)
     self.assertNotIn(b'View Brand Lift Stats', response.data)
     self.assertIn(b'Copy Survey', response.data)
     self.assertIn(b'Archive Survey', response.data)
+    self.assertIn(b'each BomID as one respondent', response.data)
 
   @mock.patch.object(survey_service, 'get_all_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
@@ -232,18 +235,120 @@ class MainRoutesTest(unittest.TestCase):
     archive_mock.assert_called_once_with('abc', False)
     self.assertIn('archived=1', response.headers['Location'])
 
+  @mock.patch.object(survey_service, 'get_survey_responses')
   @mock.patch.object(survey_service, 'get_doc_by_id')
-  def test_reporting_gated_to_brand_lift(self, doc_mock):
+  def test_reporting_brand_track_shows_distributions(self, doc_mock, responses_mock):
     doc_mock.return_value = self._survey('abc', {
         'surveytype': 'brand_track',
         'surveyname': 'Track',
+        'question1': 'Aware?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+    })
+    t = datetime.datetime(2026, 11, 18, 12, 0, 0)
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [t, t],
+        'Segmentation': ['', ''],
+        'Response': ['1:A', '1:B'],
+        'BomID': ['b1', 'b2'],
     })
 
-    response = self.client.get(
-        '/survey/reporting/abc', follow_redirects=False)
+    response = self.client.get('/survey/reporting/abc')
 
-    self.assertEqual(response.status_code, 302)
-    self.assertIn('/index', response.headers['Location'])
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'Aware?', response.data)
+    self.assertIn(b'Responses per day', response.data)
+    self.assertIn(b'Answer distribution', response.data)
+    self.assertNotIn(b'>Lift</th>', response.data)
+    self.assertNotIn(b'two-proportion z-test', response.data)
+
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_reporting_brand_lift_shows_ci_and_empty_control(
+      self, doc_mock, responses_mock):
+    doc_mock.return_value = self._survey('abc', {
+        'surveytype': 'brand_lift',
+        'surveyname': 'Lift',
+        'question1': 'Aware?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+    })
+    t = datetime.datetime(2026, 11, 18, 12, 0, 0)
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [t, t],
+        'Segmentation': ['default_expose', 'default_expose'],
+        'Response': ['1:A', '1:B'],
+        'BomID': ['e1', 'e2'],
+    })
+
+    response = self.client.get('/survey/reporting/abc')
+
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'No control segment', response.data)
+    self.assertIn(b'Answer distribution', response.data)
+
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_reporting_brand_lift_shows_wilson_and_small_n(
+      self, doc_mock, responses_mock):
+    doc_mock.return_value = self._survey('abc', {
+        'surveytype': 'brand_lift',
+        'surveyname': 'Lift',
+        'question1': 'Aware?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+    })
+    t = datetime.datetime(2026, 11, 18, 12, 0, 0)
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [t, t, t, t],
+        'Segmentation': [
+            'default_control', 'default_control',
+            'default_expose', 'default_expose'
+        ],
+        'Response': ['1:A', '1:B', '1:A', '1:A'],
+        'BomID': ['c1', 'c2', 'e1', 'e2'],
+    })
+
+    response = self.client.get('/survey/reporting/abc')
+
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'>Lift</th>', response.data)
+    self.assertIn(b'two-proportion z-test', response.data)
+    self.assertIn(b'Sample is small', response.data)
+    self.assertIn(b'Wilson 95%', response.data)
+    self.assertIn(b'chart.js', response.data)
+
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_reporting_no_data_empty_state(self, doc_mock, responses_mock):
+    doc_mock.return_value = self._survey('abc', {
+        'surveytype': 'brand_lift',
+        'surveyname': 'Lift',
+        'question1': 'Aware?',
+    })
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [],
+        'Segmentation': [],
+        'Response': [],
+        'BomID': [],
+    })
+
+    response = self.client.get('/survey/reporting/abc')
+
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'No responses yet', response.data)
+
+  @mock.patch.object(survey_service, 'iter_response_csv')
+  def test_download_responses_streams_chunks(self, iter_mock):
+    iter_mock.return_value = iter(['Date,Segment\n', 'd1,seg1\n'])
+
+    response = self.client.get('/survey/download_responses/abc')
+
+    self.assertEqual(response.status_code, 200)
+    self.assertEqual(response.mimetype, 'text/csv')
+    self.assertIn(b'Date,Segment', response.data)
+    self.assertIn(b'd1,seg1', response.data)
+    iter_mock.assert_called_once_with('abc')
 
   @mock.patch.object(survey_service, 'get_question_json', return_value=[])
   @mock.patch.object(survey_service, 'get_doc_by_id')

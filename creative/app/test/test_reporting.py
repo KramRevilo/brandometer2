@@ -1,0 +1,163 @@
+# Copyright 2026 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     https://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+import datetime
+import math
+import unittest
+
+import pandas
+import reporting
+
+
+class ReportingMathTest(unittest.TestCase):
+
+  def test_parse_response_skips_empty_tokens(self):
+    self.assertEqual(reporting.parse_response('1:A|2:B|3:C'), {
+        1: 'A', 2: 'B', 3: 'C'
+    })
+    self.assertEqual(reporting.parse_response('1:A|2:B||4:D|'), {
+        1: 'A', 2: 'B', 4: 'D'
+    })
+    self.assertEqual(reporting.parse_response('1:|2:B'), {2: 'B'})
+    self.assertEqual(reporting.parse_response(None), {})
+    self.assertEqual(reporting.completeness('1:A|2:B'), 2)
+
+  def test_segment_role_uses_stored_seg_values(self):
+    self.assertEqual(reporting.segment_role('default_control'), 'control')
+    self.assertEqual(reporting.segment_role('default_expose'), 'expose')
+    self.assertEqual(reporting.segment_role('expose'), 'expose')
+    self.assertEqual(reporting.segment_role('CONTROL_MALE'), 'control')
+    self.assertEqual(reporting.segment_role(''), 'other')
+    self.assertEqual(reporting.segment_role('seg1'), 'other')
+
+  def test_wilson_interval_50_of_100(self):
+    lo, hi = reporting.wilson_interval(50, 100)
+    self.assertAlmostEqual(lo, 0.403832, places=4)
+    self.assertAlmostEqual(hi, 0.596168, places=4)
+    self.assertTrue(lo < 0.5 < hi)
+    nan_lo, nan_hi = reporting.wilson_interval(0, 0)
+    self.assertTrue(math.isnan(nan_lo))
+    self.assertTrue(math.isnan(nan_hi))
+
+  def test_two_proportion_pvalue_detects_difference(self):
+    p_sig = reporting.two_proportion_pvalue(60, 100, 40, 100)
+    self.assertGreater(p_sig, 0.001)
+    self.assertLess(p_sig, 0.01)
+    p_same = reporting.two_proportion_pvalue(50, 100, 50, 100)
+    self.assertAlmostEqual(p_same, 1.0, places=6)
+    self.assertTrue(math.isnan(reporting.two_proportion_pvalue(1, 10, 0, 0)))
+
+  def test_lift_ratio_undefined_when_control_is_zero(self):
+    self.assertEqual(reporting.lift_ratio(0.4, 0.2), 1.0)
+    self.assertTrue(math.isnan(reporting.lift_ratio(0.4, 0.0)))
+    self.assertTrue(math.isnan(reporting.lift_ratio(0.4, float('nan'))))
+
+
+class ConsolidationTest(unittest.TestCase):
+
+  def test_consolidate_keeps_most_complete_then_latest_per_bomid(self):
+    t1 = datetime.datetime(2026, 11, 1, 10, 0, 0)
+    t2 = datetime.datetime(2026, 11, 1, 10, 1, 0)
+    t3 = datetime.datetime(2026, 11, 1, 10, 2, 0)
+    df = pandas.DataFrame({
+        'CreatedAt': [t1, t2, t3],
+        'Segmentation': ['seg1', 'seg1', 'seg1'],
+        'Response': ['1:A', '1:A|2:B', '1:A|2:B'],
+        'BomID': ['b1', 'b1', 'b1'],
+    })
+    out = reporting.consolidate_frame(df)
+    self.assertEqual(len(out), 1)
+    self.assertEqual(out.iloc[0]['Response'], '1:A|2:B')
+    self.assertEqual(out.iloc[0]['CreatedAt'], t3)
+
+  def test_consolidate_blank_bomid_stays_as_individual_rows(self):
+    t1 = datetime.datetime(2026, 11, 1)
+    df = pandas.DataFrame({
+        'CreatedAt': [t1, t1],
+        'Segmentation': ['seg1', 'seg1'],
+        'Response': ['1:A', '1:B'],
+        'BomID': ['', None],
+    })
+    out = reporting.consolidate_frame(df)
+    self.assertEqual(len(out), 2)
+
+  def test_consolidate_without_bomid_column_is_noop(self):
+    df = pandas.DataFrame({
+        'CreatedAt': [datetime.datetime(2026, 11, 1)] * 2,
+        'Segmentation': ['seg1', 'seg1'],
+        'Response': ['1:A', '1:A|2:B'],
+    })
+    out = reporting.consolidate_frame(df)
+    self.assertEqual(len(out), 2)
+
+  def test_consolidate_empty_frame(self):
+    df = pandas.DataFrame(columns=['CreatedAt', 'Segmentation', 'Response', 'BomID'])
+    out = reporting.consolidate_frame(df)
+    self.assertTrue(out.empty)
+
+
+class BuildReportTest(unittest.TestCase):
+
+  def test_build_report_lift_and_track(self):
+    t = datetime.datetime(2026, 11, 18, 12, 0, 0)
+    df = pandas.DataFrame({
+        'CreatedAt': [t, t, t, t],
+        'Segmentation': [
+            'default_control', 'default_control',
+            'default_expose', 'default_expose'
+        ],
+        'Response': ['1:A', '1:B', '1:A', '1:A'],
+        'BomID': ['c1', 'c2', 'e1', 'e2'],
+    })
+    survey = {
+        'question1': 'Aware?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+        'surveytype': 'brand_lift',
+    }
+    lift = reporting.build_report(df, survey, is_lift=True)
+    self.assertEqual(lift['n_total'], 4)
+    self.assertTrue(lift['has_control'])
+    self.assertTrue(lift['has_expose'])
+    self.assertTrue(lift['warning_n_small'])
+    self.assertEqual(lift['questions'][0]['text'], 'Aware?')
+    yes = lift['questions'][0]['answers'][0]
+    self.assertEqual(yes['id'], 'A')
+    self.assertEqual(yes['k_control'], 1)
+    self.assertEqual(yes['k_expose'], 2)
+    self.assertEqual(yes['lift'], 1.0)
+    self.assertTrue(lift['daily'])
+
+    track = reporting.build_report(df, survey, is_lift=False)
+    self.assertFalse(track['warning_n_small'])
+    self.assertIsNone(track['empty_reason'])
+
+  def test_build_report_empty_and_missing_control(self):
+    empty = reporting.build_report(
+        pandas.DataFrame(columns=['CreatedAt', 'Segmentation', 'Response']),
+        {}, is_lift=True)
+    self.assertEqual(empty['empty_reason'], 'no_data')
+
+    t = datetime.datetime(2026, 11, 18)
+    df = pandas.DataFrame({
+        'CreatedAt': [t],
+        'Segmentation': ['default_expose'],
+        'Response': ['1:A'],
+        'BomID': ['e1'],
+    })
+    report = reporting.build_report(
+        df, {'question1': 'Q', 'answer1a': 'Yes'}, is_lift=True)
+    self.assertEqual(report['empty_reason'], 'no_control')
+    self.assertTrue(report['has_expose'])
+    self.assertEqual(report['n_total'], 1)
