@@ -234,8 +234,14 @@ class TestSurveyService(unittest.TestCase):
 
   def test_get_survey_responses_limits_to_given_survey(self):
     mock_bigquery_client = mock.create_autospec(bigquery.Client)
+    query = """
+        SELECT CreatedAt, Segmentation, Response
+        FROM `project.responses.responses`
+        WHERE ID = @survey_id
+    """
 
-    survey_service.get_survey_responses(12345, client=mock_bigquery_client)
+    survey_service.get_survey_responses(
+        12345, query, client=mock_bigquery_client)
 
     query_call = mock_bigquery_client.query.mock_calls[0]
     sql = query_call.args[0]
