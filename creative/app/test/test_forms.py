@@ -77,6 +77,90 @@ class QuestionFormTest(unittest.TestCase):
         ]
         self.assertEqual(values, ['300x250', '160x600'])
 
+    def _validate(self, data):
+        app = Flask(__name__)
+        app.config['WTF_CSRF_ENABLED'] = False
+        app.config['SECRET_KEY'] = 'test'
+        with app.app_context():
+            form = forms.QuestionForm(data=data)
+            return form.validate(), form
+
+    def _valid_survey(self, **overrides):
+        data = {
+            'surveyname': 'Survey',
+            'surveytype': forms.BRAND_TRACK,
+            'responsetype': forms.RESPONSES_AT_END,
+            'language': 'en',
+            'creativesize': '300x250',
+            'question1': 'Question 1',
+            'question1type': 'SINGLE_OPTION',
+            'question1order': forms.ANSWERS_SHUFFLED,
+            'answer1a': 'A',
+            'answer1b': 'B',
+            'answer1anext': 'end',
+            'answer1bnext': 'end',
+            'question2': 'Question 2',
+            'question2type': 'SINGLE_OPTION',
+            'question2order': forms.ANSWERS_SHUFFLED,
+            'answer2a': 'A2',
+            'answer2b': 'B2',
+            'answer2anext': 'end',
+            'answer2bnext': 'end',
+            'question3type': 'SINGLE_OPTION',
+            'question3order': forms.ANSWERS_SHUFFLED,
+            'question4type': 'SINGLE_OPTION',
+            'question4order': forms.ANSWERS_SHUFFLED,
+            'question5type': 'SINGLE_OPTION',
+            'question5order': forms.ANSWERS_SHUFFLED,
+        }
+        data.update(overrides)
+        return data
+
+    def test_next_choices_only_later_filled_questions(self):
+        form = self.create_form({
+            'question1': 'Q1',
+            'question3': 'Q3',
+            'question4': '',
+        })
+        values = [item[0] for item in forms.next_choices(form, 1, 'end')]
+        self.assertEqual(values, ['end', '3'])
+        invalid = forms.next_choices(form, 1, '2')
+        self.assertIn(('2', 'Invalid (2)'), invalid)
+        from_q3 = [item[0] for item in forms.next_choices(form, 3, 'end')]
+        self.assertEqual(from_q3, ['end'])
+
+    def test_next_end_and_later_question_are_valid(self):
+        ok, form = self._validate(self._valid_survey())
+        self.assertTrue(ok, form.errors)
+        ok, form = self._validate(self._valid_survey(answer1anext='2'))
+        self.assertTrue(ok, form.errors)
+
+    def test_next_rejects_empty_later_question(self):
+        ok, form = self._validate(self._valid_survey(
+            question2='', answer2a='', answer2b='', answer1anext='2'))
+        self.assertFalse(ok)
+        self.assertTrue(form.answer1anext.errors)
+
+    def test_next_rejects_earlier_and_same_question(self):
+        ok, form = self._validate(self._valid_survey(answer2anext='1'))
+        self.assertFalse(ok)
+        self.assertTrue(form.answer2anext.errors)
+        ok, form = self._validate(self._valid_survey(answer1anext='1'))
+        self.assertFalse(ok)
+        self.assertTrue(form.answer1anext.errors)
+
+    def test_next_rejects_uppercase_end_and_junk(self):
+        ok, form = self._validate(self._valid_survey(answer1anext='End'))
+        self.assertFalse(ok)
+        self.assertTrue(form.answer1anext.errors)
+        ok, form = self._validate(self._valid_survey(answer1anext='later'))
+        self.assertFalse(ok)
+        self.assertTrue(form.answer1anext.errors)
+
+    def test_next_skips_empty_answer_rows(self):
+        ok, form = self._validate(self._valid_survey(answer1cnext='1'))
+        self.assertTrue(ok, form.errors)
+
     def test_language_dropdown_matches_translation_dicts(self):
         form = self.create_form({})
         choice_values = [

@@ -138,6 +138,10 @@
       bgImage: theme.bg_image || '',
       extraCss: boot.extra || '',
       previewSrcdoc: '',
+      formEpoch: 0,
+      editorReady: false,
+      prevFilled: {},
+      nextWarnings: {},
       answerCounts: {
         1: filledAnswerCount(1),
         2: filledAnswerCount(2),
@@ -147,7 +151,9 @@
       },
 
       init: function () {
+        this.prevFilled = this.filledQuestionMap();
         this.syncCss();
+        this.editorReady = true;
       },
 
       currentSize: function () {
@@ -170,6 +176,107 @@
       answerVisible: function (question, letter) {
         var idx = letters.indexOf(letter);
         return idx > -1 && idx < (this.answerCounts[question] || 2);
+      },
+
+      questionFilled: function (n) {
+        void this.formEpoch;
+        return Boolean(String(fieldValue('question' + n) || '').trim());
+      },
+
+      answerHasText: function (question, letter) {
+        void this.formEpoch;
+        return Boolean(String(fieldValue('answer' + question + letter) || '').trim());
+      },
+
+      filledQuestionMap: function () {
+        var filled = {};
+        for (var n = 1; n <= 5; n++) {
+          filled[n] = this.questionFilled(n);
+        }
+        return filled;
+      },
+
+      nextValue: function (question, letter) {
+        void this.formEpoch;
+        var el = document.querySelector('[name="answer' + question + letter + 'next"]');
+        return el ? String(el.value || 'end') : 'end';
+      },
+
+      nextIsInvalid: function (question, letter) {
+        void this.formEpoch;
+        if (!this.answerHasText(question, letter)) return false;
+        var val = this.nextValue(question, letter);
+        if (!val || val === 'end') return false;
+        var target = parseInt(val, 10);
+        if (!target || target <= question || target > 5) return true;
+        return !this.questionFilled(target);
+      },
+
+      nextWarning: function (question, letter) {
+        return this.nextWarnings[question + letter] || '';
+      },
+
+      clearNextWarning: function (question, letter) {
+        var key = question + letter;
+        if (this.nextWarnings[key]) {
+          var copy = Object.assign({}, this.nextWarnings);
+          delete copy[key];
+          this.nextWarnings = copy;
+        }
+      },
+
+      nextOptions: function (question, letter) {
+        var opts = [{ value: 'end', label: 'End survey' }];
+        for (var later = question + 1; later <= 5; later++) {
+          if (this.questionFilled(later)) {
+            opts.push({ value: String(later), label: 'Question ' + later });
+          }
+        }
+        var current = this.nextValue(question, letter);
+        var valid = false;
+        for (var i = 0; i < opts.length; i++) {
+          if (opts[i].value === current) valid = true;
+        }
+        if (current && !valid) {
+          opts.push({ value: current, label: 'Invalid (' + current + ')' });
+        }
+        return opts;
+      },
+
+      rebuildNextSelect: function (question, letter) {
+        var el = document.querySelector('[name="answer' + question + letter + 'next"]');
+        if (!el || el.tagName !== 'SELECT') return;
+        var current = this.nextValue(question, letter);
+        var opts = this.nextOptions(question, letter);
+        var html = '';
+        for (var i = 0; i < opts.length; i++) {
+          html += '<option value="' + escapeHtml(opts[i].value) + '"' +
+            (opts[i].value === current ? ' selected' : '') + '>' +
+            escapeHtml(opts[i].label) + '</option>';
+        }
+        el.innerHTML = html;
+        el.value = current;
+      },
+
+      syncNextTargets: function (repairCleared) {
+        var nowFilled = this.filledQuestionMap();
+        for (var q = 1; q <= 5; q++) {
+          for (var li = 0; li < letters.length; li++) {
+            var letter = letters[li];
+            var el = document.querySelector('[name="answer' + q + letter + 'next"]');
+            if (!el) continue;
+            var val = String(el.value || 'end');
+            var target = parseInt(val, 10);
+            if (repairCleared && val !== 'end' && target && this.prevFilled[target] && !nowFilled[target] && target > q) {
+              el.value = 'end';
+              var warnings = Object.assign({}, this.nextWarnings);
+              warnings[q + letter] = 'Question ' + target + ' is empty. Next was reset to End survey.';
+              this.nextWarnings = warnings;
+            }
+            this.rebuildNextSelect(q, letter);
+          }
+        }
+        this.prevFilled = nowFilled;
       },
 
       addAnswer: function (question) {
@@ -236,10 +343,12 @@
       },
 
       syncCss: function () {
+        this.formEpoch += 1;
         var combined = this.combinedCss();
         var hidden = document.getElementById('custom_css');
         if (hidden) hidden.value = combined;
         this.previewSrcdoc = this.buildPreview(combined);
+        this.syncNextTargets(this.editorReady);
       },
 
       buildPreview: function (css) {

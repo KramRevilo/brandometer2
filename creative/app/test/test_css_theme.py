@@ -94,3 +94,5 @@ class CssThemeTest(unittest.TestCase):
     self.assertIn('px!important', source)
     self.assertIn('applyPreset', source)
     self.assertIn("['a', 'b', 'c', 'd', 'e']", source)
+    self.assertIn('syncNextTargets', source)
+    self.assertIn('End survey', source)

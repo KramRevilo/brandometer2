@@ -212,6 +212,9 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'Add answer', response.data)
     self.assertIn(b'Classic green', response.data)
     self.assertIn(b'previewFrameStyle', response.data)
+    self.assertIn(b'End survey', response.data)
+    self.assertIn(b'name="answer1anext"', response.data)
+    self.assertIn(b'nextIsInvalid', response.data)
 
   @mock.patch.object(survey_service, 'copy_by_id')
   def test_copy_opens_editor(self, copy_mock):

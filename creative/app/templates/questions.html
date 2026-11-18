@@ -161,14 +161,41 @@
           </div>
           {% for letter in ['a', 'b', 'c', 'd', 'e'] %}
           {% set answer = 'answer' + n|string + letter %}
+          {% set next_name = answer + 'next' %}
+          {% set cur_next = form[next_name].data or 'end' %}
           <div class="row g-3 mb-2" x-show="answerVisible({{ n }}, '{{ letter }}')" x-cloak>
             <div class="col-md-8">
               <label class="form-label" for="{{ answer }}">Answer {{ letter|upper }}</label>
               {{ form[answer](class="form-control", id=answer) }}
             </div>
-            <div class="col-md-4">
-              <label class="form-label" for="{{ answer }}next">Next question</label>
-              {{ form[answer + "next"](class="form-control", id=answer + "next") }}
+            <div class="col-md-4" x-show="answerHasText({{ n }}, '{{ letter }}')" x-cloak>
+              <label class="form-label" for="{{ next_name }}">Next question</label>
+              <select class="form-select" name="{{ next_name }}" id="{{ next_name }}"
+                      :class="{ 'is-invalid': nextIsInvalid({{ n }}, '{{ letter }}') }"
+                      @change="clearNextWarning({{ n }}, '{{ letter }}')">
+                <option value="end"{% if cur_next == 'end' %} selected{% endif %}>End survey</option>
+                {% for later in range(n + 1, 6) %}
+                  {% if form['question' + later|string].data %}
+                <option value="{{ later }}"{% if cur_next == later|string %} selected{% endif %}>Question {{ later }}</option>
+                  {% endif %}
+                {% endfor %}
+                {% set ns = namespace(matched=(cur_next == 'end')) %}
+                {% for later in range(n + 1, 6) %}
+                  {% if form['question' + later|string].data and cur_next == later|string %}
+                    {% set ns.matched = true %}
+                  {% endif %}
+                {% endfor %}
+                {% if cur_next and not ns.matched %}
+                <option value="{{ cur_next }}" selected>Invalid ({{ cur_next }})</option>
+                {% endif %}
+              </select>
+              {% for error in form[next_name].errors %}
+              <div class="text-danger small">{{ error }}</div>
+              {% endfor %}
+              <div class="form-text text-danger" x-show="nextIsInvalid({{ n }}, '{{ letter }}')" x-cloak>
+                This Next value is invalid (empty or earlier question). Choose End survey or a later filled question.
+              </div>
+              <div class="form-text text-warning" x-show="nextWarning({{ n }}, '{{ letter }}')" x-cloak x-text="nextWarning({{ n }}, '{{ letter }}')"></div>
             </div>
           </div>
           {% endfor %}

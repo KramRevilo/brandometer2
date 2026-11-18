@@ -36,6 +36,8 @@ RESPONSES_IMMEDIATELY = "Submit Responses after each Question"
 ANSWER_LETTERS = ('a', 'b', 'c', 'd', 'e')
 MIN_ANSWERS = 2
 MAX_ANSWERS = 5
+NEXT_END = 'end'
+_NEXT_FIELD_NAME = re.compile(r'^answer([1-5])([a-e])next$')
 
 # this is the default stylesheet for the custom creative
 DEFAULT_CSS = """
@@ -225,6 +227,66 @@ Use position: absolute; with 5 answers that has multiple options
 
 # LANGUAGE_CHOICES = "'en', 'ms', 'zh', 'ja', 'ko'"
 
+def question_text_filled(form, question_number):
+  field_name = 'question' + str(question_number)
+  value = ''
+  if hasattr(form, 'data') and form.data is not None:
+    value = form.data.get(field_name) or ''
+  return bool(str(value).strip())
+
+
+def next_choices(form, from_question, current_value=None):
+  """Dropdown values: End survey, then later questions that have text.
+
+  Invalid stored values are appended so the editor can show them as invalid.
+  """
+  choices = [(NEXT_END, 'End survey')]
+  for later in range(int(from_question) + 1, 6):
+    if question_text_filled(form, later):
+      choices.append((str(later), 'Question %s' % later))
+  current = NEXT_END if current_value in (None, '') else str(current_value).strip()
+  valid = {item[0] for item in choices}
+  if current not in valid:
+    choices.append((current, 'Invalid (%s)' % current))
+  return choices
+
+
+def next_target_error(form, from_question, value):
+  """Return an error message if value is not 'end' or a later filled question."""
+  if value is None or str(value).strip() == '':
+    return 'Choose End survey or a later question.'
+  text = str(value).strip()
+  if text.lower() == NEXT_END and text != NEXT_END:
+    return "Syntax for end of survey is 'end' in lowercase, please fix."
+  if text == NEXT_END:
+    return None
+  if not re.fullmatch(r'[1-5]', text):
+    return 'Next question must be End survey or a later question that has text.'
+  target = int(text)
+  if target <= int(from_question):
+    return 'Next question must be a later question (or End survey).'
+  if not question_text_filled(form, target):
+    return 'Next question must be a later question that has text.'
+  return None
+
+
+def validate_next_target(form, field):
+  """Reject next values that are earlier, the same question, empty, or non-end junk."""
+  match = _NEXT_FIELD_NAME.match(field.name)
+  if not match:
+    return
+  from_question = int(match.group(1))
+  letter = match.group(2)
+  answer_text = ''
+  if hasattr(form, 'data') and form.data is not None:
+    answer_text = form.data.get('answer' + str(from_question) + letter) or ''
+  if not str(answer_text).strip():
+    return
+  message = next_target_error(form, from_question, field.data)
+  if message:
+    raise ValidationError(message)
+
+
 def question_section_is_empty(form, questionNumber):
   """Check if any field of the question input including answer is empty."""
   questionField = 'question' + questionNumber
@@ -313,32 +375,57 @@ class QuestionForm(FlaskForm):
   answer1d = StringField('answer1d')
   answer1e = StringField('answer1e')
   answer1anext = StringField(
-      'answer1aNext', default='end', validators=[DataRequired()])
+      'answer1aNext', default=NEXT_END,
+      validators=[DataRequired(), validate_next_target])
   answer1bnext = StringField(
-      'answer1bNext', default='end', validators=[DataRequired()])
-  answer1cnext = StringField('answer1cNext', default='end')
-  answer1dnext = StringField('answer1dNext', default='end')
-  answer1enext = StringField('answer1eNext', default='end')
-  answer2anext = StringField('answer2aNext', default='end')
-  answer2bnext = StringField('answer2bNext', default='end')
-  answer2cnext = StringField('answer2cNext', default='end')
-  answer2dnext = StringField('answer2dNext', default='end')
-  answer2enext = StringField('answer2eNext', default='end')
-  answer3anext = StringField('answer3aNext', default='end')
-  answer3bnext = StringField('answer3bNext', default='end')
-  answer3cnext = StringField('answer3cNext', default='end')
-  answer3dnext = StringField('answer3dNext', default='end')
-  answer3enext = StringField('answer3eNext', default='end')
-  answer4anext = StringField('answer4aNext', default='end')
-  answer4bnext = StringField('answer4bNext', default='end')
-  answer4cnext = StringField('answer4cNext', default='end')
-  answer4dnext = StringField('answer4dNext', default='end')
-  answer4enext = StringField('answer4eNext', default='end')
-  answer5anext = StringField('answer5aNext', default='end')
-  answer5bnext = StringField('answer5bNext', default='end')
-  answer5cnext = StringField('answer5cNext', default='end')
-  answer5dnext = StringField('answer5dNext', default='end')
-  answer5enext = StringField('answer5eNext', default='end')
+      'answer1bNext', default=NEXT_END,
+      validators=[DataRequired(), validate_next_target])
+  answer1cnext = StringField(
+      'answer1cNext', default=NEXT_END, validators=[validate_next_target])
+  answer1dnext = StringField(
+      'answer1dNext', default=NEXT_END, validators=[validate_next_target])
+  answer1enext = StringField(
+      'answer1eNext', default=NEXT_END, validators=[validate_next_target])
+  answer2anext = StringField(
+      'answer2aNext', default=NEXT_END, validators=[validate_next_target])
+  answer2bnext = StringField(
+      'answer2bNext', default=NEXT_END, validators=[validate_next_target])
+  answer2cnext = StringField(
+      'answer2cNext', default=NEXT_END, validators=[validate_next_target])
+  answer2dnext = StringField(
+      'answer2dNext', default=NEXT_END, validators=[validate_next_target])
+  answer2enext = StringField(
+      'answer2eNext', default=NEXT_END, validators=[validate_next_target])
+  answer3anext = StringField(
+      'answer3aNext', default=NEXT_END, validators=[validate_next_target])
+  answer3bnext = StringField(
+      'answer3bNext', default=NEXT_END, validators=[validate_next_target])
+  answer3cnext = StringField(
+      'answer3cNext', default=NEXT_END, validators=[validate_next_target])
+  answer3dnext = StringField(
+      'answer3dNext', default=NEXT_END, validators=[validate_next_target])
+  answer3enext = StringField(
+      'answer3eNext', default=NEXT_END, validators=[validate_next_target])
+  answer4anext = StringField(
+      'answer4aNext', default=NEXT_END, validators=[validate_next_target])
+  answer4bnext = StringField(
+      'answer4bNext', default=NEXT_END, validators=[validate_next_target])
+  answer4cnext = StringField(
+      'answer4cNext', default=NEXT_END, validators=[validate_next_target])
+  answer4dnext = StringField(
+      'answer4dNext', default=NEXT_END, validators=[validate_next_target])
+  answer4enext = StringField(
+      'answer4eNext', default=NEXT_END, validators=[validate_next_target])
+  answer5anext = StringField(
+      'answer5aNext', default=NEXT_END, validators=[validate_next_target])
+  answer5bnext = StringField(
+      'answer5bNext', default=NEXT_END, validators=[validate_next_target])
+  answer5cnext = StringField(
+      'answer5cNext', default=NEXT_END, validators=[validate_next_target])
+  answer5dnext = StringField(
+      'answer5dNext', default=NEXT_END, validators=[validate_next_target])
+  answer5enext = StringField(
+      'answer5eNext', default=NEXT_END, validators=[validate_next_target])
   question2 = StringField('question2')
   answer2a = StringField('answer2a')
   answer2b = StringField('answer2b')
