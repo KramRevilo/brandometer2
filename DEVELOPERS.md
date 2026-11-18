@@ -40,8 +40,12 @@ gcloud services enable \
   run.googleapis.com \
   artifactregistry.googleapis.com
 
-# Firestore (skip if (default) already exists)
-gcloud firestore databases create --location=us-central1
+# Firestore Native (default) — do this *before* `gcloud app create`, which
+# otherwise provisions (default) in Datastore mode.
+gcloud firestore databases create \
+  --location=us-central1 \
+  --type=firestore-native \
+  --database='(default)'
 
 # BigQuery dataset + responses table (same schema as the receiver)
 bq --location=us-central1 mk --dataset --description "Main response data set for Sonar" "$PROJECT_ID:responses"
@@ -132,6 +136,30 @@ bq mk --table \
 ```
 
 Do not pass `--location` on `bq mk --table`; the table inherits `us-central1` from the existing `responses` dataset. Skip the command if `bq show brandometer2:responses.responses` already succeeds. The homepage also treats a missing table as zero responses, so `/index` still loads.
+
+# Firestore Datastore mode
+
+If the app fails with `The Cloud Firestore API is not available for Firestore in Datastore Mode database projects/…/databases/(default)`, App Engine (or an older `./deploy`) created `(default)` in **Datastore mode**. Sonar needs **Firestore Native**.
+
+Check:
+
+```shell
+gcloud firestore databases describe --database='(default)' --format='value(type)'
+```
+
+`DATASTORE_MODE` is the problem; `FIRESTORE_NATIVE` is correct.
+
+If that database is **empty** (a fresh project is), delete it and recreate Native. This cannot be undone and will fail if any entities exist:
+
+```shell
+gcloud firestore databases delete --database='(default)'
+gcloud firestore databases create \
+  --location=us-central1 \
+  --type=firestore-native \
+  --database='(default)'
+```
+
+Then restart the local app (or rerun `./deploy`). `./deploy` now creates Native Firestore **before** App Engine and exits with these same commands if it finds Datastore mode.
 
 # Unit tests
 

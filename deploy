@@ -29,6 +29,30 @@ gcloud services enable bigquery.googleapis.com
 gcloud services enable run.googleapis.com
 gcloud services enable artifactregistry.googleapis.com
 
+# Create Firestore Native before App Engine. `gcloud app create` otherwise
+# provisions (default) in Datastore mode, which the Firestore client cannot use.
+echo -e "\n-- Create Firestore Native (default) database"
+DB_TYPE=$(gcloud firestore databases describe --database='(default)' --format='value(type)' 2>/dev/null || true)
+if [ -z "$DB_TYPE" ]; then
+    gcloud firestore databases create \
+        --location="$LOCATION" \
+        --type=firestore-native \
+        --database='(default)'
+elif echo "$DB_TYPE" | grep -qi 'FIRESTORE_NATIVE'; then
+    echo "Firestore Native database (default) already exists"
+elif echo "$DB_TYPE" | grep -qi 'DATASTORE'; then
+    echo "ERROR: Cloud Firestore API is not available because (default) is in Datastore mode ($DB_TYPE)."
+    echo "Sonar needs Firestore Native. If that database is empty, switch it with:"
+    echo "  gcloud firestore databases delete --database='(default)'"
+    echo "  gcloud firestore databases create --location=$LOCATION --type=firestore-native --database='(default)'"
+    echo "See DEVELOPERS.md (Firestore Datastore mode)."
+    exit 1
+else
+    echo "ERROR: unexpected type for Firestore database (default): $DB_TYPE"
+    echo "Sonar needs --type=firestore-native."
+    exit 1
+fi
+
 # Deploy receiver endpoint.
 cd receiver
 echo -e "\n-- Create BigQuery dataset"
@@ -77,19 +101,11 @@ echo "Receiver URL: $RECEIVER_URL"
 
 # Exit receiver dir.
 cd ..
-echo -e "\nSet up basic App Engine to allow firestore setup (if none exists)"
+echo -e "\nSet up App Engine (if none exists)"
 if gcloud app services list; then
     echo "App Engine already configured. Continuing..."
 else
     gcloud app create --region=$REGION
-fi
-echo -e "\n-- Deploy Firestore for survey configuration"
-
-# check to see if '(default)' firestore database already installed
-if gcloud firestore databases list --format='value(name)' | grep -q '(default)'; then
-    echo "Firestore database named (default) found in this project - skipping install"
-else
-    gcloud firestore databases create --location=$LOCATION
 fi
 
 gcloud projects add-iam-policy-binding $PROJECT_ID \
