@@ -21,13 +21,31 @@ from flask import flash
 from flask import render_template
 from google.cloud import bigquery
 from google.cloud import bigquery_storage
-import google.cloud.bigquery.magics
 import numpy as np
 import pandas as pd
 import survey_collection
 from forms import BRAND_TRACK
 from forms import DEFAULT_CSS
 from forms import RESPONSES_AT_END
+
+_bq_client = None
+_bqstorage_client = None
+
+
+def _get_bq_client(project_id=None):
+  """Return a BigQuery client, created on first use."""
+  global _bq_client
+  if _bq_client is None:
+    _bq_client = bigquery.Client(project=project_id or os.environ.get('PROJECT_ID'))
+  return _bq_client
+
+
+def _get_bqstorage_client():
+  """Return a BigQuery Storage client, created on first use."""
+  global _bqstorage_client
+  if _bqstorage_client is None:
+    _bqstorage_client = bigquery_storage.BigQueryReadClient()
+  return _bqstorage_client
 
 def get_all():
   return survey_collection.get_all()
@@ -132,7 +150,7 @@ def get_html_template(survey_id, survey_dict, seg_type):
       survey=survey_dict,
       survey_id=survey_id,
       show_back_button=False,
-      response_type=survey_dict['responsetype'],
+      response_type=survey_dict.get('responsetype', RESPONSES_AT_END),
       all_question_json=get_question_json(survey_dict),
       seg=seg_type,
       custom_css=custom_css,
@@ -228,13 +246,12 @@ def get_brand_lift_results(surveyid):
 
 def get_survey_responses(surveyid, query, client=None):
   """Get data from survey"""
-  google.cloud.bigquery.magics.context.use_bqstorage_api = True
   project_id = os.environ.get('PROJECT_ID')
   # table_id = os.environ.get('TABLE_ID')
 
   if client is None:
-    client = bigquery.Client(project=project_id)
-  bqstorageclient = bigquery_storage.BigQueryReadClient()
+    client = _get_bq_client(project_id)
+  bqstorageclient = _get_bqstorage_client()
   job_config = bigquery.QueryJobConfig(
       query_parameters=[bigquery.ScalarQueryParameter(
           'survey_id','STRING',surveyid)])
@@ -246,13 +263,12 @@ def get_survey_responses(surveyid, query, client=None):
 def get_survey_responses_context(surveyid, client=None):
  
   """Get data from survey"""
-  google.cloud.bigquery.magics.context.use_bqstorage_api = True
   project_id = os.environ.get('PROJECT_ID')
   table_id = os.environ.get('TABLE_ID')
 
   if client is None:
-    client = bigquery.Client(project=project_id)
-  bqstorageclient = bigquery_storage.BigQueryReadClient()
+    client = _get_bq_client(project_id)
+  bqstorageclient = _get_bqstorage_client()
   query = f"""
         SELECT CreatedAt, Segmentation, Response
         FROM `{table_id}`
@@ -268,11 +284,10 @@ def get_survey_responses_context(surveyid, client=None):
   return df
 
 def get_all_response_counts():
-  google.cloud.bigquery.magics.context.use_bqstorage_api = True
   project_id = os.environ.get('PROJECT_ID')
   table_id = os.environ.get('TABLE_ID')
-  client = bigquery.Client(project=project_id)
-  bqstorageclient = bigquery_storage.BigQueryReadClient()
+  client = _get_bq_client(project_id)
+  bqstorageclient = _get_bqstorage_client()
 
   query = f"""
     SELECT
@@ -293,12 +308,11 @@ def get_all_response_counts():
 
 def get_response_count_from_survey(survey):
   """Get response count from survey"""
-  google.cloud.bigquery.magics.context.use_bqstorage_api = True
   project_id = os.environ.get('PROJECT_ID')
   table_id = os.environ.get('TABLE_ID')
 
-  client = bigquery.Client(project=project_id)
-  bqstorageclient = bigquery_storage.BigQueryReadClient()
+  client = _get_bq_client(project_id)
+  bqstorageclient = _get_bqstorage_client()
   survey_id = survey.id
   query = f"""
         SELECT
