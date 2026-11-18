@@ -35,6 +35,7 @@ class TestSurveyService(unittest.TestCase):
     super().setUp()
     self.client = MockFirestore()
     self.collection = self.client.collection('test_surveys')
+    survey_service.clear_stats_cache()
 
   def tearDown(self):
     self.client.reset()
@@ -47,6 +48,22 @@ class TestSurveyService(unittest.TestCase):
     survey_service.get_all()
     # then
     assert survey_collection.get_all.call_count == 1
+
+  def test_collection_get_all_with_fields_uses_select(self):
+    query = mock.Mock()
+    col = mock.Mock()
+    col.select.return_value = query
+    with mock.patch.object(survey_collection, '_collection', return_value=col):
+      survey_collection.get_all(['surveyname', 'archived'])
+    col.select.assert_called_once_with(['surveyname', 'archived'])
+    query.stream.assert_called_once_with()
+
+  def test_collection_get_all_without_fields_streams_collection(self):
+    col = mock.Mock()
+    with mock.patch.object(survey_collection, '_collection', return_value=col):
+      survey_collection.get_all()
+    col.select.assert_not_called()
+    col.stream.assert_called_once_with()
 
   def test_get_by_id(self):
     # given
@@ -495,9 +512,11 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(survey_service.classify_status(0), ('Active', 'success'))
     self.assertEqual(survey_service.classify_status(3), ('Active', 'success'))
     self.assertEqual(survey_service.classify_status(4), ('Stale', 'warning'))
-    self.assertEqual(survey_service.classify_status(14), ('Stale', 'warning'))
+    self.assertEqual(survey_service.classify_status(7), ('Stale', 'warning'))
     self.assertEqual(
-        survey_service.classify_status(15), ('Timed out', 'danger'))
+        survey_service.classify_status(8), ('Timed out', 'danger'))
+    self.assertEqual(
+        survey_service.classify_status(14), ('Timed out', 'danger'))
 
   def test_is_brand_lift_requires_explicit_type(self):
     self.assertFalse(survey_service.is_brand_lift({}))
@@ -515,6 +534,16 @@ class TestSurveyService(unittest.TestCase):
     doc.to_dict.return_value = data
     doc.exists = True
     return doc
+
+  def test_list_surveys_requests_list_fields_without_css(self):
+    with mock.patch.object(
+        survey_collection, 'get_all', return_value=[]) as get_all:
+      survey_service.list_surveys()
+      get_all.assert_called_once_with(survey_collection.LIST_FIELDS)
+      fields = get_all.call_args[0][0]
+      self.assertNotIn('custom_css', fields)
+      for name in ('surveyname', 'archived', 'surveytype', 'question1'):
+        self.assertIn(name, fields)
 
   def test_list_surveys_hides_archived_and_treats_missing_as_active(self):
     docs = [
@@ -577,3 +606,75 @@ class TestSurveyService(unittest.TestCase):
       saved = create_mock.call_args[0][0]
       self.assertIs(saved['archived'], False)
       self.assertEqual(saved['surveyname'], 'New')
+
+  def test_paginate_surveys(self):
+    docs = [self._survey_doc(str(i), {'surveyname': 'S%s' % i}) for i in range(5)]
+    page1, meta = survey_service.paginate_surveys(docs, page=1, page_size=2)
+    self.assertEqual([d.id for d in page1], ['0', '1'])
+    self.assertTrue(meta['has_next'])
+    self.assertFalse(meta['has_prev'])
+    self.assertEqual(meta['total'], 5)
+    self.assertEqual(meta['total_pages'], 3)
+
+    page3, meta = survey_service.paginate_surveys(docs, page=3, page_size=2)
+    self.assertEqual([d.id for d in page3], ['4'])
+    self.assertFalse(meta['has_next'])
+    self.assertTrue(meta['has_prev'])
+
+    empty, meta = survey_service.paginate_surveys([], page=1, page_size=50)
+    self.assertEqual(empty, [])
+    self.assertEqual(meta['total'], 0)
+    self.assertFalse(meta['has_next'])
+    self.assertFalse(meta['has_prev'])
+
+    clamped, meta = survey_service.paginate_surveys(docs, page=99, page_size=2)
+    self.assertEqual([d.id for d in clamped], ['4'])
+    self.assertEqual(meta['page'], 3)
+
+  def test_paginate_archived_list_is_independent(self):
+    docs = [
+        self._survey_doc('a', {'surveyname': 'A', 'archived': True}),
+        self._survey_doc('b', {'surveyname': 'B', 'archived': True}),
+        self._survey_doc('c', {'surveyname': 'C', 'archived': True}),
+    ]
+    with mock.patch.object(survey_collection, 'get_all', return_value=docs):
+      archived = survey_service.list_surveys(include_archived=True)
+    page1, meta = survey_service.paginate_surveys(archived, page=1, page_size=2)
+    self.assertEqual([d.id for d in page1], ['a', 'b'])
+    self.assertTrue(meta['has_next'])
+    page2, meta = survey_service.paginate_surveys(archived, page=2, page_size=2)
+    self.assertEqual([d.id for d in page2], ['c'])
+    self.assertFalse(meta['has_next'])
+
+  def test_response_counts_cached_within_ttl(self):
+    frame = pandas.DataFrame({
+        'ID': ['s1'],
+        'Segmentation': ['seg'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [1],
+        'response_count': [3],
+    })
+    with mock.patch.dict(os.environ, {'STATS_CACHE_SECONDS': '90'}):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          return_value=frame) as fetch:
+        first = survey_service.get_all_response_counts()
+        second = survey_service.get_all_response_counts()
+        self.assertEqual(fetch.call_count, 1)
+        self.assertIs(first, second)
+        survey_service._stats_cache['expires_at'] = 0
+        survey_service.get_all_response_counts()
+        self.assertEqual(fetch.call_count, 2)
+
+  def test_response_counts_cache_disabled_when_ttl_zero(self):
+    frame = pandas.DataFrame(columns=[
+        'ID', 'Segmentation', 'max_date', 'days_since_response',
+        'response_count'
+    ])
+    with mock.patch.dict(os.environ, {'STATS_CACHE_SECONDS': '0'}):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          return_value=frame) as fetch:
+        survey_service.get_all_response_counts()
+        survey_service.get_all_response_counts()
+        self.assertEqual(fetch.call_count, 2)

@@ -1,6 +1,8 @@
-{% extends "base.html" %} 
+{% extends "base.html" %}
+{% from 'stats_macros.html' import count_content, last_content, status_content %}
 {% block scripts %}
 
+<script src="https://unpkg.com/htmx.org@1.9.12"></script>
 <script src="{{url_for('static', filename='sortable.js')}}"></script>
 <!-- <script>
 function sortTableRowsByColumn( table, columnIndex, ascending ) {
@@ -85,7 +87,21 @@ function onColumnHeaderClicked(ev) {
         {% else %}
             <a href="{{ url_for('index', archived=1) }}">Show archived</a>
         {% endif %}
+        {% if pager and pager.total %}
+            <span class="text-muted">
+                &nbsp;{{ pager.total }} survey{% if pager.total != 1 %}s{% endif %}
+                {% if pager.total_pages > 1 %}
+                    (page {{ pager.page }} of {{ pager.total_pages }})
+                {% endif %}
+            </span>
+        {% endif %}
     </p>
+    {% if stats_ids %}
+    <div id="stats-poller"
+         hx-get="{{ url_for('index_stats_partial', ids=stats_ids) }}"
+         hx-trigger="every {{ stats_poll_seconds }}s [!document.hidden]"
+         hx-swap="none"></div>
+    {% endif %}
     <table data-sortable id="mainTable" class="table table-bordered table-striped">
         <thead class="thead-light">
             <tr style='text-align:center;background-color:#337ab7;color:white;vertical-align: middle;'>
@@ -156,32 +172,13 @@ function onColumnHeaderClicked(ev) {
                </form>
             </td>
             <td style="font-size:10pt;text-align:center">
-            {% for item in stat_array %}
-                {% if item['id'] == survey.id %}
-                    {% for seg in item['stats'] %}
-                        {% if seg['Segmentation'] == '' %}
-                            &lt;Unnamed&gt;
-                        {% else %}
-                            {{seg['Segmentation']}}
-                        {% endif %}
-                        &nbsp;&colon;&nbsp;{{ seg['response_count'] }}<br>
-                    {% endfor %}
-                {% endif %}
-            {% endfor %}
+                <div id="count-{{ survey.id }}">{{ count_content(stats_by_id.get(survey.id)) }}</div>
             </td>
             <td style="font-size:10pt;text-align:center">
-            {% for item in stat_array %}
-                {% if item['id'] == survey.id %}
-                    {{ item['last_change'] }}
-                {% endif %}
-            {% endfor %}
+                <div id="last-{{ survey.id }}">{{ last_content(stats_by_id.get(survey.id)) }}</div>
             </td>
             <td style="font-size:10pt;text-align:center;vertical-align:middle;">
-            {% for item in stat_array %}
-                {% if item['id'] == survey.id %}
-                    <span class="label label-{{ item['status_label'] }}">{{ item['status'] }}</span>
-                {% endif %}
-            {% endfor %}
+                <div id="status-{{ survey.id }}">{{ status_content(stats_by_id.get(survey.id)) }}</div>
             </td>
             <td style='font-size:10pt;text-align:center'>
                 <form>
@@ -240,5 +237,23 @@ function onColumnHeaderClicked(ev) {
         {% endfor %}
         </tbody>
     </table>
+    {% if pager and pager.total_pages > 1 %}
+    <ul class="pager">
+        <li class="previous{% if not pager.has_prev %} disabled{% endif %}">
+            {% if pager.has_prev %}
+            <a href="{{ url_for('index', **index_query(show_archived, pager.page - 1)) }}">Previous</a>
+            {% else %}
+            <span>Previous</span>
+            {% endif %}
+        </li>
+        <li class="next{% if not pager.has_next %} disabled{% endif %}">
+            {% if pager.has_next %}
+            <a href="{{ url_for('index', **index_query(show_archived, pager.page + 1)) }}">Next</a>
+            {% else %}
+            <span>Next</span>
+            {% endif %}
+        </li>
+    </ul>
+    {% endif %}
 </div>
 {% endblock content %}

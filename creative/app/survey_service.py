@@ -15,7 +15,10 @@
 """Various imports to be used for survey functionalites."""
 import datetime
 import io
+import math
 import os
+import threading
+import time
 import zipfile
 from flask import flash
 from flask import render_template
@@ -30,8 +33,17 @@ from forms import BRAND_TRACK
 from forms import DEFAULT_CSS
 from forms import RESPONSES_AT_END
 
+# Homepage status chips. Active <= 3 days, Stale <= 7, Timed out after that.
+# 2022 backlog (yellow at 7 days). Previously Stale ran through 14 days.
 STATUS_ACTIVE_DAYS = 3
-STATUS_STALE_DAYS = 14
+STATUS_STALE_DAYS = 7
+HOMEPAGE_PAGE_SIZE = 50
+STATS_POLL_SECONDS = 30
+_DEFAULT_STATS_CACHE_SECONDS = 90
+_MRC_INIT = 999999999
+
+_stats_lock = threading.Lock()
+_stats_cache = {'df': None, 'expires_at': 0.0}
 
 _bq_client = None
 _bqstorage_client = None
@@ -101,10 +113,79 @@ def is_archived(survey):
 
 
 def list_surveys(include_archived=False):
-  surveys = list(survey_collection.get_all())
+  surveys = list(survey_collection.get_all(survey_collection.LIST_FIELDS))
   if include_archived:
-    return [survey for survey in surveys if is_archived(survey)]
-  return [survey for survey in surveys if not is_archived(survey)]
+    surveys = [survey for survey in surveys if is_archived(survey)]
+  else:
+    surveys = [survey for survey in surveys if not is_archived(survey)]
+  surveys.sort(key=lambda s: (
+      ((s.to_dict() or {}).get('surveyname') or '').lower(),
+      s.id,
+  ))
+  return surveys
+
+
+def paginate_surveys(surveys, page=1, page_size=HOMEPAGE_PAGE_SIZE):
+  """Slice surveys into a page. Out-of-range pages clamp to the last page."""
+  surveys = list(surveys)
+  total = len(surveys)
+  try:
+    page = int(page)
+  except (TypeError, ValueError):
+    page = 1
+  try:
+    page_size = int(page_size)
+  except (TypeError, ValueError):
+    page_size = HOMEPAGE_PAGE_SIZE
+  page_size = max(1, page_size)
+  total_pages = max(1, math.ceil(total / page_size)) if total else 1
+  page = max(1, min(page, total_pages))
+  start = (page - 1) * page_size
+  page_items = surveys[start:start + page_size]
+  return page_items, {
+      'page': page,
+      'page_size': page_size,
+      'total': total,
+      'total_pages': total_pages,
+      'has_prev': page > 1,
+      'has_next': page < total_pages,
+  }
+
+
+def build_stat_array(survey_ids, counts_df=None):
+  """Per-survey count / last-response / status from the (cached) BQ summary."""
+  if counts_df is None:
+    counts_df = get_all_response_counts()
+  stat_array = []
+  for survey_id in survey_ids:
+    df = counts_df.loc[counts_df['ID'] == survey_id]
+    segmentation_rows = df.to_dict()
+    most_recent_change = _MRC_INIT
+    segs = []
+    for x in segmentation_rows.get('ID', {}):
+      days = segmentation_rows['days_since_response'][x]
+      segs.append({
+          'Segmentation': segmentation_rows['Segmentation'][x],
+          'response_count': segmentation_rows['response_count'][x],
+          'days_since_response': days,
+      })
+      if days < most_recent_change:
+        most_recent_change = days
+    if most_recent_change == _MRC_INIT:
+      days_since = None
+      last_change_display = ''
+    else:
+      days_since = most_recent_change
+      last_change_display = most_recent_change
+    status_text, status_label = classify_status(days_since)
+    stat_array.append({
+        'id': survey_id,
+        'stats': segs,
+        'last_change': last_change_display,
+        'status': status_text,
+        'status_label': status_label,
+    })
+  return stat_array
 
 
 def set_archived(survey_id, archived):
@@ -361,7 +442,21 @@ def get_survey_responses_context(surveyid, client=None):
       query, job_config=job_config, client=client,
       empty_columns=_EMPTY_RESPONSES_COLUMNS)
 
-def get_all_response_counts():
+def stats_cache_seconds():
+  raw = os.environ.get('STATS_CACHE_SECONDS', str(_DEFAULT_STATS_CACHE_SECONDS))
+  try:
+    return max(0, int(raw))
+  except (TypeError, ValueError):
+    return _DEFAULT_STATS_CACHE_SECONDS
+
+
+def clear_stats_cache():
+  with _stats_lock:
+    _stats_cache['df'] = None
+    _stats_cache['expires_at'] = 0.0
+
+
+def _fetch_all_response_counts():
   table_id = os.environ.get('TABLE_ID')
   query = f"""
     SELECT
@@ -377,6 +472,26 @@ def get_all_response_counts():
     """
   return _query_to_dataframe(
       query, empty_columns=_EMPTY_COUNTS_COLUMNS)
+
+
+def get_all_response_counts():
+  """Return the homepage BQ summary, cached in-process.
+
+  Each App Engine instance has its own cache. Stale values up to
+  STATS_CACHE_SECONDS (default 90) are acceptable; set 0 to disable.
+  """
+  ttl = stats_cache_seconds()
+  if ttl <= 0:
+    return _fetch_all_response_counts()
+  now = time.monotonic()
+  with _stats_lock:
+    cached = _stats_cache['df']
+    if cached is not None and now < _stats_cache['expires_at']:
+      return cached
+    df = _fetch_all_response_counts()
+    _stats_cache['df'] = df
+    _stats_cache['expires_at'] = time.monotonic() + ttl
+    return df
 
 
 def _segmentation_csv_column(surveyid):

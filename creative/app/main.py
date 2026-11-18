@@ -50,8 +50,24 @@ _disable_basic_auth = os.environ.get('DISABLE_BASIC_AUTH', '').strip().lower()
 app.config['BASIC_AUTH_FORCE'] = _disable_basic_auth not in (
     '1', 'true', 'yes', 'on')
 
-# Used when a survey has no BigQuery rows yet.
-MRC_INIT = 999999999
+def _truthy_arg(value):
+  return (value or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def _page_arg(value):
+  try:
+    return int(value)
+  except (TypeError, ValueError):
+    return 1
+
+
+def _index_query(show_archived, page=None):
+  args = {}
+  if show_archived:
+    args['archived'] = 1
+  if page:
+    args['page'] = page
+  return args
 
 
 @app.route('/')
@@ -62,50 +78,33 @@ def root():
 
 @app.route('/index')
 def index():
-  show_archived = request.args.get('archived', '').strip().lower() in (
-      '1', 'true', 'yes', 'on')
-  all_surveys = survey_service.list_surveys(include_archived=show_archived)
-  stat_array = []
-  tmp_stats = survey_service.get_all_response_counts()
-
-  for survey in all_surveys:
-    df = tmp_stats.loc[tmp_stats['ID'] == survey.id]
-    segmentation_rows = df.to_dict()
-
-    most_recent_change = MRC_INIT
-    segs = []
-    for x in segmentation_rows.get('ID', {}):
-      days = segmentation_rows['days_since_response'][x]
-      segs.append({
-          'Segmentation': segmentation_rows['Segmentation'][x],
-          'response_count': segmentation_rows['response_count'][x],
-          'days_since_response': days,
-      })
-      if days < most_recent_change:
-        most_recent_change = days
-
-    if most_recent_change == MRC_INIT:
-      days_since = None
-      last_change_display = ''
-    else:
-      days_since = most_recent_change
-      last_change_display = most_recent_change
-
-    status_text, status_label = survey_service.classify_status(days_since)
-    stat_array.append({
-        'id': survey.id,
-        'stats': segs,
-        'last_change': last_change_display,
-        'status': status_text,
-        'status_label': status_label,
-    })
-
+  show_archived = _truthy_arg(request.args.get('archived'))
+  surveys = survey_service.list_surveys(include_archived=show_archived)
+  page_surveys, pager = survey_service.paginate_surveys(
+      surveys,
+      page=_page_arg(request.args.get('page')),
+      page_size=survey_service.HOMEPAGE_PAGE_SIZE)
+  survey_ids = [survey.id for survey in page_surveys]
+  stat_array = survey_service.build_stat_array(survey_ids)
+  stats_by_id = {item['id']: item for item in stat_array}
   return render_template(
       'index.html',
-      all_surveys=all_surveys,
-      stat_array=stat_array,
+      all_surveys=page_surveys,
+      stats_by_id=stats_by_id,
       show_archived=show_archived,
+      pager=pager,
+      stats_poll_seconds=survey_service.STATS_POLL_SECONDS,
+      stats_ids=','.join(survey_ids),
+      index_query=_index_query,
       title=title)
+
+
+@app.route('/index/stats-partial')
+def index_stats_partial():
+  """Refresh count / last-response / status cells from the in-process cache."""
+  survey_ids = [sid for sid in request.args.get('ids', '').split(',') if sid]
+  stat_array = survey_service.build_stat_array(survey_ids)
+  return render_template('stats_partial.html', stat_array=stat_array)
 
 
 @app.route('/survey/create', methods=['GET', 'POST'])

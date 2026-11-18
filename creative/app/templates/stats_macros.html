@@ -1,0 +1,22 @@
+{% macro count_content(item) %}
+  {% if item %}
+    {% for seg in item.stats %}
+      {% if seg['Segmentation'] == '' %}
+        &lt;Unnamed&gt;
+      {% else %}
+        {{ seg['Segmentation'] }}
+      {% endif %}
+      &nbsp;&colon;&nbsp;{{ seg['response_count'] }}<br>
+    {% endfor %}
+  {% endif %}
+{% endmacro %}
+
+{% macro last_content(item) %}
+  {% if item %}{{ item.last_change }}{% endif %}
+{% endmacro %}
+
+{% macro status_content(item) %}
+  {% if item %}
+    <span class="label label-{{ item.status_label }}">{{ item.status }}</span>
+  {% endif %}
+{% endmacro %}

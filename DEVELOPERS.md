@@ -47,10 +47,15 @@ gcloud firestore databases create \
   --type=firestore-native \
   --database='(default)'
 
-# BigQuery dataset + responses table (same schema as the receiver)
+# BigQuery dataset + responses table (same schema as the receiver).
+# New tables are partitioned by CreatedAt and clustered by ID. Skip this
+# `bq mk --table` if the table already exists; do not migrate an existing table.
 bq --location=us-central1 mk --dataset --description "Main response data set for Sonar" "$PROJECT_ID:responses"
 bq mk --table \
   --schema receiver/responses.schema.json \
+  --time_partitioning_field CreatedAt \
+  --time_partitioning_type DAY \
+  --clustering_fields ID \
   --description "Survey response rows for Sonar" \
   "$PROJECT_ID:responses.responses"
 
@@ -92,6 +97,8 @@ export RECEIVER_URL="$(gcloud functions describe receiver --gen2 --region=us-cen
 # Optional. Google tag (gtag.js) ID for creatives. Unset or empty skips the loader
 # (there is no default Ads ID). Example: export GTAG_ID="AW-123456789"
 # export GTAG_ID=""
+# Optional. Homepage BQ stats cache TTL in seconds (default 90). 0 disables.
+# export STATS_CACHE_SECONDS=90
 ```
 
 If `gcloud functions describe` fails because the function is not deployed yet, omit `RECEIVER_URL` or set it later.
@@ -122,6 +129,10 @@ Then use Web Preview → port 5000. You do not need `AUTH_USERNAME` / `AUTH_PASS
 Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Production stays behind basic auth.
 
 Homepage: archived surveys are hidden unless you click **Show archived**. Copy opens the new survey in the editor. The stats button and `/survey/reporting/...` are Brand Lift only. Preview does not write to BigQuery.
+
+Status chips: **Active** up to 3 days since last response, **Stale** up to 7 days, **Timed out** after 7. (Previously Stale ran through 14 days.) Thresholds are `STATUS_ACTIVE_DAYS` / `STATUS_STALE_DAYS` in `creative/app/survey_service.py`.
+
+The homepage paginates at 50 surveys, projects list fields only (no `custom_css`), and caches the BigQuery count query in-process for 90 seconds (`STATS_CACHE_SECONDS`). Each App Engine instance has its own cache; values can be up to that TTL stale. Count / last-response / status cells poll every 30s via htmx against that cache (polling pauses while the tab is hidden).
 
 Redeploy App Engine (`./deploy` or `gcloud app deploy`) to pick up these changes. No new Firestore index is required; archive filtering is done in the app (a missing `archived` field counts as active). Optional: `export GTAG_ID=AW-…` before `./deploy` if creatives should load gtag.js.
 

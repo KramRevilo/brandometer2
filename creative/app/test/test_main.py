@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import unittest
 from unittest import mock
 
@@ -32,6 +33,7 @@ class MainRoutesTest(unittest.TestCase):
     super().setUp()
     main.app.config['BASIC_AUTH_FORCE'] = False
     self.client = main.app.test_client()
+    survey_service.clear_stats_cache()
 
   def tearDown(self):
     main.app.config['BASIC_AUTH_FORCE'] = True
@@ -115,6 +117,76 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'View Brand Lift Stats', response.data)
     self.assertIn(b'Active', response.data)
     self.assertIn(b'label-success', response.data)
+    self.assertIn(b'htmx.org', response.data)
+    self.assertIn(b'every 30s', response.data)
+    self.assertIn(b'document.hidden', response.data)
+    self.assertIn(b'/index/stats-partial', response.data)
+
+  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_pagination_preserves_archived(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('s%s' % i, {
+            'surveyname': 'Survey %s' % i,
+            'surveytype': 'brand_track',
+            'question1': 'Q',
+            'archived': True,
+        }) for i in range(5)
+    ]
+    counts_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
+
+    with mock.patch.object(survey_service, 'HOMEPAGE_PAGE_SIZE', 2):
+      response = self.client.get('/index?archived=1&page=2')
+
+    self.assertEqual(response.status_code, 200)
+    list_mock.assert_called_once_with(include_archived=True)
+    self.assertIn(b'Survey 2', response.data)
+    self.assertNotIn(b'Survey 0', response.data)
+    self.assertIn(b'archived=1', response.data)
+    self.assertIn(b'page=1', response.data)
+    self.assertIn(b'page=3', response.data)
+    self.assertIn(b'Previous', response.data)
+    self.assertIn(b'Next', response.data)
+
+  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_stats_partial_returns_oob_cells(self, list_mock, counts_mock):
+    counts_mock.return_value = pandas.DataFrame({
+        'ID': ['s1'],
+        'Segmentation': ['default_expose'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [1],
+        'response_count': [9],
+    })
+
+    response = self.client.get('/index/stats-partial?ids=s1')
+
+    self.assertEqual(response.status_code, 200)
+    list_mock.assert_not_called()
+    self.assertIn(b'id="count-s1"', response.data)
+    self.assertIn(b'id="last-s1"', response.data)
+    self.assertIn(b'id="status-s1"', response.data)
+    self.assertIn(b'hx-swap-oob="true"', response.data)
+    self.assertIn(b'9', response.data)
+    self.assertIn(b'Active', response.data)
+
+  @mock.patch.object(survey_service, 'list_surveys')
+  @mock.patch.object(survey_service, '_fetch_all_response_counts')
+  def test_stats_partial_does_not_requery_bq_within_ttl(
+      self, fetch_mock, list_mock):
+    fetch_mock.return_value = pandas.DataFrame({
+        'ID': ['s1'],
+        'Segmentation': ['seg'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [1],
+        'response_count': [4],
+    })
+    with mock.patch.dict(os.environ, {'STATS_CACHE_SECONDS': '90'}):
+      self.client.get('/index/stats-partial?ids=s1')
+      self.client.get('/index/stats-partial?ids=s1')
+    self.assertEqual(fetch_mock.call_count, 1)
+    list_mock.assert_not_called()
 
   @mock.patch.object(survey_service, 'copy_by_id')
   def test_copy_opens_editor(self, copy_mock):

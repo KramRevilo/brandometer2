@@ -66,8 +66,13 @@ echo -e "\n-- Create BigQuery responses table"
 if bq show --format=none "$PROJECT_ID:responses.responses" >/dev/null 2>&1; then
     echo "Table $PROJECT_ID:responses.responses already exists"
 else
+    # Partition by CreatedAt and cluster by ID for new tables only.
+    # Do not alter an existing responses table.
     bq mk --table \
         --schema responses.schema.json \
+        --time_partitioning_field CreatedAt \
+        --time_partitioning_type DAY \
+        --clustering_fields ID \
         --description "Survey response rows for Sonar" \
         "$PROJECT_ID:responses.responses"
 fi

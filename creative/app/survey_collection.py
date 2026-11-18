@@ -32,8 +32,24 @@ def _collection():
   return _survey_collection
 
 
-def get_all():
-  return _collection().stream()
+# Fields the homepage list needs. Omitting custom_css keeps list payloads small.
+LIST_FIELDS = (
+    'surveyname',
+    'archived',
+    'surveytype',
+    'question1',
+    'question2',
+    'question3',
+    'question4',
+    'question5',
+)
+
+
+def get_all(field_names=None):
+  query = _collection()
+  if field_names:
+    query = query.select(list(field_names))
+  return query.stream()
 
 
 def is_archived_doc(survey):
