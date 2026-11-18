@@ -232,7 +232,8 @@ class TestSurveyService(unittest.TestCase):
     text = survey_service.get_comment_text({'language': 'ZZ'})
     self.assertEqual(text, 'Choose all applicable')
 
-  def test_get_survey_responses_limits_to_given_survey(self):
+  @mock.patch.object(survey_service, '_get_bqstorage_client')
+  def test_get_survey_responses_limits_to_given_survey(self, _storage_mock):
     mock_bigquery_client = mock.create_autospec(bigquery.Client)
     query = """
         SELECT CreatedAt, Segmentation, Response
