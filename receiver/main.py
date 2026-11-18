@@ -25,6 +25,7 @@
 
 """
 
+import json
 import logging
 import datetime
 import os
@@ -32,6 +33,17 @@ import hashlib
 
 from google.cloud import bigquery
 from google.cloud.exceptions import NotFound
+
+
+def _table_schema():
+  schema_path = os.path.join(os.path.dirname(__file__), 'responses.schema.json')
+  with open(schema_path, encoding='utf-8') as schema_file:
+    fields = json.load(schema_file)
+  return [
+      bigquery.SchemaField(
+          field['name'], field['type'], mode=field.get('mode', 'REQUIRED'))
+      for field in fields
+  ]
 
 
 def receiver(request):
@@ -46,19 +58,7 @@ def receiver(request):
     print("Table {} already exists.".format(table_id))
   except NotFound:
     print("Table {} is not found- creating.".format(table_id))
-    # Create the table.
-    schema = [
-        bigquery.SchemaField("CreatedAt", "DATETIME", mode="REQUIRED"),
-        bigquery.SchemaField("Type", "String", mode="REQUIRED"),
-        bigquery.SchemaField("ID", "String", mode="REQUIRED"),
-        bigquery.SchemaField("Segmentation", "String", mode="REQUIRED"),
-        bigquery.SchemaField("Response", "String", mode="REQUIRED"),
-        bigquery.SchemaField("Visual", "String", mode="REQUIRED"),
-        bigquery.SchemaField("CreativeSize", "String", mode="REQUIRED"),
-        bigquery.SchemaField("RandomTimeStamp", "String", mode="REQUIRED"),
-        bigquery.SchemaField("BomID", "String", mode="REQUIRED"),
-    ]
-    table = bigquery.Table(table_id, schema=schema)
+    table = bigquery.Table(table_id, schema=_table_schema())
     table = client.create_table(table)
     print("Created table {}.{}.{}".format(table.project, table.dataset_id,
                                           table.table_id))

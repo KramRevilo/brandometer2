@@ -1,0 +1,11 @@
+[
+  {"name": "CreatedAt", "type": "DATETIME", "mode": "REQUIRED"},
+  {"name": "Type", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "ID", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "Segmentation", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "Response", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "Visual", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "CreativeSize", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "RandomTimeStamp", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "BomID", "type": "STRING", "mode": "REQUIRED"}
+]

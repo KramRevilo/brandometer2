@@ -19,6 +19,7 @@ import os
 import zipfile
 from flask import flash
 from flask import render_template
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.cloud import bigquery_storage
 import numpy as np
@@ -46,6 +47,33 @@ def _get_bqstorage_client():
   if _bqstorage_client is None:
     _bqstorage_client = bigquery_storage.BigQueryReadClient()
   return _bqstorage_client
+
+
+_EMPTY_RESPONSES_COLUMNS = ['CreatedAt', 'Segmentation', 'Response']
+_EMPTY_COUNTS_COLUMNS = [
+    'ID', 'Segmentation', 'max_date', 'days_since_response', 'response_count'
+]
+
+
+def _empty_frame(columns):
+  return pd.DataFrame(columns=columns)
+
+
+def _query_to_dataframe(query, job_config=None, client=None, empty_columns=None):
+  """Run a BigQuery SQL job. Missing tables return an empty frame, not an error."""
+  empty = _empty_frame(empty_columns or _EMPTY_RESPONSES_COLUMNS)
+  project_id = os.environ.get('PROJECT_ID')
+  if client is None:
+    client = _get_bq_client(project_id)
+  try:
+    if job_config is None:
+      query_job = client.query(query)
+    else:
+      query_job = client.query(query, job_config=job_config)
+    bqstorageclient = _get_bqstorage_client()
+    return query_job.result().to_dataframe(bqstorage_client=bqstorageclient)
+  except NotFound:
+    return empty
 
 def get_all():
   return survey_collection.get_all()
@@ -246,29 +274,18 @@ def get_brand_lift_results(surveyid):
 
 def get_survey_responses(surveyid, query, client=None):
   """Get data from survey"""
-  project_id = os.environ.get('PROJECT_ID')
-  # table_id = os.environ.get('TABLE_ID')
-
-  if client is None:
-    client = _get_bq_client(project_id)
-  bqstorageclient = _get_bqstorage_client()
   job_config = bigquery.QueryJobConfig(
       query_parameters=[bigquery.ScalarQueryParameter(
           'survey_id','STRING',surveyid)])
-  query_job = client.query(query, job_config=job_config)
-  df = query_job.result().to_dataframe(bqstorage_client=bqstorageclient)
-  return df
+  return _query_to_dataframe(
+      query, job_config=job_config, client=client,
+      empty_columns=_EMPTY_RESPONSES_COLUMNS)
 
 
 def get_survey_responses_context(surveyid, client=None):
  
   """Get data from survey"""
-  project_id = os.environ.get('PROJECT_ID')
   table_id = os.environ.get('TABLE_ID')
-
-  if client is None:
-    client = _get_bq_client(project_id)
-  bqstorageclient = _get_bqstorage_client()
   query = f"""
         SELECT CreatedAt, Segmentation, Response
         FROM `{table_id}`
@@ -278,17 +295,12 @@ def get_survey_responses_context(surveyid, client=None):
   job_config = bigquery.QueryJobConfig(query_parameters=[
       bigquery.ScalarQueryParameter('survey_id', 'STRING', surveyid),
   ])
-  query_job = client.query(query, job_config=job_config)
-  df = query_job.result().to_dataframe(bqstorage_client=bqstorageclient)
-
-  return df
+  return _query_to_dataframe(
+      query, job_config=job_config, client=client,
+      empty_columns=_EMPTY_RESPONSES_COLUMNS)
 
 def get_all_response_counts():
-  project_id = os.environ.get('PROJECT_ID')
   table_id = os.environ.get('TABLE_ID')
-  client = _get_bq_client(project_id)
-  bqstorageclient = _get_bqstorage_client()
-
   query = f"""
     SELECT
     ID,
@@ -301,18 +313,13 @@ def get_all_response_counts():
     GROUP BY 1,2
     ORDER BY 1,2
     """
-  query_job = client.query(query)
-  df = query_job.result().to_dataframe(bqstorage_client=bqstorageclient)
-  return df
+  return _query_to_dataframe(
+      query, empty_columns=_EMPTY_COUNTS_COLUMNS)
 
 
 def get_response_count_from_survey(survey):
   """Get response count from survey"""
-  project_id = os.environ.get('PROJECT_ID')
   table_id = os.environ.get('TABLE_ID')
-
-  client = _get_bq_client(project_id)
-  bqstorageclient = _get_bqstorage_client()
   survey_id = survey.id
   query = f"""
         SELECT
@@ -328,10 +335,11 @@ def get_response_count_from_survey(survey):
   job_config = bigquery.QueryJobConfig(query_parameters=[
       bigquery.ScalarQueryParameter('survey_id', 'STRING', survey_id),
   ])
-  query_job = client.query(query, job_config=job_config)
-  df = query_job.result().to_dataframe(bqstorage_client=bqstorageclient)
-  converted_dict = df.to_dict('index')
-  return converted_dict
+  df = _query_to_dataframe(
+      query, job_config=job_config,
+      empty_columns=['Segmentation', 'max_date', 'days_since_response',
+                     'response_count'])
+  return df.to_dict('index')
 
 def download_responses(surveyid):
   """Download survey responses in a CSV format file."""

@@ -21,6 +21,7 @@ import unittest
 from unittest import mock
 import zipfile
 
+from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from mockfirestore import MockFirestore
 import pandas
@@ -250,6 +251,32 @@ class TestSurveyService(unittest.TestCase):
     self.assertRegex(sql, 'WHERE ID = @survey_id')
     self.assertEqual(survey_param.name, 'survey_id')
     self.assertEqual(survey_param.value, 12345)
+
+  def test_get_survey_responses_missing_table_returns_empty_frame(self):
+    mock_bigquery_client = mock.create_autospec(bigquery.Client)
+    mock_bigquery_client.query.side_effect = NotFound('Table not found')
+
+    df = survey_service.get_survey_responses(
+        12345, 'SELECT 1', client=mock_bigquery_client)
+
+    self.assertTrue(df.empty)
+    self.assertEqual(
+        list(df.columns), ['CreatedAt', 'Segmentation', 'Response'])
+
+  @mock.patch.object(survey_service, '_get_bq_client')
+  def test_get_all_response_counts_missing_table_returns_empty_frame(
+      self, bq_client_mock):
+    client = mock.Mock()
+    client.query.side_effect = NotFound('Table not found')
+    bq_client_mock.return_value = client
+
+    df = survey_service.get_all_response_counts()
+
+    self.assertTrue(df.empty)
+    self.assertEqual(
+        list(df.columns),
+        ['ID', 'Segmentation', 'max_date', 'days_since_response',
+         'response_count'])
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   def test_download_responses(self, responses_mock):

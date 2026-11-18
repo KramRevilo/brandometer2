@@ -38,6 +38,16 @@ bq --location=$LOCATION mk \
     --description "Main response data set for Sonar" \
     $PROJECT_ID:responses
 
+echo -e "\n-- Create BigQuery responses table"
+if bq show --format=none "$PROJECT_ID:responses.responses" >/dev/null 2>&1; then
+    echo "Table $PROJECT_ID:responses.responses already exists"
+else
+    bq mk --table \
+        --schema responses.schema.json \
+        --description "Survey response rows for Sonar" \
+        "$PROJECT_ID:responses.responses"
+fi
+
 echo -e "\n-- Deploy Cloud Function for receiver (2nd gen)"
 gcloud functions deploy receiver \
     --gen2 \

@@ -43,8 +43,12 @@ gcloud services enable \
 # Firestore (skip if (default) already exists)
 gcloud firestore databases create --location=us-central1
 
-# BigQuery dataset (the responses table is created on first receiver call)
+# BigQuery dataset + responses table (same schema as the receiver)
 bq --location=us-central1 mk --dataset --description "Main response data set for Sonar" "$PROJECT_ID:responses"
+bq mk --table \
+  --schema receiver/responses.schema.json \
+  --description "Survey response rows for Sonar" \
+  "$PROJECT_ID:responses.responses"
 
 # Optional: deploy the HTTP receiver so survey creatives can post answers
 gcloud functions deploy receiver \
@@ -109,6 +113,25 @@ python main.py
 Then use Web Preview → port 5000. You do not need `AUTH_USERNAME` / `AUTH_PASSWORD` in this mode.
 
 Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Production stays behind basic auth.
+
+If `/index` fails with `Not found: Table …responses.responses` (a dataset without the table), create the table in the **same location as the dataset**. `./deploy` uses the location you pass as the second argument (for Mark's `brandometer2` project that was `us-central1`). From the repo root:
+
+```shell
+bq mk --table \
+  --schema receiver/responses.schema.json \
+  --description "Survey response rows for Sonar" \
+  brandometer2:responses.responses
+```
+
+Or the equivalent inline schema (no repo file needed):
+
+```shell
+bq mk --table \
+  --schema 'CreatedAt:DATETIME:REQUIRED,Type:STRING:REQUIRED,ID:STRING:REQUIRED,Segmentation:STRING:REQUIRED,Response:STRING:REQUIRED,Visual:STRING:REQUIRED,CreativeSize:STRING:REQUIRED,RandomTimeStamp:STRING:REQUIRED,BomID:STRING:REQUIRED' \
+  brandometer2:responses.responses
+```
+
+Do not pass `--location` on `bq mk --table`; the table inherits `us-central1` from the existing `responses` dataset. Skip the command if `bq show brandometer2:responses.responses` already succeeds. The homepage also treats a missing table as zero responses, so `/index` still loads.
 
 # Unit tests
 
