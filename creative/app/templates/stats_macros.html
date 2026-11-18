@@ -17,6 +17,6 @@
 
 {% macro status_content(item) %}
   {% if item %}
-    <span class="label label-{{ item.status_label }}">{{ item.status }}</span>
+    <span class="badge text-bg-{{ item.status_label }}">{{ item.status }}</span>
   {% endif %}
 {% endmacro %}

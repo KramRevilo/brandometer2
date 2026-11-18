@@ -119,7 +119,8 @@ def list_surveys(include_archived=False):
   else:
     surveys = [survey for survey in surveys if not is_archived(survey)]
   surveys.sort(key=lambda s: (
-      ((s.to_dict() or {}).get('surveyname') or '').lower(),
+      ((s.to_dict() or {}).get('displayname')
+       or (s.to_dict() or {}).get('surveyname') or '').lower(),
       s.id,
   ))
   return surveys
@@ -206,13 +207,20 @@ def is_brand_lift(survey):
   return data.get('surveytype') == BRAND_LIFT
 
 
+def survey_label(survey):
+  data = survey.to_dict() if hasattr(survey, 'to_dict') else (survey or {})
+  data = data or {}
+  return data.get('displayname') or data.get('surveyname') or getattr(
+      survey, 'id', '')
+
+
 def classify_status(days_since_response):
-  """Return (label, Bootstrap 3 label-*) for homepage chips.
+  """Return (label, Bootstrap 5 text-bg-*) for homepage badges.
 
   days_since_response is None when the survey has no BQ rows.
   """
   if days_since_response is None:
-    return 'No data', 'default'
+    return 'No data', 'secondary'
   if days_since_response <= STATUS_ACTIVE_DAYS:
     return 'Active', 'success'
   if days_since_response <= STATUS_STALE_DAYS:

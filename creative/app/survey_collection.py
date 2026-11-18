@@ -35,6 +35,7 @@ def _collection():
 # Fields the homepage list needs. Omitting custom_css keeps list payloads small.
 LIST_FIELDS = (
     'surveyname',
+    'displayname',
     'archived',
     'surveytype',
     'question1',
@@ -107,5 +108,7 @@ def copy(survey_id):
   data = dict(doc.to_dict() or {})
   original_name = data.get('surveyname') or 'survey'
   data['surveyname'] = 'Copy of ' + original_name
+  if data.get('displayname'):
+    data['displayname'] = 'Copy of ' + data['displayname']
   data['archived'] = False
   return create(data)

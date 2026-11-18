@@ -287,6 +287,7 @@ class QuestionForm(FlaskForm):
     BRAND_TRACK, 'Brand Track'), (BRAND_LIFT, 'Brand Lift'), ])
     
   surveyname = StringField('surveyName', validators=[DataRequired()])
+  displayname = StringField('displayName')
 
   # adding responseType as a property of the survey
   responsetype = SelectField('responseType', choices=[

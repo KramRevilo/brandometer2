@@ -508,7 +508,7 @@ class TestSurveyService(unittest.TestCase):
 
   def test_classify_status(self):
     self.assertEqual(
-        survey_service.classify_status(None), ('No data', 'default'))
+        survey_service.classify_status(None), ('No data', 'secondary'))
     self.assertEqual(survey_service.classify_status(0), ('Active', 'success'))
     self.assertEqual(survey_service.classify_status(3), ('Active', 'success'))
     self.assertEqual(survey_service.classify_status(4), ('Stale', 'warning'))
@@ -522,6 +522,15 @@ class TestSurveyService(unittest.TestCase):
     self.assertFalse(survey_service.is_brand_lift({}))
     self.assertFalse(survey_service.is_brand_lift({'surveytype': 'brand_track'}))
     self.assertTrue(survey_service.is_brand_lift({'surveytype': 'brand_lift'}))
+
+  def test_survey_label_prefers_display_name(self):
+    self.assertEqual(
+        survey_service.survey_label({'surveyname': 'id-name'}), 'id-name')
+    self.assertEqual(
+        survey_service.survey_label({
+            'surveyname': 'id-name',
+            'displayname': 'Friendly',
+        }), 'Friendly')
 
   def test_is_archived_missing_field_is_active(self):
     self.assertFalse(survey_service.is_archived({}))
@@ -542,7 +551,8 @@ class TestSurveyService(unittest.TestCase):
       get_all.assert_called_once_with(survey_collection.LIST_FIELDS)
       fields = get_all.call_args[0][0]
       self.assertNotIn('custom_css', fields)
-      for name in ('surveyname', 'archived', 'surveytype', 'question1'):
+      for name in (
+          'surveyname', 'displayname', 'archived', 'surveytype', 'question1'):
         self.assertIn(name, fields)
 
   def test_list_surveys_hides_archived_and_treats_missing_as_active(self):
@@ -563,6 +573,7 @@ class TestSurveyService(unittest.TestCase):
       original = self.collection.document()
       original.set({
           'surveyname': 'Summer',
+          'displayname': 'Summer display',
           'question1': 'Q1',
           'custom_css': 'body { color: red; }',
           'surveytype': 'brand_track',
@@ -574,6 +585,7 @@ class TestSurveyService(unittest.TestCase):
       self.assertNotEqual(new_ref.id, original.id)
       data = new_ref.get().to_dict()
       self.assertEqual(data['surveyname'], 'Copy of Summer')
+      self.assertEqual(data['displayname'], 'Copy of Summer display')
       self.assertEqual(data['question1'], 'Q1')
       self.assertEqual(data['custom_css'], 'body { color: red; }')
       self.assertEqual(data['surveytype'], 'brand_track')

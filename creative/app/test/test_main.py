@@ -88,7 +88,7 @@ class MainRoutesTest(unittest.TestCase):
 
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'No data', response.data)
-    self.assertIn(b'label-default', response.data)
+    self.assertIn(b'text-bg-secondary', response.data)
     self.assertNotIn(b'View Brand Lift Stats', response.data)
     self.assertIn(b'Copy Survey', response.data)
     self.assertIn(b'Archive Survey', response.data)
@@ -116,7 +116,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'View Brand Lift Stats', response.data)
     self.assertIn(b'Active', response.data)
-    self.assertIn(b'label-success', response.data)
+    self.assertIn(b'text-bg-success', response.data)
     self.assertIn(b'htmx.org', response.data)
     self.assertIn(b'every 30s', response.data)
     self.assertIn(b'document.hidden', response.data)
@@ -187,6 +187,19 @@ class MainRoutesTest(unittest.TestCase):
       self.client.get('/index/stats-partial?ids=s1')
     self.assertEqual(fetch_mock.call_count, 1)
     list_mock.assert_not_called()
+
+  def test_create_page_uses_iframe_preview_and_bootstrap5(self):
+    response = self.client.get('/survey/create')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'bootstrap@5.3.3', response.data)
+    self.assertIn(b'navbar-toggler', response.data)
+    self.assertNotIn(b'navbar-header', response.data)
+    self.assertIn(b'Live preview', response.data)
+    self.assertIn(b'<iframe', response.data)
+    self.assertIn(b'alpinejs', response.data)
+    self.assertIn(b'Advanced (CSS)', response.data)
+    self.assertIn(b'Display name', response.data)
+    self.assertNotIn(b'refreshFromCssSample', response.data)
 
   @mock.patch.object(survey_service, 'copy_by_id')
   def test_copy_opens_editor(self, copy_mock):

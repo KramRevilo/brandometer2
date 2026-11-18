@@ -134,6 +134,8 @@ Status chips: **Active** up to 3 days since last response, **Stale** up to 7 day
 
 The homepage paginates at 50 surveys, projects list fields only (no `custom_css`), and caches the BigQuery count query in-process for 90 seconds (`STATS_CACHE_SECONDS`). Each App Engine instance has its own cache; values can be up to that TTL stale. Count / last-response / status cells poll every 30s via htmx against that cache (polling pauses while the tab is hidden).
 
+The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. The live 300×250 preview is an iframe so it cannot strip page styles. Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
+
 Redeploy App Engine (`./deploy` or `gcloud app deploy`) to pick up these changes. No new Firestore index is required; archive filtering is done in the app (a missing `archived` field counts as active). Optional: `export GTAG_ID=AW-…` before `./deploy` if creatives should load gtag.js.
 
 If `/index` fails with `Not found: Table …responses.responses` (a dataset without the table), create the table in the **same location as the dataset**. `./deploy` uses the location you pass as the second argument (for Mark's `brandometer2` project that was `us-central1`). From the repo root:

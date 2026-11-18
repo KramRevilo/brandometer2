@@ -1,193 +1,185 @@
-{% extends "base.html" %} {% block content %}
-
-<style type="text/css">
-  form .row {
-    padding-top: 15px;
+{% extends "base.html" %}
+{% block styles %}
+<style>
+  .preview-frame {
+    width: 300px;
+    height: 250px;
+    border: 1px solid #212529;
+    background: #fff;
   }
+  .preview-sticky { top: 1rem; }
+  .color-row input[type="color"] { width: 3rem; height: 2.25rem; padding: 0.15rem; }
 </style>
-<script>
-    // Appends CSS content to the head of the site
-    function appendStyleSheet(id, content) {
-
-        if (!document.querySelector("#" + id)) {
-            var head = document.head || document.getElementsByTagName("head")[0];
-            head.appendChild(createStyleElement(id, content));
-            console.log(head);
-        }
-    }
-
-    // Creates the style element
-    function createStyleElement(id, content) {
-        var style = document.createElement("style");
-        style.type = "text/css";
-        style.id = id;
-        
-        if (style.styleSheet) {
-            style.styleSheet.cssText = content;
-        } else {
-            style.appendChild(document.createTextNode(content));
-        }
-        return style;
-    }
-
-    function removeStyles(el) {
-        el.removeAttribute('style');
-
-        if(el.childNodes.length > 0) {
-            for(let child in el.childNodes) {
-                /* filter element nodes only */
-                if(el.childNodes[child].nodeType == 1)
-                    removeStyles(el.childNodes[child]);
-            }
-        }
-    }
-    
-    function refreshFromCssSample() {
-        // remove all built-in styles
-        document.querySelectorAll('style')
-            .forEach(el => el.parentNode.removeChild(el));
-
-        // put back 'body style' (not shown in text box)
-        restore_body = 'body { \n' +
-                        'font-family: "Open Sans", sans-serif; \n' +
-                        'font-size: 13px;\n' +
-                        'margin: 0;\n' +
-                        '}\n\n';
-        appendStyleSheet('document.body', restore_body);
-
-        //append what's in the textarea form element
-        appendStyleSheet('document.body', custom_css.value);
-    }
-    
-    window.addEventListener("load", (event) => {
-        refreshFromCssSample();
-    });
-
-</script>
-<div class="container">
-  <form action="" method="post">
+{% endblock %}
+{% block content %}
+<div class="container pb-5">
+  <h1 class="h3 mb-4">{{ title }}</h1>
+  <form action="" method="post" x-data="surveyEditor()" x-init="init()" @input="syncCss()" @submit="syncCss()">
     {{ form.hidden_tag() }}
-    <p>
-      <label for="surveyname">Survey Name</label>
-      {{ form.surveyname(class="form-control") }}
-    </p>
-    <p>
-      <label for="surveytype">Survey Type</label>
-      {{ form.surveytype(class="form-control") }}
-    </p>
-    <p>
-        <label for="language">Language</label>
-        {{ form.language(class="form-control") }}
-    </p>
-    <p>
-    <label for="responsetype">Response Type</label>
-        {{ form.responsetype(class="form-control") }}
-    </p>
-    <hr />
+    {{ form.custom_css(id='custom_css', class='d-none') }}
 
-    <table border='1' style='width:100%'>
-        <tr>
-            <td style='text-align:center;font-weight:bold'>
-               Survey Creative CSS
-            </td>
-            <td style='text-align:center;font-weight:bold'>
-               Example Survey
-            </td>
-        </tr>
-        <tr style='vertical-align:top;'>
-            <td style=''>
-                    {{ form.custom_css(class="form-control", rows="34", style="width:100%;height:100%;") }}
-            </td>
-            <td style='width:50%;' align="center">
-                &nbsp;
-                <div id="master_container">
-                    <div id="ad_background">
-                        <div id="ad_text">Advertisement</div>
-                    </div>
-                    <div id="survey_container">
-                        <div id="question_container" class="Qbox">
-                            <span id="question_text">
-                                Sample Question
-                            </span>
-                        </div>
-                        <div id="option_container_0" class="Abox">
-                            <div id="option_text_0" class="AText">opt1</div>
-                        </div>
-                        <div id="option_container_1" class="Abox">
-                            <div id="option_text_1" class="AText">opt2</div>
-                        </div>
-                        <div id="option_container_2" class="Abox">
-                            <div id="option_text_2" class="AText">opt3</div>
-                        </div>
-                        <div id="option_container_3" class="Abox">
-                            <div id="option_text_3" class="AText">opt4</div>
-                        </div>
-                        <div id="option_container_4" class="Abox">
-                            <div id="option_text_4" class="AText">opt5</div>
-                        </div>
-                    </div>
-                    <div id="thankyou_container" class="invisible">
-                        <div id="thankyou_text"></div>
-                    </div>
-                    <div id="bottom_container">
-                        <span id="question_comment"></span>
-                        <span id="next_button">Next</span>
-                    </div>
-                </div>
-                <hr/>
-                <button style='font-size:14pt' type="button"
-                    onclick='refreshFromCssSample();'>Update Sample Based on CSS</button>
-                <hr/><br>
-
-                <img src='https://storage.googleapis.com/admin-ui-images/survey_css_guide.png'
-                    alt='CSS guide' width='653' height='289'>
-            </td>
-        </tr>
-    </table>
-
-    {% for n in range(1, 6) %}
-    <hr />
-    <div>
-      {% set question = 'question' + n|string %}
-      <h3>Question {{n|string}}</h3>
-      {% for error in form.errors[question] %}
-      <div><span style="color:red">{{error}}</span></div>
-      {% endfor %}
-      <p>
-        <label for="{{question}}">Question Text</label>
-        {{ form[question](class="form-control") }}
-      </p>
-      <p>
-        <label for="{{question}}type">Type</label>
-        {{ form[question + "type"](class="form-control") }}
-      </p>
-      <p>
-        <label for="{{question}}order">Order</label>
-        {{ form[question + "order"](class="form-control") }}
-      </p>
-      {% for letter in ['a', 'b', 'c', 'd'] %}
-      {% set answer = 'answer' + n|string + letter %}
-      <div class="row">
-        <div class="col-md-5">
-          <label for="{{answer}}">Answer {{letter|upper}} Text</label>
-          {{ form[answer](class="form-control") }}
+    <section class="card mb-4">
+      <div class="card-body">
+        <h2 class="h5 mb-3">Identity</h2>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" for="surveyname">Survey name</label>
+            {{ form.surveyname(class="form-control", id="surveyname") }}
+            <div class="form-text">Used in zip filenames and as the fallback label.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="displayname">Display name</label>
+            {{ form.displayname(class="form-control", id="displayname", placeholder="Optional friendly name") }}
+            <div class="form-text">Shown on the homepage when set.</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="surveytype">Type</label>
+            {{ form.surveytype(class="form-select", id="surveytype") }}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="language">Language</label>
+            {{ form.language(class="form-select", id="language") }}
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" for="responsetype">Response mode</label>
+            {{ form.responsetype(class="form-select", id="responsetype") }}
+          </div>
         </div>
-        <div class="col-md-2">
-          <label for="{{answer}}next">
-            Answer {{letter|upper}} Next Question
-          </label>
-          {{ form[answer + "next"](class="form-control") }}
+      </div>
+    </section>
+
+    <div class="row g-4">
+      <div class="col-lg-7">
+        <section class="card mb-4">
+          <div class="card-body">
+            <h2 class="h5 mb-3">Style</h2>
+            <div class="row g-3">
+              <div class="col-sm-6 color-row">
+                <label class="form-label" for="theme-bg">Background colour</label>
+                <div class="d-flex gap-2">
+                  <input id="theme-bg" type="color" class="form-control form-control-color" x-model="bg">
+                  <input type="text" class="form-control" x-model="bg" aria-label="Background colour hex">
+                </div>
+              </div>
+              <div class="col-sm-6 color-row">
+                <label class="form-label" for="theme-q">Question text colour</label>
+                <div class="d-flex gap-2">
+                  <input id="theme-q" type="color" class="form-control form-control-color" x-model="questionColor">
+                  <input type="text" class="form-control" x-model="questionColor" aria-label="Question text colour hex">
+                </div>
+              </div>
+              <div class="col-sm-6 color-row">
+                <label class="form-label" for="theme-abg">Answer button colour</label>
+                <div class="d-flex gap-2">
+                  <input id="theme-abg" type="color" class="form-control form-control-color" x-model="answerBg">
+                  <input type="text" class="form-control" x-model="answerBg" aria-label="Answer button colour hex">
+                </div>
+                <label class="form-label mt-2" for="theme-abg-op">Answer button opacity (<span x-text="answerBgOpacity"></span>%)</label>
+                <input id="theme-abg-op" type="range" class="form-range" min="10" max="100" x-model.number="answerBgOpacity">
+              </div>
+              <div class="col-sm-6 color-row">
+                <label class="form-label" for="theme-ac">Answer text colour</label>
+                <div class="d-flex gap-2">
+                  <input id="theme-ac" type="color" class="form-control form-control-color" x-model="answerColor">
+                  <input type="text" class="form-control" x-model="answerColor" aria-label="Answer text colour hex">
+                </div>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label" for="theme-font">Font family</label>
+                <select id="theme-font" class="form-select" x-model="fontFamily">
+                  {% for value, label in font_choices %}
+                  <option value="{{ value }}">{{ label }}</option>
+                  {% endfor %}
+                </select>
+              </div>
+              <div class="col-sm-6">
+                <label class="form-label" for="theme-size">Font size (px)</label>
+                <input id="theme-size" type="number" class="form-control" min="10" max="24" x-model="fontSize">
+              </div>
+              <div class="col-12">
+                <label class="form-label" for="theme-image">Background image URL (optional)</label>
+                <input id="theme-image" type="url" class="form-control" placeholder="https://…" x-model="bgImage">
+                <div class="form-text">https URL only. The image covers the 300×250 creative.</div>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+      <div class="col-lg-5">
+        <section class="card mb-4 preview-sticky sticky-top">
+          <div class="card-body">
+            <h2 class="h5 mb-3">Live preview (300×250)</h2>
+            <iframe class="preview-frame" title="Survey creative preview" :srcdoc="previewSrcdoc"></iframe>
+            <p class="form-text mb-0 mt-2">Updates as you type. Styles stay inside the iframe so they cannot strip the editor page.</p>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <section class="mb-4">
+      <h2 class="h5 mb-3">Questions</h2>
+      {% for n in range(1, 6) %}
+      {% set question = 'question' + n|string %}
+      <div class="card mb-3">
+        <div class="card-body">
+          <h3 class="h6">Question {{ n }}{% if n == 1 %} <span class="text-muted">(required)</span>{% endif %}</h3>
+          {% for error in form.errors[question] %}
+          <div class="text-danger small">{{ error }}</div>
+          {% endfor %}
+          <div class="mb-3">
+            <label class="form-label" for="{{ question }}">Question text</label>
+            {{ form[question](class="form-control", id=question) }}
+          </div>
+          <div class="row g-3 mb-3">
+            <div class="col-md-6">
+              <label class="form-label" for="{{ question }}type">Type</label>
+              {{ form[question + "type"](class="form-select", id=question + "type") }}
+            </div>
+            <div class="col-md-6">
+              <label class="form-label" for="{{ question }}order">Order</label>
+              {{ form[question + "order"](class="form-select", id=question + "order") }}
+            </div>
+          </div>
+          {% for letter in ['a', 'b', 'c', 'd'] %}
+          {% set answer = 'answer' + n|string + letter %}
+          <div class="row g-3 mb-2">
+            <div class="col-md-8">
+              <label class="form-label" for="{{ answer }}">Answer {{ letter|upper }}</label>
+              {{ form[answer](class="form-control", id=answer) }}
+            </div>
+            <div class="col-md-4">
+              <label class="form-label" for="{{ answer }}next">Next question</label>
+              {{ form[answer + "next"](class="form-control", id=answer + "next") }}
+            </div>
+          </div>
+          {% endfor %}
         </div>
       </div>
       {% endfor %}
-    </div>
-    {% endfor %}
-    <hr />
-    <p>
+    </section>
+
+    <details class="card mb-4">
+      <summary class="card-header" style="cursor:pointer">Advanced (CSS)</summary>
+      <div class="card-body">
+        <p class="form-text">Free-form rules from this survey. Picker values are stored separately as CSS variables and are not removed when you edit this box.</p>
+        <textarea class="form-control font-monospace" rows="16" x-model="extraCss" spellcheck="false" aria-label="Advanced CSS"></textarea>
+      </div>
+    </details>
+
+    <div class="d-flex gap-2">
       {{ form.submit(class="btn btn-primary") }}
-      <a href="{{ url_for('index') }}" class="btn btn-default">Cancel</a>
-    </p>
+      <a href="{{ url_for('index') }}" class="btn btn-outline-secondary">Cancel</a>
+    </div>
   </form>
-  
-  {% endblock %}
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+  window.SONAR_EDITOR = {
+    theme: {{ theme|tojson }},
+    extra: {{ extra_css|tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='survey-editor.js') }}"></script>
+<script defer src="https://unpkg.com/alpinejs@3.14.3/dist/cdn.min.js"></script>
+{% endblock %}

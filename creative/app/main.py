@@ -27,9 +27,9 @@ from flask import Response
 from flask import send_file
 from flask import url_for
 from flask_basicauth import BasicAuth
-from flask_bootstrap import Bootstrap
 
 # local file imports
+import css_theme
 import forms
 from forms import DEFAULT_CSS
 import survey_service
@@ -39,7 +39,6 @@ from forms import RESPONSES_AT_END
 title = 'Sonar'
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-only-not-for-production')
-Bootstrap(app)
 app.config['BASIC_AUTH_USERNAME'] = os.environ.get('AUTH_USERNAME')
 app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('AUTH_PASSWORD')
 basic_auth = BasicAuth(app)
@@ -107,6 +106,26 @@ def index_stats_partial():
   return render_template('stats_partial.html', stat_array=stat_array)
 
 
+def _editor_context(form):
+  parsed = css_theme.parse_theme_css(form.custom_css.data or DEFAULT_CSS)
+  return {
+      'theme': parsed['theme'],
+      'extra_css': parsed['extra'],
+      'font_choices': css_theme.FONT_CHOICES,
+  }
+
+
+def _render_editor(form, page_title):
+  ctx = _editor_context(form)
+  return render_template(
+      'questions.html',
+      title=page_title,
+      form=form,
+      theme=ctx['theme'],
+      extra_css=ctx['extra_css'],
+      font_choices=ctx['font_choices'])
+
+
 @app.route('/survey/create', methods=['GET', 'POST'])
 def create():
   """Survey creation."""
@@ -114,7 +133,7 @@ def create():
   if form.validate_on_submit():
     survey_service.create(form)
     return redirect(url_for('index'))
-  return render_template('questions.html', title='Survey Creation', form=form)
+  return _render_editor(form, 'Create survey')
 
 
 @app.route('/survey/preview/<string:survey_id>', methods=['GET'])
@@ -207,7 +226,7 @@ def edit():
   if form.validate_on_submit():
     survey_service.update_by_id(docref_id, form)
     return redirect(url_for('index'))
-  return render_template('questions.html', form=form)
+  return _render_editor(form, 'Edit survey')
 
 
 @app.route('/survey/download_zip/<string:survey_id>', methods=['GET'])
@@ -285,6 +304,11 @@ def inject_receiver_params():
 @app.template_filter('get_all_question_text')
 def get_all_question_text(survey):
   return survey_service.get_all_question_text(survey.to_dict())
+
+
+@app.template_filter('survey_label')
+def survey_label_filter(survey):
+  return survey_service.survey_label(survey)
 
 
 @app.template_filter('format_percentage')
