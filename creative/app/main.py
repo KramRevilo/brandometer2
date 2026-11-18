@@ -45,7 +45,12 @@ Bootstrap(app)
 app.config['BASIC_AUTH_USERNAME'] = os.environ.get('AUTH_USERNAME')
 app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('AUTH_PASSWORD')
 basic_auth = BasicAuth(app)
-app.config['BASIC_AUTH_FORCE'] = True
+# Cloud Shell Web Preview (and similar proxies) cannot complete the browser
+# basic-auth challenge. Set DISABLE_BASIC_AUTH=1 for local/proxy use only.
+# Never set this in App Engine / ./deploy.
+_disable_basic_auth = os.environ.get('DISABLE_BASIC_AUTH', '').strip().lower()
+app.config['BASIC_AUTH_FORCE'] = _disable_basic_auth not in (
+    '1', 'true', 'yes', 'on')
 
 # Project constants
 ACTIVE_DAYS = 3
@@ -63,7 +68,8 @@ MRC_INIT = 999999999
 
 @app.route('/')
 def root():
-  return redirect(url_for('index'))
+  # Path-only Location so Cloud Shell / reverse proxies do not flip http/https.
+  return redirect('/index')
 
 
 @app.route('/index')

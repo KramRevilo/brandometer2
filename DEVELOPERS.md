@@ -70,7 +70,7 @@ source .venv/bin/activate
 pip install -r creative/app/requirements.txt
 ```
 
-Export credentials and config (the homepage talks to Firestore + BigQuery; basic auth is always on):
+Export credentials and config (the homepage talks to Firestore + BigQuery; basic auth is on unless you set `DISABLE_BASIC_AUTH=1`):
 
 ```shell
 export PROJECT_ID="your-gcp-project-id"
@@ -95,6 +95,20 @@ python main.py
 Open http://127.0.0.1:5000 and sign in with `AUTH_USERNAME` / `AUTH_PASSWORD`.
 
 The app imports without GCP. Listing surveys, saving surveys, and downloading responses need Application Default Credentials against the project above (`gcloud auth application-default login`).
+
+# Google Cloud Shell
+
+Cloud Shell **Web Preview** on port 5000 sits in front of Flask with its own login. Flask-BasicAuth then returns `401` on `GET /`, and the preview page reloads in a loop. For Cloud Shell only, disable basic auth and start as usual:
+
+```shell
+export DISABLE_BASIC_AUTH=1
+cd creative/app
+python main.py
+```
+
+Then use Web Preview → port 5000. You do not need `AUTH_USERNAME` / `AUTH_PASSWORD` in this mode.
+
+Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Production stays behind basic auth.
 
 # Unit tests
 
