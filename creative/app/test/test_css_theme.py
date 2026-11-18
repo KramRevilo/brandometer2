@@ -83,3 +83,12 @@ class CssThemeTest(unittest.TestCase):
     self.assertEqual(css_theme.normalize_color('white'), '#ffffff')
     self.assertEqual(css_theme.normalize_color('#08F'), '#0088ff')
     self.assertEqual(css_theme.normalize_color('rgb(0, 128, 0)'), '#008000')
+
+  def test_live_preview_script_fits_creative_in_iframe(self):
+    with open('static/survey-editor.js', encoding='utf-8') as handle:
+      source = handle.read()
+    self.assertIn('overflow:hidden!important', source)
+    self.assertIn('margin:0!important', source)
+    self.assertIn('box-sizing:border-box', source)
+    self.assertIn('width:300px!important', source)
+    self.assertIn('height:250px!important', source)

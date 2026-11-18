@@ -175,8 +175,14 @@
           return '<div id="option_container_' + index + '" class="Abox">' +
             '<div id="option_text_' + index + '" class="AText">' + escapeHtml(text) + '</div></div>';
         }).join('');
+        var chromeCss = 'html,body{margin:0!important;padding:0!important;overflow:hidden!important;' +
+          'width:300px;height:250px;box-sizing:border-box;}' +
+          '*,*::before,*::after{box-sizing:border-box;}' +
+          '#master_container{box-sizing:border-box;width:300px!important;height:250px!important;' +
+          'overflow:hidden;margin:0;max-width:300px;max-height:250px;}';
         return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
-          '<style>' + safeCss + '</style></head><body>' +
+          '<style>' + safeCss + '</style>' +
+          '<style>' + chromeCss + '</style></head><body>' +
           '<div id="master_container"><div id="ad_background"><div id="ad_text">Advertisement</div></div>' +
           '<div id="survey_container"><div id="question_container" class="Qbox">' +
           '<span id="question_text">' + escapeHtml(q) + '</span></div>' +

@@ -2,9 +2,13 @@
 {% block styles %}
 <style>
   .preview-frame {
-    width: 300px;
-    height: 250px;
+    /* 300x250 inner viewport; 1px border on each side. */
+    width: 302px;
+    height: 252px;
     border: 1px solid #212529;
+    box-sizing: border-box;
+    overflow: hidden;
+    display: block;
     background: #fff;
   }
   .preview-sticky { top: 1rem; }
@@ -109,7 +113,7 @@
         <section class="card mb-4 preview-sticky sticky-top">
           <div class="card-body">
             <h2 class="h5 mb-3">Live preview (300×250)</h2>
-            <iframe class="preview-frame" title="Survey creative preview" :srcdoc="previewSrcdoc"></iframe>
+            <iframe class="preview-frame" title="Survey creative preview" scrolling="no" :srcdoc="previewSrcdoc"></iframe>
             <p class="form-text mb-0 mt-2">Updates as you type. Styles stay inside the iframe so they cannot strip the editor page.</p>
           </div>
         </section>

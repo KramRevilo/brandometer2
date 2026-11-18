@@ -200,6 +200,9 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'Advanced (CSS)', response.data)
     self.assertIn(b'Display name', response.data)
     self.assertNotIn(b'refreshFromCssSample', response.data)
+    self.assertIn(b'scrolling="no"', response.data)
+    self.assertIn(b'width: 302px', response.data)
+    self.assertIn(b'height: 252px', response.data)
 
   @mock.patch.object(survey_service, 'copy_by_id')
   def test_copy_opens_editor(self, copy_mock):
