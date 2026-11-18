@@ -9,11 +9,9 @@ env_variables:
   AUTH_USERNAME: "{{AUTH_USERNAME}}"
   AUTH_PASSWORD: "{{AUTH_PASSWORD}}"
   SECRET_KEY: "{{SECRET_KEY}}"
+  GTAG_ID: "{{GTAG_ID}}"
 
 handlers:
 - url: /favicon\.ico
   static_files: favicon.ico
   upload: favicon\.ico
-- url: /favicon\.png
-  static_files: favicon.png
-  upload: favicon\.png

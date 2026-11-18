@@ -122,6 +122,8 @@ read -sp 'Password: ' AUTH_PASSWORD
 echo -e "\n-- Thank you, the authentication credentials has been set as $AUTH_USERNAME & $AUTH_PASSWORD"
 
 SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
+# Optional Google tag (gtag.js) ID for creatives. Empty disables the loader.
+GTAG_ID="${GTAG_ID:-}"
 
 echo -e "\n-- Set up app engine config"
 sed \
@@ -130,6 +132,7 @@ sed \
     -e "s|{{AUTH_USERNAME}}|$AUTH_USERNAME|" \
     -e "s|{{AUTH_PASSWORD}}|$AUTH_PASSWORD|" \
     -e "s|{{SECRET_KEY}}|$SECRET_KEY|" \
+    -e "s|{{GTAG_ID}}|$GTAG_ID|" \
     creative/app/app.yaml.template >./creative/app/$PROJECT_ID.yaml
 echo -e "\n-- Deploy app engine"
 

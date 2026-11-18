@@ -88,7 +88,15 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(form['field2'].data, 'new_value2')
     self.assertEqual(form['field3'].data, 'untouched')
 
-  def test_zip_file_returns_user_readable_filename(self):
+  def test_set_form_data_skips_keys_not_on_form(self):
+    form = {'surveyname': mock.Mock(data=None)}
+    ref = self.collection.document()
+    ref.set({'surveyname': 'Keep', 'archived': False, 'not_a_field': 1})
+    survey_service.set_form_data(form, ref.get())
+    self.assertEqual(form['surveyname'].data, 'Keep')
+
+  @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
+  def test_zip_file_returns_user_readable_filename(self, _html_mock):
     survey_id = 'some_test_id'
     survey_dict = {
         'surveyname': 'test survey',
@@ -98,7 +106,8 @@ class TestSurveyService(unittest.TestCase):
     filename, _ = survey_service.zip_file(survey_id, survey_dict)
     self.assertRegex(filename, '.*_test-survey.zip$')
 
-  def test_zip_file_returns_nested_zips_with_content(self):
+  @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
+  def test_zip_file_track_has_single_creative_zip(self, _html_mock):
     survey_id = 'some_test_id'
     survey_dict = {
         'surveyname': 'test survey',
@@ -107,7 +116,23 @@ class TestSurveyService(unittest.TestCase):
 
     _, data = survey_service.zip_file(survey_id, survey_dict)
     zf = zipfile.ZipFile(data)
+    names = [nzf.filename for nzf in zf.filelist]
+    self.assertEqual(len(names), 1)
+    self.assertRegex(names[0], '.*_test-survey_creative.zip$')
+
+  @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
+  def test_zip_file_brand_lift_has_control_and_expose(self, _html_mock):
+    survey_id = 'some_test_id'
+    survey_dict = {
+        'surveyname': 'test survey',
+        'question1': 'q1 text',
+        'surveytype': 'brand_lift',
+    }
+
+    _, data = survey_service.zip_file(survey_id, survey_dict)
+    zf = zipfile.ZipFile(data)
     names = sorted([nzf.filename for nzf in zf.filelist])
+    self.assertEqual(len(names), 2)
     self.assertRegex(names[0], '.*_test-survey_default_control.zip$')
     self.assertRegex(names[1], '.*_test-survey_default_expose.zip$')
 
@@ -124,6 +149,16 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(zips[0].filename, '/tmp/test_prefix_segment1.zip')
     self.assertEqual(zips[1].filename, '/tmp/test_prefix_segment2.zip')
     self.assertEqual(zips[2].filename, '/tmp/test_prefix_segment3.zip')
+
+  def test_write_html_template_empty_seg_uses_creative_suffix(self):
+    survey_service.render_template = mock.Mock(
+        return_value='<html>placeholder</html>')
+
+    zips = survey_service.write_html_template(
+        'id1', {'question1': 'q1 text'}, 'test_prefix', [''])
+
+    self.assertEqual(len(zips), 1)
+    self.assertEqual(zips[0].filename, '/tmp/test_prefix_creative.zip')
 
   def test_delete_tmp_zip_files(self):
     os.remove = mock.Mock()
@@ -278,8 +313,16 @@ class TestSurveyService(unittest.TestCase):
         ['ID', 'Segmentation', 'max_date', 'days_since_response',
          'response_count'])
 
+  def _missing_survey_doc(self):
+    doc = mock.Mock()
+    doc.exists = False
+    doc.to_dict.return_value = {}
+    return doc
+
+  @mock.patch.object(survey_service, 'get_doc_by_id')
   @mock.patch.object(survey_service, 'get_survey_responses')
-  def test_download_responses(self, responses_mock):
+  def test_download_responses(self, responses_mock, doc_mock):
+    doc_mock.return_value = self._missing_survey_doc()
     t1 = datetime.datetime.now()
     t2 = t1 + datetime.timedelta(hours=-1)
     responses_mock.return_value = pandas.DataFrame({
@@ -292,15 +335,40 @@ class TestSurveyService(unittest.TestCase):
     responses = list(csv.DictReader(raw_csv.splitlines()))
 
     self.assertEqual(responses[0]['Date'], str(t1))
-    self.assertEqual(responses[0]['Control/Expose'], 'seg1')
+    self.assertEqual(responses[0]['Segment'], 'seg1')
     self.assertEqual(responses[0]['Response 1'], 'r1a')
     self.assertEqual(responses[1]['Date'], str(t2))
-    self.assertEqual(responses[1]['Control/Expose'], 'seg2')
+    self.assertEqual(responses[1]['Segment'], 'seg2')
     self.assertEqual(responses[1]['Response 1'], 'r2b')
+    self.assertNotIn('Dimension 2', responses[0])
+    self.assertNotIn('Control/Expose', responses[0])
 
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  def test_download_responses_brand_lift_uses_control_expose_column(
+      self, responses_mock, doc_mock):
+    doc = mock.Mock()
+    doc.exists = True
+    doc.to_dict.return_value = {'surveytype': 'brand_lift'}
+    doc_mock.return_value = doc
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [datetime.datetime.now()],
+        'Segmentation': ['default_control'],
+        'Response': ['1:r1a']
+    })
+
+    raw_csv = survey_service.download_responses(1)
+    responses = list(csv.DictReader(raw_csv.splitlines()))
+
+    self.assertEqual(responses[0]['Control/Expose'], 'default_control')
+    self.assertNotIn('Dimension 2', responses[0])
+    self.assertNotIn('Segment', responses[0])
+
+  @mock.patch.object(survey_service, 'get_doc_by_id')
   @mock.patch.object(survey_service, 'get_survey_responses')
   def test_download_responses_with_multi_question_responses(
-      self, responses_mock):
+      self, responses_mock, doc_mock):
+    doc_mock.return_value = self._missing_survey_doc()
     responses_mock.return_value = pandas.DataFrame({
         'CreatedAt': [datetime.datetime.now()],
         'Segmentation': ['seg1'],
@@ -316,9 +384,11 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(responses[0]['Response 4'], 'r1e')
     self.assertEqual(responses[0]['Response 5'], '')
 
+  @mock.patch.object(survey_service, 'get_doc_by_id')
   @mock.patch.object(survey_service, 'get_survey_responses')
   def test_download_responses_returns_empty_csv_with_no_responses(
-      self, responses_mock):
+      self, responses_mock, doc_mock):
+    doc_mock.return_value = self._missing_survey_doc()
     responses_mock.return_value = pandas.DataFrame({
         'CreatedAt': [],
         'Segmentation': [],
@@ -326,7 +396,7 @@ class TestSurveyService(unittest.TestCase):
     })
 
     raw_csv = survey_service.download_responses(surveyid=1234)
-    self.assertEqual(raw_csv.strip(), 'Date,Control/Expose,Dimension 2')
+    self.assertEqual(raw_csv.strip(), 'Date,Segment')
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   def test_get_brand_lift_results(self, responses_mock):
@@ -380,8 +450,8 @@ class TestSurveyService(unittest.TestCase):
     # Control group has B for 2/2 of answers
     self.assertEqual(1, q2_control_lift[1])
 
-    # Answer A is infinitely more likely in expose group (since 0 in control)
-    self.assertEqual(math.inf, q2_lift[0])
+    # Control share of A is 0, so lift is undefined (not inf).
+    self.assertTrue(math.isnan(q2_lift[0]))
     # Answer B is 50% less likely in expose group
     self.assertEqual(-0.5, q2_lift[1])
 
@@ -418,3 +488,92 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(0, q1_control_lift[0])
     # Control group has B for 1/1 of answers
     self.assertEqual(1, q1_control_lift[1])
+
+  def test_classify_status(self):
+    self.assertEqual(
+        survey_service.classify_status(None), ('No data', 'default'))
+    self.assertEqual(survey_service.classify_status(0), ('Active', 'success'))
+    self.assertEqual(survey_service.classify_status(3), ('Active', 'success'))
+    self.assertEqual(survey_service.classify_status(4), ('Stale', 'warning'))
+    self.assertEqual(survey_service.classify_status(14), ('Stale', 'warning'))
+    self.assertEqual(
+        survey_service.classify_status(15), ('Timed out', 'danger'))
+
+  def test_is_brand_lift_requires_explicit_type(self):
+    self.assertFalse(survey_service.is_brand_lift({}))
+    self.assertFalse(survey_service.is_brand_lift({'surveytype': 'brand_track'}))
+    self.assertTrue(survey_service.is_brand_lift({'surveytype': 'brand_lift'}))
+
+  def test_is_archived_missing_field_is_active(self):
+    self.assertFalse(survey_service.is_archived({}))
+    self.assertFalse(survey_service.is_archived({'archived': False}))
+    self.assertTrue(survey_service.is_archived({'archived': True}))
+
+  def _survey_doc(self, doc_id, data):
+    doc = mock.Mock()
+    doc.id = doc_id
+    doc.to_dict.return_value = data
+    doc.exists = True
+    return doc
+
+  def test_list_surveys_hides_archived_and_treats_missing_as_active(self):
+    docs = [
+        self._survey_doc('a', {'surveyname': 'A'}),
+        self._survey_doc('b', {'surveyname': 'B', 'archived': False}),
+        self._survey_doc('c', {'surveyname': 'C', 'archived': True}),
+    ]
+    with mock.patch.object(survey_collection, 'get_all', return_value=docs):
+      active = survey_service.list_surveys(include_archived=False)
+      self.assertEqual([d.id for d in active], ['a', 'b'])
+      archived = survey_service.list_surveys(include_archived=True)
+      self.assertEqual([d.id for d in archived], ['c'])
+
+  def test_copy_clones_questions_settings_and_css(self):
+    with mock.patch.object(
+        survey_collection, '_collection', return_value=self.collection):
+      original = self.collection.document()
+      original.set({
+          'surveyname': 'Summer',
+          'question1': 'Q1',
+          'custom_css': 'body { color: red; }',
+          'surveytype': 'brand_track',
+          'language': 'de',
+          'archived': True,
+      })
+      new_ref = survey_collection.copy(original.id)
+      self.assertIsNotNone(new_ref)
+      self.assertNotEqual(new_ref.id, original.id)
+      data = new_ref.get().to_dict()
+      self.assertEqual(data['surveyname'], 'Copy of Summer')
+      self.assertEqual(data['question1'], 'Q1')
+      self.assertEqual(data['custom_css'], 'body { color: red; }')
+      self.assertEqual(data['surveytype'], 'brand_track')
+      self.assertEqual(data['language'], 'de')
+      self.assertIs(data['archived'], False)
+
+  def test_copy_missing_survey_returns_none(self):
+    with mock.patch.object(
+        survey_collection, '_collection', return_value=self.collection):
+      self.assertIsNone(survey_collection.copy('does-not-exist'))
+
+  def test_set_archived_updates_flag(self):
+    with mock.patch.object(
+        survey_collection, '_collection', return_value=self.collection):
+      ref = self.collection.document()
+      ref.set({'surveyname': 'Keep', 'archived': False})
+      survey_collection.set_archived(ref.id, True)
+      self.assertTrue(ref.get().to_dict()['archived'])
+      survey_collection.set_archived(ref.id, False)
+      self.assertFalse(ref.get().to_dict()['archived'])
+
+  @mock.patch.object(survey_service, 'flash')
+  def test_create_writes_archived_false(self, _flash):
+    form = mock.Mock()
+    form.data = {'surveyname': 'New'}
+    form.surveyname.data = 'New'
+    with mock.patch.object(survey_collection, 'create') as create_mock:
+      create_mock.return_value = mock.Mock(id='newid')
+      survey_service.create(form)
+      saved = create_mock.call_args[0][0]
+      self.assertIs(saved['archived'], False)
+      self.assertEqual(saved['surveyname'], 'New')

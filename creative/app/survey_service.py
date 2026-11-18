@@ -25,9 +25,13 @@ from google.cloud import bigquery_storage
 import numpy as np
 import pandas as pd
 import survey_collection
+from forms import BRAND_LIFT
 from forms import BRAND_TRACK
 from forms import DEFAULT_CSS
 from forms import RESPONSES_AT_END
+
+STATUS_ACTIVE_DAYS = 3
+STATUS_STALE_DAYS = 14
 
 _bq_client = None
 _bqstorage_client = None
@@ -91,21 +95,70 @@ def delete_by_id(survey_id):
   return survey_collection.delete_by_id(survey_id)
 
 
+def is_archived(survey):
+  data = survey.to_dict() if hasattr(survey, 'to_dict') else (survey or {})
+  return data.get('archived') is True
+
+
+def list_surveys(include_archived=False):
+  surveys = list(survey_collection.get_all())
+  if include_archived:
+    return [survey for survey in surveys if is_archived(survey)]
+  return [survey for survey in surveys if not is_archived(survey)]
+
+
+def set_archived(survey_id, archived):
+  return survey_collection.set_archived(survey_id, archived)
+
+
+def copy_by_id(survey_id):
+  return survey_collection.copy(survey_id)
+
+
+def is_brand_lift(survey):
+  if hasattr(survey, 'to_dict'):
+    data = survey.to_dict() or {}
+  elif isinstance(survey, dict):
+    data = survey
+  else:
+    data = {}
+  return data.get('surveytype') == BRAND_LIFT
+
+
+def classify_status(days_since_response):
+  """Return (label, Bootstrap 3 label-*) for homepage chips.
+
+  days_since_response is None when the survey has no BQ rows.
+  """
+  if days_since_response is None:
+    return 'No data', 'default'
+  if days_since_response <= STATUS_ACTIVE_DAYS:
+    return 'Active', 'success'
+  if days_since_response <= STATUS_STALE_DAYS:
+    return 'Stale', 'warning'
+  return 'Timed out', 'danger'
+
+
 def create(form):
-  doc_ref = survey_collection.create(form.data)
+  data = dict(form.data)
+  data['archived'] = False
+  doc_ref = survey_collection.create(data)
   flash(f'{form.surveyname.data} created as {doc_ref.id}')
+  return doc_ref
 
 
 def update_by_id(survey_id, form):
   edit_doc = survey_collection.update_by_id(survey_id, form.data)
   flash(f'{form.surveyname.data} updated')
+  return edit_doc
 
 
 def set_form_data(form, edit_doc):
   edit_doc_dict = edit_doc.to_dict()
 
   for key, value in edit_doc_dict.items():
-    form[key].data = edit_doc.get(key,)
+    if key in form:
+      form[key].data = edit_doc.get(key,)
 
 
 def zip_file(survey_id, survey_dict):
@@ -117,10 +170,14 @@ def zip_file(survey_id, survey_dict):
   current_datetime = datetime.datetime.now().strftime('%Y%m%d')
   surveyname = survey_dict['surveyname'].replace(' ', '-')
   prefix_filename = current_datetime + '_' + surveyname
-  survey_type = survey_dict.get('surveytype', '')
-  seg_types = [''] if survey_type == BRAND_TRACK else [
-      'default_control', 'default_expose'
-  ]
+  # Missing surveytype matches the form default (Brand Track): one creative.
+  survey_type = survey_dict.get('surveytype', BRAND_TRACK)
+  if survey_type == BRAND_LIFT:
+    seg_types = ['default_control', 'default_expose']
+  else:
+    # Empty seg in the HTML; zip suffix is added separately so the file
+    # is not named "..._.zip" and does not collide with the outer zip.
+    seg_types = ['']
 
   # In order to make the responsetype backward compatible we need to support
   # surveys defined WITHOUT a responsetype and default them to RESPONSES_AT_END.
@@ -156,7 +213,8 @@ def write_html_template(survey_id, survey_dict, prefix_filename, seg_types):
   template_zips = []
 
   for seg_type in seg_types:
-    dir_name = '/tmp/' + prefix_filename + '_' + seg_type
+    file_suffix = seg_type if seg_type else 'creative'
+    dir_name = '/tmp/' + prefix_filename + '_' + file_suffix
     # write html file
     with zipfile.ZipFile(dir_name + '.zip', 'w',
                          zipfile.ZIP_DEFLATED) as zip_write_file:
@@ -264,7 +322,11 @@ def get_brand_lift_results(surveyid):
     matrix = pivot.to_numpy()
     lift = []
     for col in matrix.T:
-      lift.append((col[0] - col[1]) / col[1])
+      control = col[1]
+      if control == 0 or np.isnan(control):
+        lift.append(np.nan)
+      else:
+        lift.append((col[0] - control) / control)
 
     # append brand lift to matrix
     matrix = np.vstack([matrix, lift])
@@ -317,29 +379,13 @@ def get_all_response_counts():
       query, empty_columns=_EMPTY_COUNTS_COLUMNS)
 
 
-def get_response_count_from_survey(survey):
-  """Get response count from survey"""
-  table_id = os.environ.get('TABLE_ID')
-  survey_id = survey.id
-  query = f"""
-        SELECT
-            Segmentation,
-            EXTRACT(DATE FROM max(CreatedAt)) as max_date,
-            DATE_DIFF(CURRENT_DATE(), EXTRACT(DATE FROM max(CreatedAt)), DAY) AS days_since_response,
-            count(*) as response_count
-        FROM `{table_id}`
-        WHERE ID = @survey_id
-        GROUP BY 1
-    """
+def _segmentation_csv_column(surveyid):
+  survey_doc = get_doc_by_id(surveyid)
+  if survey_doc and getattr(survey_doc, 'exists', False):
+    if is_brand_lift(survey_doc.to_dict() or {}):
+      return 'Control/Expose'
+  return 'Segment'
 
-  job_config = bigquery.QueryJobConfig(query_parameters=[
-      bigquery.ScalarQueryParameter('survey_id', 'STRING', survey_id),
-  ])
-  df = _query_to_dataframe(
-      query, job_config=job_config,
-      empty_columns=['Segmentation', 'max_date', 'days_since_response',
-                     'response_count'])
-  return df.to_dict('index')
 
 def download_responses(surveyid):
   """Download survey responses in a CSV format file."""
@@ -351,10 +397,11 @@ def download_responses(surveyid):
         AND NOT STARTS_WITH(Response, '1:|')
     """
   df = get_survey_responses(surveyid, query)
-  output = {'Date': [], 'Control/Expose': [], 'Dimension 2': []}
+  segment_col = _segmentation_csv_column(surveyid)
+  output = {'Date': [], segment_col: []}
   outputdf = pd.DataFrame(data=output)
   outputdf['Date'] = df['CreatedAt'].values
-  outputdf['Control/Expose'] = df['Segmentation'].values
+  outputdf[segment_col] = df['Segmentation'].values
   if df['Response'].any():
     responselist = df['Response'].str.split(pat=('|'), expand=True)
   else:
@@ -397,30 +444,20 @@ def download_responses_with_context(surveyid):
 
   # Get the survey document object using the convenience function.
   survey_doc = get_doc_by_id(surveyid)
-  # Did we get a good document back?
-  if survey_doc.exists:
-    # convert the document into a dictionary
-    survey_info = survey_doc.to_dict()
+  survey_info = {}
+  if survey_doc and getattr(survey_doc, 'exists', False):
+    survey_info = survey_doc.to_dict() or {}
+    question1 = survey_info.get('question1') or question1
+    question2 = survey_info.get('question2') or question2
+    question3 = survey_info.get('question3') or question3
+    question4 = survey_info.get('question4') or question4
+    question5 = survey_info.get('question5') or question5
 
-    # Set variables for question1-5 to the values from the Firestore DB
-    # by walking the dictionary items and looking for well-known named
-    # keys that are used for the questions
-    for key, value in survey_info.items():
-      if key == 'question1':
-        question1 = survey_info.get(key)
-      elif key == 'question2':
-        question2 = survey_info.get(key)
-      elif key == 'question3':
-        question3 = survey_info.get(key)
-      elif key == 'question4':
-        question4 = survey_info.get(key)
-      elif key == 'question5':
-        question5 = survey_info.get(key)
-
-  output = {'Date': [], 'Control/Expose': [], 'Dimension 2': []}
+  segment_col = 'Control/Expose' if is_brand_lift(survey_info) else 'Segment'
+  output = {'Date': [], segment_col: []}
   outputdf = pd.DataFrame(data=output)
   outputdf['Date'] = df['CreatedAt'].values
-  outputdf['Control/Expose'] = df['Segmentation'].values
+  outputdf[segment_col] = df['Segmentation'].values
   if df['Response'].any():
     responselist = df['Response'].str.split(pat=('|'), expand=True)
   else:

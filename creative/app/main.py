@@ -31,11 +31,9 @@ from flask_bootstrap import Bootstrap
 
 # local file imports
 import forms
-from forms import BRAND_TRACK
 from forms import DEFAULT_CSS
 import survey_service
 from forms import RESPONSES_AT_END
-from forms import RESPONSES_IMMEDIATELY
 
 # Project setup
 title = 'Sonar'
@@ -52,17 +50,7 @@ _disable_basic_auth = os.environ.get('DISABLE_BASIC_AUTH', '').strip().lower()
 app.config['BASIC_AUTH_FORCE'] = _disable_basic_auth not in (
     '1', 'true', 'yes', 'on')
 
-# Project constants
-ACTIVE_DAYS = 3
-ACTIVE_COLOR = '#5cb85c'
-ACTIVE_TEXT = 'Active'
-WARNING_DAYS = 14
-WARNING_COLOR = '#f0ac4f'
-WARNING_TEXT = 'Stale'
-OLD_DAYS = 14
-OLD_COLOR = '#d9534f'
-OLD_TEXT = 'Timed Out'
-INDETERMINATE_COLOR = '#a0a0a0'
+# Used when a survey has no BigQuery rows yet.
 MRC_INIT = 999999999
 
 
@@ -74,49 +62,50 @@ def root():
 
 @app.route('/index')
 def index():
-  all_surveys = survey_service.get_all()
+  show_archived = request.args.get('archived', '').strip().lower() in (
+      '1', 'true', 'yes', 'on')
+  all_surveys = survey_service.list_surveys(include_archived=show_archived)
   stat_array = []
   tmp_stats = survey_service.get_all_response_counts()
-  
+
   for survey in all_surveys:
-    # filter down to just this survey.id in DataFrame & convert into a dict
-    df = tmp_stats.loc[tmp_stats["ID"]==survey.id]
+    df = tmp_stats.loc[tmp_stats['ID'] == survey.id]
     segmentation_rows = df.to_dict()
 
-    # set high number for last update
     most_recent_change = MRC_INIT
-
-    # build an array with stats for each segmentation
     segs = []
-    for x in segmentation_rows['ID']:
-        a = {'Segmentation':segmentation_rows['Segmentation'][x],
-             'response_count':segmentation_rows['response_count'][x],
-             'days_since_response':segmentation_rows['days_since_response'][x] }
-
-        if segmentation_rows['days_since_response'][x] < most_recent_change:
-            most_recent_change = segmentation_rows['days_since_response'][x]
-
-        segs.append(a)
-
-    if most_recent_change <= ACTIVE_DAYS:
-        color = ACTIVE_COLOR
-        status_text = ACTIVE_TEXT
-    elif most_recent_change <= WARNING_DAYS:
-        color = WARNING_COLOR
-        status_text = WARNING_TEXT
-    elif most_recent_change > WARNING_DAYS:
-        color = OLD_COLOR
-        status_text = OLD_TEXT
-    else:
-        color = INDETERMINATE_COLOR
+    for x in segmentation_rows.get('ID', {}):
+      days = segmentation_rows['days_since_response'][x]
+      segs.append({
+          'Segmentation': segmentation_rows['Segmentation'][x],
+          'response_count': segmentation_rows['response_count'][x],
+          'days_since_response': days,
+      })
+      if days < most_recent_change:
+        most_recent_change = days
 
     if most_recent_change == MRC_INIT:
-        most_recent_change = -1
+      days_since = None
+      last_change_display = ''
+    else:
+      days_since = most_recent_change
+      last_change_display = most_recent_change
 
-    stat_array.append({'id':survey.id,'stats':segs,'color':color,'last_change':most_recent_change,'status':status_text})
+    status_text, status_label = survey_service.classify_status(days_since)
+    stat_array.append({
+        'id': survey.id,
+        'stats': segs,
+        'last_change': last_change_display,
+        'status': status_text,
+        'status_label': status_label,
+    })
 
-  all_surveys = survey_service.get_all()
-  return render_template('index.html', all_surveys=all_surveys, stat_array=stat_array, title=title)
+  return render_template(
+      'index.html',
+      all_surveys=all_surveys,
+      stat_array=stat_array,
+      show_archived=show_archived,
+      title=title)
 
 
 @app.route('/survey/create', methods=['GET', 'POST'])
@@ -155,7 +144,9 @@ def preview(survey_id):
         all_question_json=survey_service.get_question_json(survey_info),
         seg='preview',
         custom_css=custom_css,
-        response_type = response_type,
+        response_type=response_type,
+        # Do not post preview answers to BigQuery.
+        receiver_url='',
         thankyou_text=survey_service.get_thank_you_text(survey_info),
         next_text=survey_service.get_next_text(survey_info),
         comment_text=survey_service.get_comment_text(survey_info))
@@ -171,6 +162,31 @@ def delete():
     docref_id = request.args.get('survey_id')
     survey_service.delete_by_id(docref_id)
     flash(f'Survey \'{docref_id}\' deleted')
+  return redirect(url_for('index'))
+
+
+@app.route('/survey/copy', methods=['GET'])
+def copy_survey():
+  """Copy a survey and open the new document in the editor."""
+  survey_id = request.args.get('survey_id')
+  new_ref = survey_service.copy_by_id(survey_id)
+  if new_ref is None:
+    flash('Survey not found')
+    return redirect(url_for('index'))
+  flash(f'Copied as {new_ref.id}')
+  return redirect(url_for('edit', survey_id=new_ref.id))
+
+
+@app.route('/survey/archive', methods=['GET'])
+def archive():
+  """Archive or restore a survey."""
+  survey_id = request.args.get('survey_id')
+  archived = request.args.get('archived', '1').strip().lower() in (
+      '1', 'true', 'yes', 'on')
+  survey_service.set_archived(survey_id, archived)
+  flash('Survey archived' if archived else 'Survey restored')
+  if request.args.get('view') == 'archived':
+    return redirect(url_for('index', archived=1))
   return redirect(url_for('index'))
 
 
@@ -245,6 +261,9 @@ def reporting(survey_id):
 
   if survey_doc.exists:
     survey_info = survey_doc.to_dict()
+    if not survey_service.is_brand_lift(survey_info):
+      flash('Reporting is available for Brand Lift surveys only')
+      return redirect(url_for('index'))
     results = survey_service.get_brand_lift_results(survey_id)
     return render_template(
         'reporting.html',
@@ -259,7 +278,8 @@ def reporting(survey_id):
 @app.context_processor
 def inject_receiver_params():
   return {
-      'receiver_url': os.environ.get('RECEIVER_URL')
+      'receiver_url': os.environ.get('RECEIVER_URL') or '',
+      'gtag_id': os.environ.get('GTAG_ID') or '',
   }
 
 
@@ -274,8 +294,9 @@ def format_percentage(num):
 
 
 @app.template_filter('has_reporting')
-def is_brand_track(survey):
-  return survey.to_dict().get('surveytype', '') != BRAND_TRACK
+def has_reporting(survey):
+  """True only for Brand Lift surveys (stats / reporting)."""
+  return survey_service.is_brand_lift(survey)
 
 
 if __name__ == '__main__':

@@ -18,7 +18,7 @@
     <script>
         var fullConfiguration = {
             "survey_config": {
-                "response_server": "{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&times={time_measurement}",
+                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&times={time_measurement}{% endif %}",
                 
                 "id": "{{survey_id}}",
                 
@@ -529,10 +529,11 @@
                 setupGlobalTags: function() {
                     if (this.surveyConfig.global_tags != null &&
                         this.surveyConfig.global_tags.length > 0) {
-                        // Insert master tag
+                        {% if gtag_id %}
                         this.insertScript(
-                            null, 'https://www.googletagmanager.com/gtag/js?id=AW-968433116',
+                            null, 'https://www.googletagmanager.com/gtag/js?id={{ gtag_id }}',
                             'head');
+                        {% endif %}
 
                         this.insertScript(
                             'window.dataLayer = window.dataLayer || [];\n' +
@@ -562,6 +563,9 @@
                 },
 
                 sendCollectedResponseToServer: function() {
+                    if (!this.surveyConfig.response_server) {
+                        return;
+                    }
                     this.insertPixel(this.surveyConfig.response_server);
                 },
 

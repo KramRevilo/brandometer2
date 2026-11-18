@@ -275,7 +275,12 @@ class QuestionForm(FlaskForm):
   question4order = SelectField('question4Order', choices=question_order_choices)
   question5order = SelectField('question5Order', choices=question_order_choices)
 
-  language = SelectField('language', choices=('en', 'es', 'fr', 'ms', 'zh', 'ja', 'ko'))
+  # Codes with translations in survey_service, plus English fallback.
+  language = SelectField('language', choices=(
+      'en', 'ar', 'bn', 'cs', 'da', 'de', 'el', 'es', 'fa', 'fi', 'fr', 'gu',
+      'he', 'hi', 'hu', 'id', 'it', 'ja', 'kn', 'ko', 'ml', 'mr', 'ms', 'nl',
+      'no', 'pl', 'pt', 'ru', 'sv', 'ta', 'te', 'th', 'tl', 'tr', 'uk', 'ur',
+      'vi', 'zh'))
 
   # make BRAND_TRACK to be the default
   surveytype = SelectField('surveyType', choices=[(

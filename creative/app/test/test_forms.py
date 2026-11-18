@@ -59,3 +59,14 @@ class QuestionFormTest(unittest.TestCase):
             test_invalid = forms.question_section_is_empty(invalid_form, '1')
             self.assertTrue(test_invalid)
 
+    def test_language_dropdown_matches_translation_dicts(self):
+        form = self.create_form({})
+        choice_values = [
+            c[0] if isinstance(c, (list, tuple)) else c
+            for c in form.language.choices
+        ]
+        for code in (
+            'en', 'es', 'fr', 'ms', 'zh', 'ja', 'ko', 'de', 'it', 'pt', 'th',
+            'ar', 'hi', 'id', 'nl', 'pl', 'ru', 'sv', 'tr', 'vi'):
+            self.assertIn(code, choice_values)
+

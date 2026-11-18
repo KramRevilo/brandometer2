@@ -13,7 +13,6 @@
 # limitations under the License.
 """Importing Google Firestore for survey storage."""
 from google.cloud import firestore
-from google.cloud.firestore_v1.base_query import FieldFilter
 
 _db = None
 _survey_collection = None
@@ -37,17 +36,20 @@ def get_all():
   return _collection().stream()
 
 
+def is_archived_doc(survey):
+  """Missing archived field is treated as active."""
+  return (survey.to_dict() or {}).get('archived') is True
+
+
 def get_active():
-  filter_1 = FieldFilter("archived", "!=", True)
-  # cannot query by a field when it doesn't exist
-  # like in the case of an old Firestore schema being upgraded  :-(
-  # filter_2 = FieldFilter("archived", "!=", True)
+  # Filter in Python so surveys without an archived field stay visible.
+  return (survey for survey in _collection().stream()
+          if not is_archived_doc(survey))
 
-  # Create the union filter of the two filters (queries)
-  #or_filter = Or(filters=[filter_1, filter_2])
 
-  #(db.collection(u"Surveys").where(filter=or_filter).stream())
-  return (get_db().collection(u"Surveys").where(filter=filter_1).stream())
+def get_archived():
+  return (survey for survey in _collection().stream()
+          if is_archived_doc(survey))
 
 
 def get_by_id(survey_id):
@@ -73,3 +75,21 @@ def create(data):
   ref = _collection().document()
   ref.set(data)
   return ref
+
+
+def set_archived(survey_id, archived):
+  ref = _collection().document(survey_id)
+  ref.update({'archived': bool(archived)})
+  return ref
+
+
+def copy(survey_id):
+  """Create a new survey document cloned from survey_id."""
+  doc = get_doc_by_id(survey_id)
+  if not doc.exists:
+    return None
+  data = dict(doc.to_dict() or {})
+  original_name = data.get('surveyname') or 'survey'
+  data['surveyname'] = 'Copy of ' + original_name
+  data['archived'] = False
+  return create(data)

@@ -78,49 +78,68 @@ function onColumnHeaderClicked(ev) {
 
 {% block content %}
 <div class="container">
+    <p>
+        {% if show_archived %}
+            Showing archived surveys.
+            <a href="{{ url_for('index') }}">Hide archived</a>
+        {% else %}
+            <a href="{{ url_for('index', archived=1) }}">Show archived</a>
+        {% endif %}
+    </p>
     <table data-sortable id="mainTable" class="table table-bordered table-striped">
         <thead class="thead-light">
             <tr style='text-align:center;background-color:#337ab7;color:white;vertical-align: middle;'>
                 <div style="cursor:pointer">
-                    <th scope="col" class="table_header" style="width:250px;cursor:pointer;" 
+                    <th scope="col" class="table_header" style="width:250px;cursor:pointer;"
                         >Survey Name</th>
-                    <th scope="col" class="table_header" style="width:150px;cursor:pointer;" 
+                    <th scope="col" class="table_header" style="width:150px;cursor:pointer;"
                         >Survey ID</th>
                     <th scope="col" class="table_header" style="cursor:pointer;"
                         >Survey Questions</th>
                     <th scope="col" class="table_header" style="width:50px;">View</th>
-		            <th scope="col" class="table_header" style="width:50px;cursor:pointer;"
+                    <th scope="col" class="table_header" style="width:50px;cursor:pointer;"
                         >Response Count (segment:count)</th>
-		            <th scope="col" class="table_header" style="width:75px;cursor:pointer;"
+                    <th scope="col" class="table_header" style="width:75px;cursor:pointer;"
                         >Last Response (days)</th>
-		            <th scope="col" class="table_header" style="cursor:pointer;"
+                    <th scope="col" class="table_header" style="cursor:pointer;"
                         >Status</th>
                     <th scope="col" class="table_header" style="width:75px;">Download</th>
                     <th scope="col" class="table_header" style="width:50px;">Actions</th>
-                </div>                
+                </div>
             </tr>
         </thead>
         <tbody>
+        {% if not all_surveys %}
+        <tr>
+            <td colspan="9" style="text-align:center;padding:20px;">
+                {% if show_archived %}
+                    No archived surveys.
+                {% else %}
+                    No surveys yet. <a href="{{ url_for('create') }}">Create survey</a>
+                {% endif %}
+            </td>
+        </tr>
+        {% endif %}
         {% for survey in all_surveys %}
         <tr>
-            <td style='font-size:10pt;background-color:#e0e0e0;color:black;text-align:center'>
+            <td style='font-size:10pt;text-align:center'>
                 {{ (survey.to_dict())['surveyname'] }}
             </td>
-            <td style='font-size:8pt;background-color:#e0e0e0;color:black;text-align:center'>
+            <td style='font-size:8pt;text-align:center'>
                 {{ survey.id }}
             </td>
-            <td style='font-size:8pt;background-color:#e0e0e0;color:black;text-align:center;padding-left:5px;padding-right:5px;'>
+            <td style='font-size:8pt;text-align:center;padding-left:5px;padding-right:5px;'>
                 <table class="table" style="border: none;border-collapse: collapse;">
                     {% for question_text in survey | get_all_question_text %}
                     <tr>
-                    <td style='font-size:8pt;background-color:#e0e0e0;color:black;text-align:left;padding-left:0px;padding-right:0px;'>
+                    <td style='font-size:8pt;text-align:left;padding-left:0px;padding-right:0px;'>
                         {{ question_text }}
                     </td>
-                    </tr>                        
+                    </tr>
                     {% endfor %}
                 </table>
             </td>
-            <td style='font-size:10pt;background-color:#e0e0e0;color:black;text-align:center'>
+            <td style='font-size:10pt;text-align:center'>
                 <form>
                     <a href="{{ url_for('preview', survey_id=survey.id) }}">
                         <button type="button" class="btn btn-info"  title="View Survey">
@@ -136,70 +155,80 @@ function onColumnHeaderClicked(ev) {
                     {% endif %}
                </form>
             </td>
-            <td style="font-size:10pt;background-color:{%for item in stat_array%}{% if item['id']==survey.id %}{{item['color']}}{%endif%}{%endfor%};color:white;text-align:center">
+            <td style="font-size:10pt;text-align:center">
             {% for item in stat_array %}
-                {# is the current stat_array item id equal to the survey id? #}
                 {% if item['id'] == survey.id %}
-                    {# walk through the associated segmentation stats #}
                     {% for seg in item['stats'] %}
-                        {# output the segmentation name and the response count for it #}
                         {% if seg['Segmentation'] == '' %}
-                            {# Substitute '<Unnamed>'' when segment is blank #}
                             &lt;Unnamed&gt;
                         {% else %}
-                            {# Otherwise use segment name #}
                             {{seg['Segmentation']}}
                         {% endif %}
-                        {# Output the response count for this segment #}
                         &nbsp;&colon;&nbsp;{{ seg['response_count'] }}<br>
                     {% endfor %}
                 {% endif %}
             {% endfor %}
             </td>
-            <td style="font-size:10pt;background-color:{%for item in stat_array%}{% if item['id']==survey.id %}{{item['color']}}{%endif%}{%endfor%};color:white;text-align:center">
+            <td style="font-size:10pt;text-align:center">
             {% for item in stat_array %}
                 {% if item['id'] == survey.id %}
                     {{ item['last_change'] }}
                 {% endif %}
             {% endfor %}
             </td>
-            <td style="font-size:10pt;background-color:{%for item in stat_array%}{% if item['id']==survey.id %}{{item['color']}}{%endif%}{%endfor%};color:white;text-align:center">
+            <td style="font-size:10pt;text-align:center;vertical-align:middle;">
             {% for item in stat_array %}
                 {% if item['id'] == survey.id %}
-                    {{ item['status'] }}
+                    <span class="label label-{{ item['status_label'] }}">{{ item['status'] }}</span>
                 {% endif %}
             {% endfor %}
             </td>
-            <td style='font-size:10pt;background-color:#e0e0e0;color:black;text-align:center'>
+            <td style='font-size:10pt;text-align:center'>
                 <form>
                     <a href="{{ url_for('download_zip', survey_id=survey.id) }}">
                         <button type="button" class="btn btn-success" title="Download Creative Zip">
                             <span class="glyphicon glyphicon glyphicon-compressed" aria-hidden="true"></span>
                         </button>
                     </a>
-                    
+
                         <a href="{{ url_for('download_responses', survey_id=survey.id) }}">
-                        <!-- <a href="javascript:void(0)"> -->
                             <button type="button" class="btn btn-info" title="Download Responses">
                             <span class="glyphicon glyphicon-download" aria-hidden="true"></span>
                         </button>
                     </a>
 
                         <a href="{{ url_for('download_responses_context', survey_id=survey.id) }}">
-                        <!-- <a href="javascript:void(0)"> -->
                             <button type="button" class="btn btn-warning" title="Download Responses with Context">
                             <span class="glyphicon glyphicon glyphicon-download-alt" aria-hidden="true"></span>
                         </button>
-                    </a> 
+                    </a>
                </form>
             </td>
-            <td style='font-size:10pt;background-color:#e0e0e0;color:black;text-align:center'>
+            <td style='font-size:10pt;text-align:center'>
                 <form>
                     <a href="{{ url_for('edit', survey_id=survey.id) }}">
                         <button type="button" class="btn btn-primary" title="Edit Survey">
                             <span class="glyphicon glyphicon-pencil" aria-hidden="true"></span>
                         </button>
                     </a>
+                    <a href="{{ url_for('copy_survey', survey_id=survey.id) }}">
+                        <button type="button" class="btn btn-default" title="Copy Survey">
+                            <span class="glyphicon glyphicon-file" aria-hidden="true"></span>
+                        </button>
+                    </a>
+                    {% if show_archived %}
+                    <a href="{{ url_for('archive', survey_id=survey.id, archived=0, view='archived') }}">
+                        <button type="button" class="btn btn-info" title="Unarchive Survey">
+                            <span class="glyphicon glyphicon-folder-open" aria-hidden="true"></span>
+                        </button>
+                    </a>
+                    {% else %}
+                    <a href="{{ url_for('archive', survey_id=survey.id, archived=1) }}">
+                        <button type="button" class="btn btn-default" title="Archive Survey">
+                            <span class="glyphicon glyphicon-folder-close" aria-hidden="true"></span>
+                        </button>
+                    </a>
+                    {% endif %}
                     <a href="{{ url_for('delete', survey_id=survey.id) }}" onclick="return confirm('Really delete?')">
                         <button type="button" class="btn btn-danger" title="Delete Survey">
                             <span class="glyphicon glyphicon-remove" aria-hidden="true"></span>
