@@ -233,7 +233,7 @@ def question_section_is_empty(form, questionNumber):
 
 def validate_next_question(form, field):
   """Validate if the question is linked by any other question's answer."""
-  questionNumberMatch = re.search('\d', field.name)
+  questionNumberMatch = re.search(r'\d', field.name)
   questionNumber = questionNumberMatch.group()
   for questionIndex in range(1, 6):
     for answerChoice in ['a', 'b', 'c', 'd']:
@@ -246,8 +246,8 @@ def validate_next_question(form, field):
             str(questionIndex) +
             ' linked to this question, please fill in this section')
 
-      # is 'end' not really 'end'?
-      if answerLinkData.lower() == 'end' and answerLinkData.lower() != 'end':
+      # Require the literal lowercase token 'end' (the creative lowercases at runtime).
+      if answerLinkData and answerLinkData.lower() == 'end' and answerLinkData != 'end':
         raise ValidationError("Syntax for end of survey is 'end' in lowercase, please fix.")
 
 

@@ -16,7 +16,6 @@
 # OS imports
 import datetime
 import os
-import datetime
 
 # Flask imports
 from flask import flash
@@ -41,7 +40,7 @@ from forms import RESPONSES_IMMEDIATELY
 # Project setup
 title = 'Sonar'
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'supersecretkey'
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-only-not-for-production')
 Bootstrap(app)
 app.config['BASIC_AUTH_USERNAME'] = os.environ.get('AUTH_USERNAME')
 app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('AUTH_PASSWORD')
@@ -136,8 +135,8 @@ def preview(survey_id):
     else:
         custom_css = DEFAULT_CSS
 
-    if 'responseType' in survey_info:
-        response_type = survey_info['surveytype']
+    if 'responsetype' in survey_info:
+        response_type = survey_info['responsetype']
     else:
         response_type = RESPONSES_AT_END
 
