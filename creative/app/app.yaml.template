@@ -6,12 +6,28 @@ env_variables:
   RECEIVER_URL: "{{RECEIVER_URL}}"
   PROJECT_ID: "{{PROJECT_ID}}"
   TABLE_ID: "{{PROJECT_ID}}.responses.responses"
-  AUTH_USERNAME: "{{AUTH_USERNAME}}"
-  AUTH_PASSWORD: "{{AUTH_PASSWORD}}"
-  SECRET_KEY: "{{SECRET_KEY}}"
   GTAG_ID: "{{GTAG_ID}}"
+
+# Injected from Secret Manager at runtime. Do not put AUTH_* or SECRET_KEY here.
+secret_environment_variables:
+- name: AUTH_USERNAME
+  secret: brandometer-auth-username
+  version: latest
+- name: AUTH_PASSWORD
+  secret: brandometer-auth-password
+  version: latest
+- name: SECRET_KEY
+  secret: brandometer-secret-key
+  version: latest
 
 handlers:
 - url: /favicon\.ico
   static_files: favicon.ico
   upload: favicon\.ico
+  secure: always
+- url: /static
+  static_dir: static
+  secure: always
+- url: /.*
+  script: auto
+  secure: always
