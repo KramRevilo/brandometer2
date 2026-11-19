@@ -719,10 +719,14 @@
             <span id="question_comment"></span>
             <span id="next_button">Next</span>
         </div>
-        <button type="button" id="brand_badge" class="brand-badge"
+        <button type="button" id="brand_badge"
+                class="brand-badge badge-kind-{{ badge_kind|default('letter') }} badge-icon-{{ badge_icon|default('B') }}"
                 title="{{ badge_tooltip|default('Survey Type Brandometer Ad - powered by Google') }}"
                 aria-label="{{ badge_tooltip|default('Survey Type Brandometer Ad - powered by Google') }}"
                 onclick="event.preventDefault(); event.stopPropagation(); this.classList.toggle('is-open'); return false;">
+            {% if badge_svg %}
+            {{ badge_svg|safe }}
+            {% elif (badge_kind|default('letter')) == 'letter' %}
             <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
                 <defs>
                     <linearGradient id="badgeBevel" x1="0" y1="0" x2="0" y2="1">
@@ -732,8 +736,11 @@
                     </linearGradient>
                 </defs>
                 <rect x="1" y="1" width="18" height="18" rx="3.5" fill="url(#badgeBevel)" stroke="#111" stroke-width="1.2"/>
-                <text x="10" y="14.5" text-anchor="middle" font-size="12" font-family="Georgia, 'Times New Roman', serif" font-weight="700" fill="#111">{{ badge_letter|default('B') }}</text>
+                <text x="10" y="14.5" text-anchor="middle" font-size="12" font-family="Georgia, 'Times New Roman', serif" font-weight="700" fill="#111">{{ badge_mark|default(badge_letter)|default('B') }}</text>
             </svg>
+            {% else %}
+            <span class="brand-badge-face">{{ badge_mark|default(badge_icon)|default('B') }}</span>
+            {% endif %}
             <span class="brand-badge-tip">{{ badge_tooltip|default('Survey Type Brandometer Ad - powered by Google') }}</span>
         </button>
     </div>

@@ -156,7 +156,7 @@ The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style 
 
 **Answers.** 2–5 answers on 300×250 / 336×280 / 970×250; up to 8 (a–h) when **every** selected size is 160×600 or 300×600. Empty rows are skipped. Answer text wraps (always-injected layout CSS overrides old `.AText { height: 27px }` in stored `custom_css`). Reporting and the receiver treat `1:F` the same as `1:A` (Response is a string).
 
-**Ad badge.** Every creative and the preview has a bottom-left bevelled letter badge (first letter of `APP_BRAND_NAME`, overridable with `APP_BRAND_BADGE_LETTER`). Tooltip: `Survey Type {brand} Ad - powered by Google` (`APP_BRAND_BADGE_TOOLTIP` to override). It does not fire clickTag.
+**Ad badge.** Every creative and the preview has a bottom-left disclosure badge. Default icon is the bevelled **B** (first letter of `APP_BRAND_NAME`, overridable with `APP_BRAND_BADGE_LETTER`). Per-survey **Disclosure badge** on create/edit picks **B**, **B2**, **Ad**, or **Dentsu** (plain-text wordmark in the same bevelled pill; not Dentsu’s official logo). Stored as `badge_icon` / `badge_text`. Blank or missing fields behave as the default tooltip `Survey Type {brand} Ad - powered by Google` (`APP_BRAND_BADGE_TOOLTIP` to override the default string). Popup text is max 120 characters and HTML-escaped. Hover / focus / tap still show the tooltip; it does not fire clickTag. Copy and zip version snapshots keep the fields. Add more faces in `brand.BADGE_ICONS` (reserved `svg` for an uploaded logo).
 
 **Brand.** `export APP_BRAND_NAME=Brandometer` (that is the default). Navbar, page titles, and the badge letter/tooltip use it.
 
@@ -354,7 +354,8 @@ Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --p
 1. Navbar says **Brandometer** (or `APP_BRAND_NAME`). Create survey: check **300×250** and **970×250**. Preview switcher appears; 970×250 is wide with answers in a grid. Check only **160×600** and **Add answer** through H. Checking 300×250 as well should drop F–H on save (validation).
 2. Theme preset dropdown: Classic green first; groups Classic / Loud solids / Complementary / Patterns. Hazard stripes should show a striped background with readable answer panels.
 3. Download zip with two sizes: outer zip contains two inner zips; each inner has only `index.html`, `ad.size` matching that size, a **B** badge bottom-left. Hover/tap the badge for the tooltip. Inner filenames ≤ 50 chars.
-4. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips, one placement per size. Assign Brand Lift control/expose creatives to the matching audience ads. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
+4. **Disclosure badge.** Create survey: Icon picker shows B / B2 / Ad / Dentsu. Default B looks like the current bevelled letter. Pick **Dentsu** and 160×600 — the wordmark is a small pill, not overlapping answers. Change popup text; preview updates immediately. **Use default** restores the `Survey Type Brandometer Ad - powered by Google` string. Leave text blank and save — creative still uses that default. Copy the survey; badge choices come along.
+5. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips, one placement per size. Assign Brand Lift control/expose creatives to the matching audience ads. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
 
 # CM360 batch upload (Phase 6)
 

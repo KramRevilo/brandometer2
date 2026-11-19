@@ -711,6 +711,8 @@ class TestSurveyService(unittest.TestCase):
           'campaign_id': 'camp-1',
           'placement_id': 'plc-9',
           'created_at': '2024-01-02T00:00:00Z',
+          'badge_icon': 'Dentsu',
+          'badge_text': 'Survey Type Dentsu Ad - powered by Google',
       })
       new_ref = survey_collection.copy(original.id)
       self.assertIsNotNone(new_ref)
@@ -729,6 +731,9 @@ class TestSurveyService(unittest.TestCase):
       self.assertEqual(data['placement_id'], 'plc-9')
       self.assertTrue(data.get('created_at'))
       self.assertNotEqual(data['created_at'], '2024-01-02T00:00:00Z')
+      self.assertEqual(data['badge_icon'], 'Dentsu')
+      self.assertEqual(
+          data['badge_text'], 'Survey Type Dentsu Ad - powered by Google')
 
   def test_copy_missing_survey_returns_none(self):
     with mock.patch.object(

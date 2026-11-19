@@ -163,6 +163,9 @@ def _editor_context(form):
       'size_overlay_css': {
           key: creative_size.overlay_css(key) for key in creative_size.SIZES
       },
+      'badge_icons': brand.badge_icon_list(),
+      'badge_text_max': brand.BADGE_TEXT_MAX,
+      'badge_text_default': brand.badge_tooltip(),
   }
 
 
@@ -184,7 +187,10 @@ def _render_editor(form, page_title, survey_id=None, versions=None):
       preset_groups=ctx.get('preset_groups') or [],
       size_choices=ctx.get('size_choices') or creative_size.SIZE_CHOICES,
       layout_fix_css=ctx.get('layout_fix_css') or '',
-      size_overlay_css=ctx.get('size_overlay_css') or {})
+      size_overlay_css=ctx.get('size_overlay_css') or {},
+      badge_icons=ctx.get('badge_icons') or brand.badge_icon_list(),
+      badge_text_max=ctx.get('badge_text_max') or brand.BADGE_TEXT_MAX,
+      badge_text_default=ctx.get('badge_text_default') or brand.badge_tooltip())
 
 
 @app.route('/survey/create', methods=['GET', 'POST'])
@@ -236,7 +242,8 @@ def preview(survey_id):
         receiver_url='',
         thankyou_text=survey_service.get_thank_you_text(survey_info),
         next_text=survey_service.get_next_text(survey_info),
-        comment_text=survey_service.get_comment_text(survey_info))
+        comment_text=survey_service.get_comment_text(survey_info),
+        **brand.badge_render_vars(survey_info))
   else:
     flash('Survey not found')
     return redirect(url_for('index'))

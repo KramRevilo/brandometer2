@@ -128,6 +128,8 @@ _VERSION_SCALAR_FIELDS = (
     'custom_css',
     'language',
     'responsetype',
+    'badge_icon',
+    'badge_text',
 )
 
 

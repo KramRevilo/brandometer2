@@ -18,6 +18,7 @@ input.
 """
 import re
 from flask_wtf import FlaskForm
+from wtforms import RadioField
 from wtforms import SelectField
 from wtforms import SelectMultipleField
 from wtforms import StringField
@@ -26,6 +27,7 @@ from wtforms import TextAreaField
 from wtforms.validators import DataRequired
 from wtforms.validators import ValidationError
 from wtforms.validators import Length
+import brand
 import creative_size
 
 BRAND_TRACK = 'brand_track'
@@ -387,6 +389,14 @@ class QuestionForm(FlaskForm):
       'creativeSize',
       choices=creative_size.SIZE_CHOICES,
       default=[creative_size.DEFAULT_SIZE])
+
+  badge_icon = RadioField(
+      'badgeIcon',
+      choices=brand.badge_icon_choices(),
+      default=brand.DEFAULT_BADGE_ICON)
+  badge_text = StringField(
+      'badgeText',
+      validators=[Length(max=brand.BADGE_TEXT_MAX)])
 
   question1 = StringField('question1', validators=[DataRequired()])
   answer1a = StringField('answer1a', validators=[DataRequired()])

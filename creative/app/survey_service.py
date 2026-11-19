@@ -362,7 +362,7 @@ def classify_status(days_since_response):
 
 
 def create(form):
-  data = _strip_identity(dict(form.data))
+  data = brand.persist_badge(_strip_identity(dict(form.data)))
   data, _ = creative_size.persist_sizes(data)
   data['archived'] = False
   if not data.get('created_at'):
@@ -373,7 +373,8 @@ def create(form):
 
 
 def update_by_id(survey_id, form):
-  data, _ = creative_size.persist_sizes(_strip_identity(form.data))
+  data, _ = creative_size.persist_sizes(
+      brand.persist_badge(_strip_identity(form.data)))
   edit_doc = survey_collection.update_by_id(survey_id, data)
   flash(f'{form.surveyname.data} updated')
   return edit_doc
@@ -484,9 +485,8 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None):
       thankyou_text=get_thank_you_text(survey_dict),
       next_text=get_next_text(survey_dict),
       comment_text=get_comment_text(survey_dict),
-      badge_letter=brand.badge_letter(),
-      badge_tooltip=brand.badge_tooltip(),
-      brand_name=brand.brand_name())
+      brand_name=brand.brand_name(),
+      **brand.badge_render_vars(survey_dict))
 
 
 def delete_tmp_zip_files(zipfiles):

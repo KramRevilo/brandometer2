@@ -15,6 +15,43 @@
 import os
 
 DEFAULT_BRAND_NAME = 'Brandometer'
+DEFAULT_BADGE_ICON = 'B'
+BADGE_TEXT_MAX = 120
+
+# Registry of disclosure-badge faces. Add new keys here (including an official
+# uploaded SVG later via the reserved `svg` field). `kind` is `letter` (20×20
+# bevelled square), `pill` (compact rounded-rect), `wordmark` (plain-text pill),
+# or `svg` (trusted markup in `svg`).
+BADGE_ICONS = {
+    'B': {
+        'id': 'B',
+        'label': 'B',
+        'kind': 'letter',
+        'mark': None,
+        'svg': None,
+    },
+    'B2': {
+        'id': 'B2',
+        'label': 'B2',
+        'kind': 'pill',
+        'mark': 'B2',
+        'svg': None,
+    },
+    'Ad': {
+        'id': 'Ad',
+        'label': 'Ad',
+        'kind': 'pill',
+        'mark': 'Ad',
+        'svg': None,
+    },
+    'Dentsu': {
+        'id': 'Dentsu',
+        'label': 'Dentsu',
+        'kind': 'wordmark',
+        'mark': 'Dentsu',
+        'svg': None,
+    },
+}
 
 
 def brand_name():
@@ -35,3 +72,61 @@ def badge_tooltip():
   if override:
     return override
   return 'Survey Type %s Ad - powered by Google' % brand_name()
+
+
+def badge_icon_list():
+  return list(BADGE_ICONS.values())
+
+
+def badge_icon_choices():
+  return [(opt['id'], opt['label']) for opt in badge_icon_list()]
+
+
+def resolve_badge_icon(value):
+  key = (value or '').strip()
+  if key in BADGE_ICONS:
+    return dict(BADGE_ICONS[key])
+  return dict(BADGE_ICONS[DEFAULT_BADGE_ICON])
+
+
+def resolve_badge_text(value):
+  text = (value or '').strip()
+  if not text:
+    return badge_tooltip()
+  return text[:BADGE_TEXT_MAX]
+
+
+def badge_for_survey(survey=None):
+  """Resolved icon + tooltip for a survey dict (missing/blank = current defaults)."""
+  data = survey if isinstance(survey, dict) else {}
+  icon = resolve_badge_icon(data.get('badge_icon'))
+  mark = icon.get('mark') or badge_letter()
+  return {
+      'id': icon['id'],
+      'kind': icon['kind'],
+      'label': icon['label'],
+      'mark': mark,
+      'svg': icon.get('svg'),
+      'tooltip': resolve_badge_text(data.get('badge_text')),
+  }
+
+
+def badge_render_vars(survey=None):
+  spec = badge_for_survey(survey)
+  return {
+      'badge_icon': spec['id'],
+      'badge_kind': spec['kind'],
+      'badge_mark': spec['mark'],
+      'badge_letter': spec['mark'] if spec['kind'] == 'letter' else badge_letter(),
+      'badge_tooltip': spec['tooltip'],
+      'badge_svg': spec.get('svg'),
+  }
+
+
+def persist_badge(data):
+  """Normalise badge_icon / badge_text on a survey payload."""
+  payload = dict(data or {})
+  payload['badge_icon'] = resolve_badge_icon(payload.get('badge_icon'))['id']
+  text = (payload.get('badge_text') or '').strip()
+  payload['badge_text'] = text[:BADGE_TEXT_MAX]
+  return payload

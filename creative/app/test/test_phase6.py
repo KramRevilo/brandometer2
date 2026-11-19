@@ -197,3 +197,122 @@ class PresetAndBrandTest(unittest.TestCase):
     ids = [ans['id'] for ans in report['questions'][0]['answers']]
     self.assertEqual(ids, ['A', 'H'])
     self.assertEqual(report['questions'][0]['answers'][1]['text'], 'Eighth')
+
+
+class DisclosureBadgeTest(unittest.TestCase):
+
+  def test_defaults_match_current_b_badge(self):
+    spec = brand.badge_for_survey({})
+    self.assertEqual(spec['id'], 'B')
+    self.assertEqual(spec['kind'], 'letter')
+    self.assertEqual(spec['mark'], 'B')
+    self.assertEqual(spec['tooltip'], 'Survey Type Brandometer Ad - powered by Google')
+    self.assertEqual(brand.persist_badge({})['badge_icon'], 'B')
+    self.assertEqual(brand.persist_badge({'badge_text': '  '})['badge_text'], '')
+
+  def test_unknown_icon_falls_back_to_b(self):
+    spec = brand.badge_for_survey({'badge_icon': 'not-a-real-icon'})
+    self.assertEqual(spec['id'], 'B')
+    self.assertEqual(spec['kind'], 'letter')
+
+  def test_each_icon_renders_in_html(self):
+    with main.app.app_context():
+      for icon, needle, kind in (
+          ('B', '>B</text>', 'letter'),
+          ('B2', 'B2', 'pill'),
+          ('Ad', 'Ad', 'pill'),
+          ('Dentsu', 'Dentsu', 'wordmark'),
+      ):
+        html = survey_service.get_html_template('sid', {
+            'surveyname': 'Badge',
+            'question1': 'Q',
+            'answer1a': 'A',
+            'answer1b': 'B',
+            'badge_icon': icon,
+        }, '')
+        self.assertIn('brand-badge', html)
+        self.assertIn('badge-kind-%s' % kind, html)
+        self.assertIn('badge-icon-%s' % icon, html)
+        self.assertIn(needle, html)
+        self.assertIn('stopPropagation', html)
+        if icon == 'B':
+          self.assertIn('viewBox="0 0 20 20"', html)
+          self.assertIn('id="badgeBevel"', html)
+        else:
+          self.assertIn('brand-badge-face', html)
+        if icon == 'Dentsu':
+          self.assertIn('badge-kind-wordmark', html)
+          self.assertNotIn('dentsu-logo', html.lower())
+          self.assertIn('brand-badge-face', html)
+
+  def test_custom_text_is_html_escaped(self):
+    with main.app.app_context():
+      html = survey_service.get_html_template('sid', {
+          'surveyname': 'Badge',
+          'question1': 'Q',
+          'answer1a': 'A',
+          'answer1b': 'B',
+          'badge_icon': 'Ad',
+          'badge_text': 'See <b>us</b> & "them"',
+      }, '')
+    self.assertIn('&lt;b&gt;us&lt;/b&gt;', html)
+    self.assertNotIn('<b>us</b>', html)
+    self.assertIn('&amp;', html)
+    self.assertIn('brand-badge-face', html)
+    self.assertIn('Ad', html)
+
+  def test_legacy_survey_without_badge_fields_matches_current_default(self):
+    with main.app.app_context():
+      html = survey_service.get_html_template('sid', {
+          'surveyname': 'Old',
+          'question1': 'Q',
+          'answer1a': 'A',
+          'answer1b': 'B',
+      }, '')
+    self.assertIn('viewBox="0 0 20 20"', html)
+    self.assertIn('>B</text>', html)
+    self.assertIn('Survey Type Brandometer Ad - powered by Google', html)
+    self.assertIn('badge-kind-letter', html)
+
+  def test_blank_text_uses_brand_default(self):
+    spec = brand.badge_for_survey({'badge_icon': 'B2', 'badge_text': ''})
+    self.assertEqual(spec['id'], 'B2')
+    self.assertEqual(spec['tooltip'], 'Survey Type Brandometer Ad - powered by Google')
+
+  def test_version_snapshot_keeps_badge_fields(self):
+    from mockfirestore import MockFirestore
+    import survey_collection
+    client = MockFirestore()
+    collection = client.collection('test_surveys')
+    with mock.patch.object(survey_collection, '_collection', return_value=collection):
+      ref = collection.document()
+      ref.set({
+          'surveyname': 'Live',
+          'question1': 'Q',
+          'badge_icon': 'Ad',
+          'badge_text': 'Custom popup',
+      })
+      snap = survey_collection.add_version(ref.id, ref.get().to_dict())
+    self.assertEqual(snap['badge_icon'], 'Ad')
+    self.assertEqual(snap['badge_text'], 'Custom popup')
+
+  @mock.patch.object(survey_service.survey_collection, 'add_version')
+  def test_zip_uses_survey_badge(self, _version_mock):
+    with main.app.app_context():
+      _filename, data = survey_service.zip_file('sid', {
+          'surveyname': 'pack',
+          'question1': 'Q',
+          'answer1a': 'A',
+          'answer1b': 'B',
+          'creativesize': ['300x250', '160x600'],
+          'badge_icon': 'Dentsu',
+          'badge_text': 'Custom tip <x>',
+      })
+    outer = zipfile.ZipFile(data)
+    for name in outer.namelist():
+      html = zipfile.ZipFile(__import__('io').BytesIO(outer.read(name))).read(
+          'index.html').decode('utf-8')
+      self.assertIn('Dentsu', html)
+      self.assertIn('badge-kind-wordmark', html)
+      self.assertIn('&lt;x&gt;', html)
+      self.assertNotIn('<x>', html)

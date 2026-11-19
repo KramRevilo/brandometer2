@@ -211,6 +211,56 @@
         }
       },
 
+      resetBadgeText: function () {
+        var el = document.getElementById('badge_text');
+        if (el) el.value = '';
+        this.syncCss();
+      },
+
+      selectedBadgeIcon: function () {
+        void this.formEpoch;
+        var checked = document.querySelector('input[name="badge_icon"]:checked');
+        return (checked && checked.value) || 'B';
+      },
+
+      selectedBadgeSpec: function () {
+        var id = this.selectedBadgeIcon();
+        var icons = boot.badgeIcons || [];
+        for (var i = 0; i < icons.length; i++) {
+          if (icons[i].id === id) return icons[i];
+        }
+        return { id: 'B', kind: 'letter', mark: null };
+      },
+
+      badgeTooltipText: function () {
+        void this.formEpoch;
+        var typed = String(fieldValue('badge_text') || '').trim();
+        if (typed) return typed.slice(0, 120);
+        return (boot.badgeTextDefault || (boot.brand && boot.brand.tooltip) ||
+          'Survey Type Brandometer Ad - powered by Google');
+      },
+
+      badgeMarkup: function () {
+        var spec = this.selectedBadgeSpec();
+        var tip = this.badgeTooltipText();
+        var kind = spec.kind || 'letter';
+        var mark = spec.mark || (boot.brand && boot.brand.letter) || 'B';
+        var face;
+        if (spec.svg) {
+          face = spec.svg;
+        } else if (kind === 'letter') {
+          face = '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
+            '<rect x="1" y="1" width="18" height="18" rx="3.5" fill="#ddd" stroke="#111" stroke-width="1.2"/>' +
+            '<text x="10" y="14.5" text-anchor="middle" font-size="12" font-family="Georgia,serif" font-weight="700" fill="#111">' +
+            escapeHtml(mark) + '</text></svg>';
+        } else {
+          face = '<span class="brand-badge-face">' + escapeHtml(mark) + '</span>';
+        }
+        return '<button type="button" class="brand-badge badge-kind-' + escapeHtml(kind) +
+          ' badge-icon-' + escapeHtml(spec.id || 'B') + '" title="' + escapeHtml(tip) + '">' +
+          face + '<span class="brand-badge-tip">' + escapeHtml(tip) + '</span></button>';
+      },
+
       currentSize: function () {
         var keys = this.selectedSizeKeys();
         var key = this.previewSize && keys.indexOf(this.previewSize) !== -1
@@ -438,20 +488,12 @@
         var h = size.height;
         var overlay = (boot.sizeOverlayCss && boot.sizeOverlayCss[size.key]) || '';
         var layoutFix = boot.layoutFixCss || '';
-        var brand = boot.brand || {};
-        var letter = brand.letter || 'B';
-        var tip = brand.tooltip || 'Survey Type Brandometer Ad - powered by Google';
         var chromeCss = 'html,body{margin:0!important;padding:0!important;overflow:hidden!important;' +
           'width:' + w + 'px;height:' + h + 'px;box-sizing:border-box;}' +
           '*,*::before,*::after{box-sizing:border-box;}' +
           '#master_container{box-sizing:border-box;width:' + w + 'px!important;height:' + h + 'px!important;' +
           'overflow:hidden;margin:0;max-width:' + w + 'px;max-height:' + h + 'px;}';
-        var badge = '<button type="button" class="brand-badge" title="' + escapeHtml(tip) + '">' +
-          '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
-          '<rect x="1" y="1" width="18" height="18" rx="3.5" fill="#ddd" stroke="#111" stroke-width="1.2"/>' +
-          '<text x="10" y="14.5" text-anchor="middle" font-size="12" font-family="Georgia,serif" font-weight="700" fill="#111">' +
-          escapeHtml(letter) + '</text></svg>' +
-          '<span class="brand-badge-tip">' + escapeHtml(tip) + '</span></button>';
+        var badge = this.badgeMarkup();
         return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
           '<style>' + safeCss + '</style>' +
           '<style>' + overlay + '</style>' +

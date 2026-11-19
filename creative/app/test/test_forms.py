@@ -93,6 +93,17 @@ class QuestionFormTest(unittest.TestCase):
         self.assertEqual(
             values, ['300x250', '160x600', '300x600', '336x280', '970x250'])
 
+    def test_badge_defaults_and_text_length(self):
+        form = self.create_form({})
+        self.assertEqual(form.badge_icon.data, 'B')
+        self.assertFalse(form.badge_text.data)
+        ok, valid = self._validate(self._valid_survey(badge_icon='Ad', badge_text='Hi'))
+        self.assertTrue(ok, valid.errors)
+        too_long = 'x' * 121
+        ok, long_form = self._validate(self._valid_survey(badge_text=too_long))
+        self.assertFalse(ok)
+        self.assertTrue(long_form.badge_text.errors)
+
     def test_creativesize_coerces_legacy_string(self):
         form = self.create_form({'creativesize': '160x600'})
         self.assertEqual(form.creativesize.data, ['160x600'])
