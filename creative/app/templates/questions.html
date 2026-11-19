@@ -74,6 +74,9 @@
   <h1 class="h3 mb-4">{{ title }}</h1>
   <form action="" method="post" x-data="surveyEditor()" x-init="init()" @input="syncCss()" @submit="syncCss()">
     {{ form.hidden_tag() }}
+    {% if last_update_time %}
+    <input type="hidden" name="last_update_time" value="{{ last_update_time }}">
+    {% endif %}
     {{ form.custom_css(id='custom_css', class='d-none') }}
 
     <section class="card mb-4">
@@ -445,5 +448,5 @@
   };
 </script>
 <script src="{{ url_for('static', filename='survey-editor.js') }}"></script>
-<script defer src="https://unpkg.com/alpinejs@3.14.3/dist/cdn.min.js"></script>
+<script defer src="{{ url_for('static', filename='vendor/alpine.min.js') }}"></script>
 {% endblock %}

@@ -23,8 +23,10 @@ import threading
 import time
 import zipfile
 import brand
+import css_theme
 from flask import flash
 from flask import render_template
+from markupsafe import Markup
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.cloud import bigquery_storage
@@ -41,6 +43,7 @@ from forms import RESPONSES_AT_END
 
 UNKNOWN_YEAR = 'unknown'
 _IDENTITY_KEYS = ('client', 'agency', 'campaign_id', 'placement_id')
+_FORM_META_KEYS = ('csrf_token', 'submit', 'last_update_time')
 
 # Homepage status chips. Active <= 3 days, Stale <= 7, Timed out after that.
 # 2022 backlog (yellow at 7 days). Previously Stale ran through 14 days.
@@ -250,6 +253,8 @@ def identity_suggestions():
 
 def _strip_identity(data):
   payload = dict(data or {})
+  for key in _FORM_META_KEYS:
+    payload.pop(key, None)
   for key in _IDENTITY_KEYS:
     if key in payload and payload[key] is not None:
       payload[key] = str(payload[key]).strip()
@@ -383,10 +388,11 @@ def create(form):
   return doc_ref
 
 
-def update_by_id(survey_id, form):
+def update_by_id(survey_id, form, last_update_time=None):
   data, _ = creative_size.persist_sizes(
       brand.persist_badge(_strip_identity(form.data)))
-  edit_doc = survey_collection.update_by_id(survey_id, data)
+  edit_doc = survey_collection.update_by_id(
+      survey_id, data, last_update_time=last_update_time)
   flash(f'{form.surveyname.data} updated')
   return edit_doc
 
@@ -477,7 +483,8 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None):
   else:
     custom_css = DEFAULT_CSS
   spec = creative_size.resolve(size or survey_dict)
-  custom_css = creative_size.apply_overlay(custom_css, spec)
+  custom_css = Markup(creative_size.apply_overlay(
+      css_theme.sanitize_user_css(custom_css), spec))
 
   return render_template(
       'creative.html',

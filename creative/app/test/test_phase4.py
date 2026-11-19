@@ -129,6 +129,12 @@ class VersioningTest(unittest.TestCase):
       self.assertEqual(
           survey_collection.get_version(ref.id, 1)['custom_css'],
           'body { color: red; }')
+      self.assertEqual(
+          [v['id'] for v in versions], ['2', '1'])
+      seq = self.collection.document(ref.id).collection('versions').document(
+          survey_collection.VERSION_SEQ_DOC).get()
+      self.assertTrue(seq.exists)
+      self.assertEqual(seq.to_dict().get('n'), 2)
 
   @mock.patch.object(survey_collection, 'add_version')
   @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
@@ -144,10 +150,12 @@ class EditorAndPreviewRoutesTest(unittest.TestCase):
   def setUp(self):
     super().setUp()
     main.app.config['BASIC_AUTH_FORCE'] = False
+    main.app.config['WTF_CSRF_ENABLED'] = False
     self.client = main.app.test_client()
 
   def tearDown(self):
     main.app.config['BASIC_AUTH_FORCE'] = True
+    main.app.config['WTF_CSRF_ENABLED'] = True
     super().tearDown()
 
   def _survey(self, doc_id, data):
@@ -197,6 +205,25 @@ class EditorAndPreviewRoutesTest(unittest.TestCase):
     self.assertIn(b'Version history', response.data)
     self.assertIn(b'Download this version', response.data)
     self.assertIn(b'/survey/download_zip/abc/version/1', response.data)
+
+  @mock.patch.object(survey_service, 'list_versions', return_value=[])
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_edit_includes_last_update_time(self, doc_mock, _versions):
+    doc = self._survey('abc', {
+        'surveyname': 'Live',
+        'question1': 'Q',
+        'answer1a': 'A',
+        'answer1b': 'B',
+    })
+    class Stamp(object):
+      def rfc3339(self):
+        return '2026-11-19T12:00:00.000000Z'
+    doc.update_time = Stamp()
+    doc_mock.return_value = doc
+    response = self.client.get('/survey/edit?survey_id=abc')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'name="last_update_time"', response.data)
+    self.assertIn(b'2026-11-19T12:00:00.000000Z', response.data)
 
   @mock.patch.object(survey_service, 'zip_file')
   @mock.patch.object(survey_service, 'get_version')

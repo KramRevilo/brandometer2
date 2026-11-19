@@ -177,21 +177,40 @@
                     <a class="btn btn-sm btn-primary" href="{{ url_for('edit', survey_id=survey.id) }}" title="Edit Survey">
                         <i class="bi bi-pencil"></i>
                     </a>
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('copy_survey', survey_id=survey.id) }}" title="Copy Survey">
-                        <i class="bi bi-copy"></i>
-                    </a>
+                    <form method="post" action="{{ url_for('copy_survey') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="survey_id" value="{{ survey.id }}">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Copy Survey">
+                            <i class="bi bi-copy"></i>
+                        </button>
+                    </form>
                     {% if show_archived %}
-                    <a class="btn btn-sm btn-info" href="{{ url_for('archive', survey_id=survey.id, archived=0, view='archived') }}" title="Unarchive Survey">
-                        <i class="bi bi-folder2-open"></i>
-                    </a>
+                    <form method="post" action="{{ url_for('archive') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="survey_id" value="{{ survey.id }}">
+                        <input type="hidden" name="archived" value="0">
+                        <input type="hidden" name="view" value="archived">
+                        <button type="submit" class="btn btn-sm btn-info" title="Unarchive Survey">
+                            <i class="bi bi-folder2-open"></i>
+                        </button>
+                    </form>
                     {% else %}
-                    <a class="btn btn-sm btn-outline-secondary" href="{{ url_for('archive', survey_id=survey.id, archived=1) }}" title="Archive Survey">
-                        <i class="bi bi-folder"></i>
-                    </a>
+                    <form method="post" action="{{ url_for('archive') }}" class="d-inline">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="survey_id" value="{{ survey.id }}">
+                        <input type="hidden" name="archived" value="1">
+                        <button type="submit" class="btn btn-sm btn-outline-secondary" title="Archive Survey">
+                            <i class="bi bi-folder"></i>
+                        </button>
+                    </form>
                     {% endif %}
-                    <a class="btn btn-sm btn-danger" href="{{ url_for('delete', survey_id=survey.id) }}" onclick="return confirm('Really delete?')" title="Delete Survey">
-                        <i class="bi bi-x-lg"></i>
-                    </a>
+                    <form method="post" action="{{ url_for('delete') }}" class="d-inline" onsubmit="return confirm('Really delete?');">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                        <input type="hidden" name="survey_id" value="{{ survey.id }}">
+                        <button type="submit" class="btn btn-sm btn-danger" title="Delete Survey">
+                            <i class="bi bi-x-lg"></i>
+                        </button>
+                    </form>
             </td>
         </tr>
         {% endfor %}

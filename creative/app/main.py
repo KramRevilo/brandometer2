@@ -30,30 +30,29 @@ from flask import Response
 from flask import send_file
 from flask import stream_with_context
 from flask import url_for
-from flask_basicauth import BasicAuth
+from flask_wtf.csrf import CSRFProtect
+from markupsafe import Markup
 
 # local file imports
+import app_security
 import brand
 import creative_size
 import css_theme
 import forms
 from forms import DEFAULT_CSS
+import survey_collection
 import survey_service
 from forms import RESPONSES_AT_END
 
 # Project setup. Overridden per request by APP_BRAND_NAME (default Brandometer).
 title = brand.DEFAULT_BRAND_NAME
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-only-not-for-production')
-app.config['BASIC_AUTH_USERNAME'] = os.environ.get('AUTH_USERNAME')
-app.config['BASIC_AUTH_PASSWORD'] = os.environ.get('AUTH_PASSWORD')
-basic_auth = BasicAuth(app)
+app_security.configure_app(app)
+app_security.install_basic_auth(app)
+csrf = CSRFProtect(app)
 # Cloud Shell Web Preview (and similar proxies) cannot complete the browser
 # basic-auth challenge. Set DISABLE_BASIC_AUTH=1 for local/proxy use only.
-# Never set this in App Engine / ./deploy.
-_disable_basic_auth = os.environ.get('DISABLE_BASIC_AUTH', '').strip().lower()
-app.config['BASIC_AUTH_FORCE'] = _disable_basic_auth not in (
-    '1', 'true', 'yes', 'on')
+# Never set this in App Engine / ./deploy. GAE_ENV + DISABLE_BASIC_AUTH refuses to start.
 
 def _truthy_arg(value):
   return (value or '').strip().lower() in ('1', 'true', 'yes', 'on')
@@ -200,7 +199,8 @@ def _editor_context(form):
   }
 
 
-def _render_editor(form, page_title, survey_id=None, versions=None):
+def _render_editor(form, page_title, survey_id=None, versions=None,
+                   last_update_time=''):
   ctx = _editor_context(form)
   suggestions = survey_service.identity_suggestions()
   return render_template(
@@ -213,6 +213,7 @@ def _render_editor(form, page_title, survey_id=None, versions=None):
       presets=ctx['presets'],
       survey_id=survey_id,
       versions=versions or [],
+      last_update_time=last_update_time or '',
       client_suggestions=suggestions.get('clients') or [],
       agency_suggestions=suggestions.get('agencies') or [],
       preset_groups=ctx.get('preset_groups') or [],
@@ -253,7 +254,8 @@ def preview(survey_id):
 
     preview_sizes = creative_size.selected_keys(survey_info)
     size = creative_size.resolve_preview(survey_info, request.args.get('size'))
-    custom_css = creative_size.apply_overlay(custom_css, size)
+    custom_css = Markup(creative_size.apply_overlay(
+        css_theme.sanitize_user_css(custom_css), size))
 
     return render_template(
         'creative.html',
@@ -282,20 +284,19 @@ def preview(survey_id):
     return redirect(url_for('index'))
 
 
-@app.route('/survey/delete', methods=['GET', 'DELETE'])
+@app.route('/survey/delete', methods=['POST'])
 def delete():
   """Delete survey."""
-  if request.method == 'GET':
-    docref_id = request.args.get('survey_id')
-    survey_service.delete_by_id(docref_id)
-    flash(f'Survey \'{docref_id}\' deleted')
+  docref_id = request.form.get('survey_id') or request.args.get('survey_id')
+  survey_service.delete_by_id(docref_id)
+  flash(f'Survey \'{docref_id}\' deleted')
   return redirect(url_for('index'))
 
 
-@app.route('/survey/copy', methods=['GET'])
+@app.route('/survey/copy', methods=['POST'])
 def copy_survey():
   """Copy a survey and open the new document in the editor."""
-  survey_id = request.args.get('survey_id')
+  survey_id = request.form.get('survey_id') or request.args.get('survey_id')
   new_ref = survey_service.copy_by_id(survey_id)
   if new_ref is None:
     flash('Survey not found')
@@ -304,15 +305,17 @@ def copy_survey():
   return redirect(url_for('edit', survey_id=new_ref.id))
 
 
-@app.route('/survey/archive', methods=['GET'])
+@app.route('/survey/archive', methods=['POST'])
 def archive():
   """Archive or restore a survey."""
-  survey_id = request.args.get('survey_id')
-  archived = request.args.get('archived', '1').strip().lower() in (
+  survey_id = request.form.get('survey_id') or request.args.get('survey_id')
+  archived_raw = request.form.get('archived', request.args.get('archived', '1'))
+  archived = (archived_raw or '1').strip().lower() in (
       '1', 'true', 'yes', 'on')
   survey_service.set_archived(survey_id, archived)
   flash('Survey archived' if archived else 'Survey restored')
-  if request.args.get('view') == 'archived':
+  view = request.form.get('view') or request.args.get('view')
+  if view == 'archived':
     return redirect(url_for('index', archived=1))
   return redirect(url_for('index'))
 
@@ -331,15 +334,35 @@ def edit():
   if request.method == 'GET':
     survey_service.set_form_data(form, edit_doc)
 
+  last_update_time = ''
+  if request.method == 'GET' and edit_doc and getattr(edit_doc, 'exists', False):
+    last_update_time = survey_collection.encode_update_time(edit_doc)
+  elif request.method != 'GET':
+    last_update_time = request.form.get('last_update_time') or ''
+
   # present page, gather entries upon submission
   if form.validate_on_submit():
-    survey_service.update_by_id(docref_id, form)
-    return redirect(url_for('index'))
+    try:
+      survey_service.update_by_id(
+          docref_id, form, last_update_time=last_update_time)
+      return redirect(url_for('index'))
+    except survey_collection.SurveyConflictError:
+      flash('Someone else saved this survey, reload', 'warning')
+      current = survey_service.get_doc_by_id(docref_id)
+      if current and getattr(current, 'exists', False):
+        survey_service.set_form_data(form, current)
+        last_update_time = survey_collection.encode_update_time(current)
+      versions = survey_service.list_versions(docref_id)
+      body = _render_editor(
+          form, 'Edit survey', survey_id=docref_id, versions=versions,
+          last_update_time=last_update_time)
+      return body, 409
   versions = []
   if edit_doc and getattr(edit_doc, 'exists', False):
     versions = survey_service.list_versions(docref_id)
   return _render_editor(
-      form, 'Edit survey', survey_id=docref_id, versions=versions)
+      form, 'Edit survey', survey_id=docref_id, versions=versions,
+      last_update_time=last_update_time)
 
 
 @app.route('/survey/download_zip/<string:survey_id>', methods=['GET'])

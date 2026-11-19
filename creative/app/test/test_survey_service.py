@@ -767,6 +767,29 @@ class TestSurveyService(unittest.TestCase):
       self.assertEqual(
           data['badge_text'], 'Survey Type Dentsu Ad - powered by Google')
 
+  def test_update_by_id_raises_conflict_on_failed_precondition(self):
+    from google.api_core.exceptions import FailedPrecondition
+    from google.cloud import firestore
+    ref = mock.Mock()
+    ref.update.side_effect = FailedPrecondition('stale')
+    col = mock.Mock()
+    col.document.return_value = ref
+    option = object()
+    with mock.patch.object(survey_collection, '_collection', return_value=col):
+      with mock.patch.object(
+          survey_collection, 'decode_update_time', return_value='ts'):
+        with mock.patch.object(
+            firestore.Client, 'write_option', return_value=option):
+          with self.assertRaises(survey_collection.SurveyConflictError) as raised:
+            survey_collection.update_by_id(
+                'sid', {'surveyname': 'X', 'last_update_time': 'drop-me'},
+                last_update_time='tok')
+    self.assertIn('Someone else saved this survey, reload', str(raised.exception))
+    ref.update.assert_called_once()
+    args, kwargs = ref.update.call_args
+    self.assertNotIn('last_update_time', args[0])
+    self.assertIs(kwargs.get('option'), option)
+
   def test_copy_missing_survey_returns_none(self):
     with mock.patch.object(
         survey_collection, '_collection', return_value=self.collection):

@@ -4,8 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% if title %}{{ title }}{% else %}{{ brand_name|default('Brandometer') }}{% endif %}</title>
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+  <meta name="csrf-token" content="{{ csrf_token() }}">
+  {# Pinned: Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12 #}
+  <link href="{{ url_for('static', filename='vendor/bootstrap.min.css') }}" rel="stylesheet">
+  <link href="{{ url_for('static', filename='vendor/bootstrap-icons.min.css') }}" rel="stylesheet">
   <style>
     body { background: #f4f6f8; }
     .navbar-brand { font-weight: 600; }
@@ -29,10 +31,11 @@
   </div>
 </nav>
 <div class="container mt-3">
-  {% with messages = get_flashed_messages() %}
+  {% with messages = get_flashed_messages(with_categories=true) %}
   {% if messages %}
-  {% for message in messages %}
-    <div class="alert alert-success alert-dismissible fade show" role="alert">
+  {% for category, message in messages %}
+    {% set alert_class = 'warning' if category == 'warning' else 'danger' if category in ('error', 'danger') else 'success' %}
+    <div class="alert alert-{{ alert_class }} alert-dismissible fade show" role="alert">
       {{ message }}
       <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
     </div>
@@ -41,8 +44,18 @@
   {% endwith %}
 </div>
 {% block content %}{% endblock %}
-<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
-<script src="https://unpkg.com/htmx.org@1.9.12"></script>
+<script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
+<script src="{{ url_for('static', filename='vendor/htmx.min.js') }}"></script>
+<script>
+  document.body.addEventListener('htmx:configRequest', function (evt) {
+    var verb = (evt.detail.verb || 'get').toUpperCase();
+    if (verb === 'GET') return;
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    if (meta && meta.content) {
+      evt.detail.headers['X-CSRFToken'] = meta.content;
+    }
+  });
+</script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

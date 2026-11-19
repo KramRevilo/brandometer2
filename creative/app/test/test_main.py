@@ -14,11 +14,14 @@
 
 import datetime
 import os
+import re
 import time
 import unittest
 from unittest import mock
 
 import pandas
+import forms
+import survey_collection
 import survey_service
 
 import main
@@ -34,6 +37,7 @@ class MainRoutesTest(unittest.TestCase):
   def setUp(self):
     super().setUp()
     main.app.config['BASIC_AUTH_FORCE'] = False
+    main.app.config['WTF_CSRF_ENABLED'] = False
     self.client = main.app.test_client()
     survey_service.clear_stats_cache()
     self._suggestions = mock.patch.object(
@@ -44,6 +48,7 @@ class MainRoutesTest(unittest.TestCase):
 
   def tearDown(self):
     main.app.config['BASIC_AUTH_FORCE'] = True
+    main.app.config['WTF_CSRF_ENABLED'] = True
     super().tearDown()
 
   def _survey(self, doc_id, data):
@@ -130,11 +135,14 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'View Brand Lift Stats', response.data)
     self.assertIn(b'Loading', response.data)
     self.assertNotIn(b'text-bg-success', response.data)
-    self.assertIn(b'htmx.org', response.data)
+    self.assertIn(b'vendor/htmx.min.js', response.data)
     self.assertIn(b'every 30s', response.data)
     self.assertIn(b'document.hidden', response.data)
     self.assertIn(b'hx-trigger="load, every', response.data)
     self.assertIn(b'/index/stats-partial', response.data)
+    self.assertIn(b'X-CSRFToken', response.data)
+    self.assertIn(b'method="post"', response.data)
+    self.assertIn(b'Really delete?', response.data)
     counts_mock.assert_not_called()
 
   @mock.patch.object(survey_service, 'get_response_counts')
@@ -408,12 +416,12 @@ class MainRoutesTest(unittest.TestCase):
   def test_create_page_uses_iframe_preview_and_bootstrap5(self):
     response = self.client.get('/survey/create')
     self.assertEqual(response.status_code, 200)
-    self.assertIn(b'bootstrap@5.3.3', response.data)
+    self.assertIn(b'vendor/bootstrap.min.css', response.data)
     self.assertIn(b'navbar-toggler', response.data)
     self.assertNotIn(b'navbar-header', response.data)
     self.assertIn(b'Live preview', response.data)
     self.assertIn(b'<iframe', response.data)
-    self.assertIn(b'alpinejs', response.data)
+    self.assertIn(b'vendor/alpine.min.js', response.data)
     self.assertIn(b'Advanced (CSS)', response.data)
     self.assertIn(b'Display name', response.data)
     self.assertNotIn(b'refreshFromCssSample', response.data)
@@ -454,29 +462,49 @@ class MainRoutesTest(unittest.TestCase):
   def test_copy_opens_editor(self, copy_mock):
     copy_mock.return_value = mock.Mock(id='new123')
 
-    response = self.client.get(
-        '/survey/copy?survey_id=old', follow_redirects=False)
+    response = self.client.post(
+        '/survey/copy', data={'survey_id': 'old'}, follow_redirects=False)
 
     self.assertEqual(response.status_code, 302)
     self.assertIn('/survey/edit', response.headers['Location'])
     self.assertIn('survey_id=new123', response.headers['Location'])
 
+  def test_copy_get_is_not_allowed(self):
+    response = self.client.get('/survey/copy?survey_id=old')
+    self.assertEqual(response.status_code, 405)
+
   @mock.patch.object(survey_service, 'set_archived')
   def test_archive_redirects_home(self, archive_mock):
-    response = self.client.get(
-        '/survey/archive?survey_id=abc&archived=1', follow_redirects=False)
+    response = self.client.post(
+        '/survey/archive',
+        data={'survey_id': 'abc', 'archived': '1'},
+        follow_redirects=False)
 
     archive_mock.assert_called_once_with('abc', True)
     self.assertEqual(response.status_code, 302)
 
   @mock.patch.object(survey_service, 'set_archived')
   def test_unarchive_from_archived_view(self, archive_mock):
-    response = self.client.get(
-        '/survey/archive?survey_id=abc&archived=0&view=archived',
+    response = self.client.post(
+        '/survey/archive',
+        data={'survey_id': 'abc', 'archived': '0', 'view': 'archived'},
         follow_redirects=False)
 
     archive_mock.assert_called_once_with('abc', False)
     self.assertIn('archived=1', response.headers['Location'])
+
+  def test_delete_and_archive_get_are_not_allowed(self):
+    self.assertEqual(self.client.get('/survey/delete?survey_id=abc').status_code, 405)
+    self.assertEqual(
+        self.client.get('/survey/archive?survey_id=abc&archived=1').status_code,
+        405)
+
+  @mock.patch.object(survey_service, 'delete_by_id')
+  def test_delete_posts(self, delete_mock):
+    response = self.client.post(
+        '/survey/delete', data={'survey_id': 'abc'}, follow_redirects=False)
+    delete_mock.assert_called_once_with('abc')
+    self.assertEqual(response.status_code, 302)
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   @mock.patch.object(survey_service, 'get_doc_by_id')
@@ -559,7 +587,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'two-proportion z-test', response.data)
     self.assertIn(b'Sample is small', response.data)
     self.assertIn(b'Wilson 95%', response.data)
-    self.assertIn(b'chart.js', response.data)
+    self.assertIn(b'vendor/chart.umd.min.js', response.data)
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   @mock.patch.object(survey_service, 'get_doc_by_id')
@@ -633,3 +661,97 @@ class MainRoutesTest(unittest.TestCase):
     unknown = self.client.get('/survey/preview/abc?size=160x600')
     self.assertEqual(unknown.status_code, 200)
     self.assertIn(b'width=300,height=250', unknown.data)
+
+  @mock.patch.object(survey_service, 'list_versions', return_value=[])
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  @mock.patch.object(survey_service, 'update_by_id')
+  def test_edit_conflict_returns_409(self, update_mock, doc_mock, _versions):
+    doc_mock.return_value = self._survey('abc', {
+        'surveyname': 'Live',
+        'question1': 'Q',
+        'answer1a': 'A',
+        'answer1b': 'B',
+    })
+    update_mock.side_effect = survey_collection.SurveyConflictError('stale')
+    with mock.patch(
+        'flask_wtf.FlaskForm.validate_on_submit', return_value=True):
+      response = self.client.post(
+          '/survey/edit?survey_id=abc',
+          data={'surveyname': 'Live', 'question1': 'Q'})
+    self.assertEqual(response.status_code, 409)
+    self.assertIn(b'Someone else saved this survey, reload', response.data)
+    self.assertIn(b'alert-warning', response.data)
+
+
+class CsrfProtectionTest(unittest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    main.app.config['BASIC_AUTH_FORCE'] = False
+    main.app.config['WTF_CSRF_ENABLED'] = True
+    self.client = main.app.test_client()
+    self._suggestions = mock.patch.object(
+        survey_service, 'identity_suggestions',
+        return_value={'clients': [], 'agencies': []})
+    self._suggestions.start()
+    self._list = mock.patch.object(survey_service, 'list_surveys', return_value=[])
+    self._list.start()
+
+  def tearDown(self):
+    self._suggestions.stop()
+    self._list.stop()
+    main.app.config['BASIC_AUTH_FORCE'] = True
+    super().tearDown()
+
+  def _token(self):
+    page = self.client.get('/index')
+    match = re.search(br'name="csrf-token" content="([^"]+)"', page.data)
+    self.assertIsNotNone(match)
+    return match.group(1).decode('utf-8')
+
+  def test_delete_without_csrf_is_rejected(self):
+    response = self.client.post('/survey/delete', data={'survey_id': 'x'})
+    self.assertEqual(response.status_code, 400)
+
+  @mock.patch.object(survey_service, 'delete_by_id')
+  def test_delete_with_csrf_form_field(self, delete_mock):
+    token = self._token()
+    response = self.client.post(
+        '/survey/delete',
+        data={'survey_id': 'x', 'csrf_token': token},
+        follow_redirects=False)
+    self.assertEqual(response.status_code, 302)
+    delete_mock.assert_called_once_with('x')
+
+  @mock.patch.object(survey_service, 'delete_by_id')
+  def test_delete_with_csrf_header(self, delete_mock):
+    token = self._token()
+    response = self.client.post(
+        '/survey/delete',
+        data={'survey_id': 'x'},
+        headers={'X-CSRFToken': token},
+        follow_redirects=False)
+    self.assertEqual(response.status_code, 302)
+    delete_mock.assert_called_once_with('x')
+
+  def test_stats_partial_get_does_not_need_csrf(self):
+    with mock.patch.object(
+        survey_service, 'get_response_counts',
+        return_value=pandas.DataFrame(columns=[
+            'ID', 'Segmentation', 'max_date', 'days_since_response',
+            'response_count'])):
+      response = self.client.get('/index/stats-partial?ids=s1')
+    self.assertEqual(response.status_code, 200)
+
+  @mock.patch.object(survey_service, 'copy_by_id')
+  def test_copy_without_csrf_is_rejected(self, copy_mock):
+    response = self.client.post('/survey/copy', data={'survey_id': 'x'})
+    self.assertEqual(response.status_code, 400)
+    copy_mock.assert_not_called()
+
+  @mock.patch.object(survey_service, 'set_archived')
+  def test_archive_without_csrf_is_rejected(self, archive_mock):
+    response = self.client.post(
+        '/survey/archive', data={'survey_id': 'x', 'archived': '1'})
+    self.assertEqual(response.status_code, 400)
+    archive_mock.assert_not_called()
