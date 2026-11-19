@@ -16,6 +16,80 @@ if [ -z "$PROJECT_ID" ] || [ -z "$LOCATION" ] || [ -z "$REGION" ]; then
     exit 1
 fi
 
+# IAM can lag a newly created service account ("does not exist") for a bit.
+# Override in tests. Production waits up to ~2 minutes with exponential backoff.
+RETRY_MAX_SECONDS="${DEPLOY_RETRY_MAX_SECONDS:-120}"
+RETRY_START_SECONDS="${DEPLOY_RETRY_START_SECONDS:-2}"
+RETRY_MAX_DELAY_SECONDS="${DEPLOY_RETRY_MAX_DELAY_SECONDS:-16}"
+
+retry_gcloud() {
+    delay="$RETRY_START_SECONDS"
+    elapsed=0
+    while true; do
+        if "$@"; then
+            return 0
+        fi
+        if [ "$elapsed" -ge "$RETRY_MAX_SECONDS" ]; then
+            echo "ERROR: still failing after ${RETRY_MAX_SECONDS}s: $*" >&2
+            return 1
+        fi
+        echo "Retrying in ${delay}s (waited ${elapsed}s / ${RETRY_MAX_SECONDS}s): $*" >&2
+        sleep "$delay"
+        elapsed=$((elapsed + delay))
+        delay=$((delay * 2))
+        if [ "$delay" -gt "$RETRY_MAX_DELAY_SECONDS" ]; then
+            delay="$RETRY_MAX_DELAY_SECONDS"
+        fi
+    done
+}
+
+wait_for_service_account() {
+    email="$1"
+    echo "Waiting until IAM can see $email"
+    retry_gcloud gcloud iam service-accounts describe "$email" \
+        --format='value(email)' >/dev/null
+}
+
+ensure_receiver_sa() {
+    if gcloud iam service-accounts describe "$RECEIVER_SA" >/dev/null 2>&1; then
+        echo "Service account $RECEIVER_SA already exists"
+    else
+        gcloud iam service-accounts create brandometer-receiver \
+            --display-name="Brandometer response receiver"
+    fi
+    wait_for_service_account "$RECEIVER_SA"
+}
+
+grant_project_role() {
+    member="$1"
+    role="$2"
+    retry_gcloud gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+        --member="$member" \
+        --role="$role" \
+        --condition=None >/dev/null
+}
+
+grant_dataset_editor() {
+    member="$1"
+    if retry_gcloud gcloud bigquery datasets add-iam-policy-binding \
+            "$PROJECT_ID:responses" \
+            --member="$member" \
+            --role="roles/bigquery.dataEditor"; then
+        return 0
+    fi
+    echo "Dataset IAM unavailable; granting project roles/bigquery.dataEditor to $member"
+    grant_project_role "$member" "roles/bigquery.dataEditor"
+}
+
+grant_sa_user() {
+    sa_email="$1"
+    member="$2"
+    retry_gcloud gcloud iam service-accounts add-iam-policy-binding "$sa_email" \
+        --member="$member" \
+        --role="roles/iam.serviceAccountUser" \
+        --condition=None >/dev/null
+}
+
 # Set gcloud to project id
 echo -e "\n-- Deploying to $PROJECT_ID"
 gcloud config set project $PROJECT_ID
@@ -58,11 +132,17 @@ fi
 # Deploy receiver endpoint.
 cd receiver
 echo -e "\n-- Create BigQuery dataset"
-bq --location=$LOCATION mk \
-    --force \
-    --dataset \
-    --description "Main response data set for Sonar" \
-    $PROJECT_ID:responses
+# `bq mk --dataset --force` does not drop an existing dataset (it only ignores
+# ALREADY_EXISTS) but it still prints "successfully created". Skip if present
+# so a re-run never looks like a recreate and never changes location/tables.
+if bq show --format=none "$PROJECT_ID:responses" >/dev/null 2>&1; then
+    echo "Dataset $PROJECT_ID:responses already exists (not modified)"
+else
+    bq --location=$LOCATION mk \
+        --dataset \
+        --description "Main response data set for Brandometer" \
+        $PROJECT_ID:responses
+fi
 
 echo -e "\n-- Create BigQuery responses table"
 if bq show --format=none "$PROJECT_ID:responses.responses" >/dev/null 2>&1; then
@@ -75,7 +155,7 @@ else
         --time_partitioning_field CreatedAt \
         --time_partitioning_type DAY \
         --clustering_fields ID \
-        --description "Survey response rows for Sonar" \
+        --description "Survey response rows for Brandometer" \
         "$PROJECT_ID:responses.responses"
 fi
 
@@ -84,29 +164,7 @@ RECEIVER_SA="brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com"
 PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 
 echo -e "\n-- Receiver service account (least privilege)"
-gcloud iam service-accounts describe "$RECEIVER_SA" >/dev/null 2>&1 || \
-    gcloud iam service-accounts create brandometer-receiver \
-        --display-name="Brandometer response receiver"
-
-grant_project_role() {
-    member="$1"
-    role="$2"
-    gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-        --member="$member" \
-        --role="$role" \
-        --condition=None >/dev/null
-}
-
-grant_dataset_editor() {
-    member="$1"
-    if gcloud bigquery datasets add-iam-policy-binding "$PROJECT_ID:responses" \
-            --member="$member" \
-            --role="roles/bigquery.dataEditor"; then
-        return 0
-    fi
-    echo "Dataset IAM unavailable; granting project roles/bigquery.dataEditor to $member"
-    grant_project_role "$member" "roles/bigquery.dataEditor"
-}
+ensure_receiver_sa
 
 grant_project_role "serviceAccount:$RECEIVER_SA" "roles/datastore.viewer"
 grant_project_role "serviceAccount:$RECEIVER_SA" "roles/logging.logWriter"
@@ -115,31 +173,31 @@ grant_dataset_editor "serviceAccount:$RECEIVER_SA"
 # Deployer + Cloud Functions/Run agents must be able to attach the runtime SA.
 DEPLOYER=$(gcloud config get-value account 2>/dev/null || true)
 if [ -n "$DEPLOYER" ]; then
-    gcloud iam service-accounts add-iam-policy-binding "$RECEIVER_SA" \
-        --member="user:$DEPLOYER" \
-        --role="roles/iam.serviceAccountUser" >/dev/null || true
+    case "$DEPLOYER" in
+        *.gserviceaccount.com) DEPLOYER_MEMBER="serviceAccount:$DEPLOYER" ;;
+        *) DEPLOYER_MEMBER="user:$DEPLOYER" ;;
+    esac
+    if ! grant_sa_user "$RECEIVER_SA" "$DEPLOYER_MEMBER"; then
+        echo "WARNING: could not grant roles/iam.serviceAccountUser on $RECEIVER_SA to $DEPLOYER_MEMBER"
+    fi
 fi
 if [ -n "$PROJECT_NUMBER" ]; then
-    gcloud iam service-accounts add-iam-policy-binding "$RECEIVER_SA" \
-        --member="serviceAccount:service-${PROJECT_NUMBER}@gcf-admin-robot.iam.gserviceaccount.com" \
-        --role="roles/iam.serviceAccountUser" >/dev/null || true
-    gcloud iam service-accounts add-iam-policy-binding "$RECEIVER_SA" \
-        --member="serviceAccount:service-${PROJECT_NUMBER}@serverless-robot-prod.iam.gserviceaccount.com" \
-        --role="roles/iam.serviceAccountUser" >/dev/null || true
+    grant_sa_user "$RECEIVER_SA" \
+        "serviceAccount:service-${PROJECT_NUMBER}@gcf-admin-robot.iam.gserviceaccount.com"
+    grant_sa_user "$RECEIVER_SA" \
+        "serviceAccount:service-${PROJECT_NUMBER}@serverless-robot-prod.iam.gserviceaccount.com"
 fi
 
 echo -e "\n-- HMAC secrets (receiver tokens + daily IP hashes)"
-bind_secret_accessor() {
+bind_secret_member() {
     name="$1"
-    extra_member="$2"
-    gcloud secrets add-iam-policy-binding "$name" \
-        --member="serviceAccount:$GAE_SA" \
-        --role="roles/secretmanager.secretAccessor" >/dev/null
-    if [ -n "$extra_member" ]; then
-        gcloud secrets add-iam-policy-binding "$name" \
-            --member="$extra_member" \
-            --role="roles/secretmanager.secretAccessor" >/dev/null
+    member="$2"
+    if [ -z "$member" ]; then
+        return 0
     fi
+    retry_gcloud gcloud secrets add-iam-policy-binding "$name" \
+        --member="$member" \
+        --role="roles/secretmanager.secretAccessor" >/dev/null
 }
 
 # Generated secrets: create once. Rotating them would invalidate live zips / sessions.
@@ -154,7 +212,7 @@ ensure_generated_secret() {
             --data-file=- \
             --replication-policy=automatic >/dev/null
     fi
-    bind_secret_accessor "$name" "$extra_member"
+    bind_secret_member "$name" "$extra_member"
 }
 
 upsert_secret() {
@@ -168,7 +226,8 @@ upsert_secret() {
             --data-file=- \
             --replication-policy=automatic >/dev/null
     fi
-    bind_secret_accessor "$name" "$extra_member"
+    bind_secret_member "$name" "serviceAccount:$GAE_SA"
+    bind_secret_member "$name" "$extra_member"
 }
 
 ensure_generated_secret brandometer-receiver-hmac "serviceAccount:$RECEIVER_SA"
@@ -216,11 +275,14 @@ else
 fi
 
 echo -e "\n-- App Engine service account (least privilege; replaces roles/editor)"
+wait_for_service_account "$GAE_SA"
 grant_project_role "serviceAccount:$GAE_SA" "roles/datastore.user"
 grant_project_role "serviceAccount:$GAE_SA" "roles/bigquery.jobUser"
 grant_project_role "serviceAccount:$GAE_SA" "roles/logging.logWriter"
 grant_project_role "serviceAccount:$GAE_SA" "roles/secretmanager.secretAccessor"
 grant_dataset_editor "serviceAccount:$GAE_SA"
+# HMAC secrets were created before App Engine existed; bind GAE now.
+bind_secret_member brandometer-receiver-hmac "serviceAccount:$GAE_SA"
 if gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
         --member="serviceAccount:$GAE_SA" \
         --role="roles/editor" \
@@ -258,6 +320,7 @@ fi
 echo "-- OAuth client stored (secret not printed). Bootstrap admin: $BOOTSTRAP_ADMIN_EMAIL"
 
 ensure_generated_secret brandometer-secret-key
+bind_secret_member brandometer-secret-key "serviceAccount:$GAE_SA"
 upsert_secret brandometer-oauth-client-id "$GOOGLE_OAUTH_CLIENT_ID"
 upsert_secret brandometer-oauth-client-secret "$GOOGLE_OAUTH_CLIENT_SECRET"
 # Optional Google tag (gtag.js) ID for creatives. Empty disables the loader.

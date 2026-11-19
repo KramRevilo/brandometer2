@@ -13,6 +13,9 @@
 # limitations under the License.
 
 import os
+import subprocess
+import tempfile
+import textwrap
 import unittest
 
 
@@ -102,6 +105,67 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('BOOTSTRAP_ADMIN_EMAIL', yaml_text)
     self.assertNotIn('AUTH_USERNAME', yaml_text)
     self.assertNotIn('AUTH_PASSWORD', yaml_text)
+
+  def test_deploy_is_valid_posix_shell(self):
+    script = os.path.join(_REPO_ROOT, 'deploy')
+    subprocess.check_call(['sh', '-n', script])
+    try:
+      result = subprocess.run(
+          ['shellcheck', '-e', 'SC2086,SC2166,SC2181,SC2129', script],
+          capture_output=True, text=True)
+    except FileNotFoundError:
+      return
+    if result.returncode == 127:
+      return
+    self.assertEqual(
+        result.returncode, 0, result.stdout + result.stderr)
+
+  def test_deploy_skips_existing_dataset_and_retries_iam(self):
+    script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
+    self.assertIn('retry_gcloud()', script)
+    self.assertIn('wait_for_service_account()', script)
+    self.assertIn('ensure_receiver_sa()', script)
+    self.assertIn('already exists (not modified)', script)
+    self.assertIn('service-accounts describe', script)
+    self.assertIn('--condition=None', script)
+    self.assertGreaterEqual(script.count('--condition=None'), 3)
+    self.assertIn('Keeping existing secret', script)
+    self.assertIn('DEPLOY_RETRY_MAX_SECONDS', script)
+    self.assertNotIn('mk --force', script)
+    self.assertNotRegex(script, r'bq --location=\$LOCATION mk\s+\\\s+--force')
+    self.assertIn(
+        'bq show --format=none "$PROJECT_ID:responses"', script)
+    self.assertIn(
+        'bq show --format=none "$PROJECT_ID:responses.responses"', script)
+
+  def test_retry_gcloud_succeeds_after_failures_and_times_out(self):
+    script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
+    start = script.index('retry_gcloud() {')
+    end = script.index('\nwait_for_service_account()')
+    retry_fn = script[start:end]
+    with tempfile.TemporaryDirectory() as tmp:
+      helper = os.path.join(tmp, 'retry.sh')
+      open(helper, 'w', encoding='utf-8').write(textwrap.dedent('''\
+          #!/bin/sh
+          set -e
+          RETRY_MAX_SECONDS=3
+          RETRY_START_SECONDS=1
+          RETRY_MAX_DELAY_SECONDS=1
+          sleep() { :; }
+      ''') + retry_fn + textwrap.dedent('''\
+          n=0
+          flaky() { n=$((n+1)); [ "$n" -ge 3 ]; }
+          retry_gcloud flaky
+          always_fail() { return 1; }
+          if retry_gcloud always_fail; then
+            echo unexpectedly_ok
+            exit 1
+          fi
+          echo ok
+      '''))
+      out = subprocess.check_output(['sh', helper], stderr=subprocess.STDOUT, text=True)
+    self.assertIn('ok', out.splitlines()[-1])
+    self.assertIn('Retrying in', out)
 
   def test_dev_requirements_include_pip_audit(self):
     text = open(

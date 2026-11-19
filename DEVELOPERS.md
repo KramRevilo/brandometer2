@@ -110,6 +110,8 @@ The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), da
 
 `app.yaml.template` injects OAuth id/secret, `SECRET_KEY`, `RECEIVER_HMAC_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL`. The receiver gets `RECEIVER_HMAC_SECRET` and `IP_HMAC_SECRET` via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
 
+**Re-running `./deploy`.** Safe end to end. Firestore Native, the `responses` dataset, the `responses.responses` table, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not modified or recreated. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret are updated from the prompts. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries project, dataset, service-account, and secret IAM bindings with backoff for up to ~2 minutes (`--condition=None` so gcloud does not prompt about conditional bindings). The same wait/retry applies to the App Engine default SA. If a previous run died on `Service account … does not exist`, run `./deploy` again with the same project/region.
+
 The App Engine service is only required for hosting, not for running Flask on your laptop.
 
 # Run locally
