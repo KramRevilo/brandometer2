@@ -51,6 +51,18 @@ fi
 DEPLOY_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$DEPLOY_ROOT"
 
+MAX_INSTANCES="${MAX_INSTANCES:-5}"
+case "$MAX_INSTANCES" in
+    ''|*[!0-9]*)
+        echo "ERROR: MAX_INSTANCES must be a positive integer (got $MAX_INSTANCES)" >&2
+        exit 1
+        ;;
+esac
+if [ "$MAX_INSTANCES" -lt 1 ]; then
+    echo "ERROR: MAX_INSTANCES must be >= 1" >&2
+    exit 1
+fi
+
 # IAM can lag a newly created service account ("does not exist") for a bit.
 # Override in tests. Production waits up to ~2 minutes with exponential backoff.
 RETRY_MAX_SECONDS="${DEPLOY_RETRY_MAX_SECONDS:-120}"
@@ -169,36 +181,60 @@ dataset_member_email() {
 }
 
 # Dataset IAM via the legacy access[] resource. The IAM-binding bq subcommand
-# requires allowlisting and is not used.
+# requires allowlisting and is not used. Write `bq show` to a file (never a
+# pipe): warnings on stdout used to JSONDecodeError / BrokenPipe.
+BQ_DATASET_IAM_PY="$DEPLOY_ROOT/creative/app/bq_dataset_iam.py"
+
+show_dataset_json() {
+    dest="$1"
+    PYTHONWARNINGS=ignore bq --format=prettyjson --quiet show --dataset \
+        "$PROJECT_ID:responses" >"$dest" 2>/dev/null
+}
+
+remove_project_role() {
+    member="$1"
+    role="$2"
+    errfile=$(mktemp)
+    status=0
+    gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
+        --member="$member" \
+        --role="$role" \
+        --condition=None >"$errfile" 2>&1 || status=$?
+    out=$(cat "$errfile")
+    rm -f "$errfile"
+    if [ "$status" -eq 0 ]; then
+        echo "Removed project $role from $member"
+        return 0
+    fi
+    lowered=$(printf '%s' "$out" | tr '[:upper:]' '[:lower:]')
+    case "$lowered" in
+        *'not found'*|*not_found*|*'does not exist'*)
+            echo "No project $role on $member (ok)"
+            return 0
+            ;;
+    esac
+    if retry_is_transient "$out"; then
+        retry_gcloud gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
+            --member="$member" \
+            --role="$role" \
+            --condition=None >/dev/null
+        echo "Removed project $role from $member"
+        return 0
+    fi
+    printf '%s\n' "$out" >&2
+    return "$status"
+}
+
 grant_dataset_editor_via_update() {
     member="$1"
     email=$(dataset_member_email "$member")
     tmp=$(mktemp)
-    if ! bq show --format=prettyjson "$PROJECT_ID:responses" >"$tmp"; then
+    if ! show_dataset_json "$tmp"; then
         rm -f "$tmp"
         return 1
     fi
     py_status=0
-    python3 - "$tmp" "$email" <<'PY' || py_status=$?
-import json
-import sys
-
-path, email = sys.argv[1], sys.argv[2]
-with open(path, encoding='utf-8') as fh:
-    data = json.load(fh)
-access = data.setdefault('access', [])
-for entry in access:
-    if entry.get('userByEmail') != email and entry.get('iamMember') not in (
-            'serviceAccount:' + email, 'user:' + email, email):
-        continue
-    role = entry.get('role') or ''
-    if 'dataEditor' in role or 'dataOwner' in role or role in ('WRITER', 'OWNER'):
-        sys.exit(0)
-access.append({'role': 'WRITER', 'userByEmail': email})
-with open(path, 'w', encoding='utf-8') as fh:
-    json.dump(data, fh, indent=2)
-sys.exit(2)
-PY
+    python3 "$BQ_DATASET_IAM_PY" merge "$tmp" "$email" || py_status=$?
     if [ "$py_status" -eq 0 ]; then
         rm -f "$tmp"
         return 0
@@ -207,7 +243,8 @@ PY
         rm -f "$tmp"
         return 1
     fi
-    if retry_gcloud bq update --source "$tmp" "$PROJECT_ID:responses"; then
+    if retry_gcloud env PYTHONWARNINGS=ignore bq --quiet update --source "$tmp" \
+            "$PROJECT_ID:responses"; then
         rm -f "$tmp"
         return 0
     fi
@@ -219,23 +256,13 @@ verify_dataset_editor() {
     member="$1"
     email=$(dataset_member_email "$member")
     dataset="$PROJECT_ID:responses"
-    role=$(bq show --format=prettyjson "$dataset" | python3 - "$email" <<'PY'
-import json
-import sys
-
-email = sys.argv[1]
-data = json.load(sys.stdin)
-for entry in data.get('access') or []:
-    if entry.get('userByEmail') != email and entry.get('iamMember') not in (
-            'serviceAccount:' + email, 'user:' + email, email):
-        continue
-    role = entry.get('role') or ''
-    if 'dataEditor' in role or 'dataOwner' in role or role in ('WRITER', 'OWNER'):
-        print(role)
-        sys.exit(0)
-sys.exit(1)
-PY
-) || true
+    tmp=$(mktemp)
+    if ! show_dataset_json "$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    role=$(python3 "$BQ_DATASET_IAM_PY" verify "$tmp" "$email") || true
+    rm -f "$tmp"
     if [ -n "$role" ]; then
         echo "Dataset IAM confirmed: $email has $role on $dataset"
         return 0
@@ -247,8 +274,12 @@ PY
 grant_dataset_editor() {
     member="$1"
     dataset="$PROJECT_ID:responses"
-    echo "Granting dataset dataEditor on $dataset to $member via bq update --source"
+    echo "Granting dataset WRITER on $dataset to $member via bq update --source"
     if grant_dataset_editor_via_update "$member" && verify_dataset_editor "$member"; then
+        echo "Removing project roles/bigquery.dataEditor from $member (dataset IAM is enough)"
+        if ! remove_project_role "$member" "roles/bigquery.dataEditor"; then
+            echo "WARNING: could not remove project roles/bigquery.dataEditor from $member"
+        fi
         return 0
     fi
     echo "Dataset IAM unavailable; granting project roles/bigquery.dataEditor to $member"
@@ -414,7 +445,6 @@ if [ "$APP_ONLY" != 1 ]; then
 
     grant_project_role "serviceAccount:$RECEIVER_SA" "roles/datastore.viewer"
     grant_project_role "serviceAccount:$RECEIVER_SA" "roles/logging.logWriter"
-    grant_dataset_editor "serviceAccount:$RECEIVER_SA"
 
     # Deployer + Cloud Functions/Run agents must be able to attach the runtime SA.
     DEPLOYER=$(gcloud config get-value account 2>/dev/null || true)
@@ -538,6 +568,9 @@ grant_project_role "serviceAccount:$GAE_SA" "roles/bigquery.jobUser"
 grant_project_role "serviceAccount:$GAE_SA" "roles/logging.logWriter"
 grant_project_role "serviceAccount:$GAE_SA" "roles/secretmanager.secretAccessor"
 grant_gae_build_roles
+# Dataset IAM for both SAs also on --app-only (last run fell back to project
+# dataEditor after bq show stdout was polluted with Python warnings).
+grant_dataset_editor "serviceAccount:$RECEIVER_SA"
 grant_dataset_editor "serviceAccount:$GAE_SA"
 # HMAC secrets were created before App Engine existed; bind GAE now.
 bind_secret_member brandometer-receiver-hmac "serviceAccount:$GAE_SA"
@@ -619,6 +652,7 @@ sed \
     -e "s|{{PROJECT_ID}}|$PROJECT_ID|" \
     -e "s|{{GTAG_ID}}|$GTAG_ID|" \
     -e "s|{{BOOTSTRAP_ADMIN_EMAIL}}|$BOOTSTRAP_ADMIN_EMAIL|" \
+    -e "s|{{MAX_INSTANCES}}|$MAX_INSTANCES|" \
     creative/app/app.yaml.template >./creative/app/$PROJECT_ID.yaml
 python3 creative/app/app_yaml_check.py "./creative/app/$PROJECT_ID.yaml"
 echo -e "\n-- Deploy app engine"

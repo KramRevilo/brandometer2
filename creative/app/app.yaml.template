@@ -2,6 +2,9 @@ runtime: python312
 
 instance_class: F4
 
+automatic_scaling:
+  max_instances: {{MAX_INSTANCES}}
+
 env_variables:
   RECEIVER_URL: "{{RECEIVER_URL}}"
   PROJECT_ID: "{{PROJECT_ID}}"

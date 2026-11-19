@@ -87,9 +87,12 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/logging.logWriter"
 # Dataset IAM: `bq add-iam-policy-binding` needs allowlisting. Use access[].
-bq show --format=prettyjson "$PROJECT_ID:responses" > /tmp/responses-ds.json
-# merge userByEmail for the receiver SA with role WRITER, then:
-bq update --source /tmp/responses-ds.json "$PROJECT_ID:responses"
+# PYTHONWARNINGS=ignore --quiet: bq can print RequestsDependencyWarning on stdout.
+PYTHONWARNINGS=ignore bq --format=prettyjson --quiet show --dataset \
+  "$PROJECT_ID:responses" > /tmp/responses-ds.json 2>/dev/null
+# merge {role: WRITER, userByEmail: SA}, then:
+PYTHONWARNINGS=ignore bq --quiet update --source /tmp/responses-ds.json \
+  "$PROJECT_ID:responses"
 # HMAC secrets: create once (./deploy does this). Then:
 gcloud functions deploy receiver \
   --gen2 \
@@ -112,8 +115,8 @@ gcloud functions deploy receiver \
 Runtime:
 
 * `roles/datastore.user` (Firestore reads/writes)
-* `roles/bigquery.jobUser` (run queries)
-* `roles/bigquery.dataEditor` on the `responses` dataset (falls back to the project role if dataset IAM is unavailable)
+* `roles/bigquery.jobUser` (run queries; **kept** at project level)
+* dataset `WRITER` / `roles/bigquery.dataEditor` on `responses` via `bq show` + `bq update --source` (not a project-level `roles/bigquery.dataEditor`; that binding is **removed** once dataset IAM is verified)
 * `roles/logging.logWriter`
 * `roles/secretmanager.secretAccessor` (plus per-secret accessor bindings)
 
@@ -125,7 +128,7 @@ Runtime:
 
 `--condition=None` on every IAM binding. If a previous run removed Editor before these build roles existed, rerun `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
 
-The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), dataset `roles/bigquery.dataEditor`, and `roles/logging.logWriter`. It does **not** create BigQuery tables at runtime.
+The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), dataset `WRITER` on `responses`, and `roles/logging.logWriter`. It does **not** create BigQuery tables at runtime. Dataset IAM writes `bq --format=prettyjson --quiet show --dataset` to a temp file (`PYTHONWARNINGS=ignore`, stderr discarded), strips anything before the first `{`, merges `{role: WRITER, userByEmail: SA}`, then `bq update --source`. After a verified dataset grant, project-level `roles/bigquery.dataEditor` is removed from that SA. App Engine keeps project `roles/bigquery.jobUser`.
 
 **Secrets.** Shared Basic Auth is retired in production. `./deploy` stores:
 
@@ -134,9 +137,9 @@ The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), da
 * `brandometer-receiver-hmac` — per-survey creative token HMAC (created once; rotating it invalidates live zips)
 * `brandometer-ip-hmac` — daily IP-hash master (created once)
 
-`app.yaml.template` is App Engine **standard** python312: only non-secret `env_variables` (`PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`). Standard `app.yaml` does **not** support `secret_environment_variables`. The App Engine app loads OAuth id/secret, `SECRET_KEY`, and `RECEIVER_HMAC_SECRET` from Secret Manager at startup (module-level cache, App Engine SA `secretAccessor`) and refuses to start if a required secret is missing. The receiver still gets HMAC secrets via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
+`app.yaml.template` is App Engine **standard** python312: `automatic_scaling.max_instances` (deploy env `MAX_INSTANCES`, default **5**) and only non-secret `env_variables` (`PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`). Standard `app.yaml` does **not** support `secret_environment_variables`. The App Engine app loads OAuth id/secret, `SECRET_KEY`, and `RECEIVER_HMAC_SECRET` from Secret Manager at startup (module-level cache, App Engine SA `secretAccessor`) and refuses to start if a required secret is missing. The receiver still gets HMAC secrets via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
 
-**Re-running `./deploy`.** Safe end to end, or App Engine only with `--app-only`. Firestore Native, the `responses` dataset, the `responses.responses` table, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not modified or recreated. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret: paste to rotate, or press Enter / pass `--skip-oauth-prompts` to keep existing; `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL` skip the prompts when set. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries **transient** IAM errors only (SA “does not exist” / NOT_FOUND / INVALID_ARGUMENT, 409 concurrent policy). Usage errors (`Invalid choice`, `PERMISSION_DENIED`) fail immediately. Dataset IAM uses `bq show` + `bq update --source` (not `gcloud bigquery`, which Cloud Shell gcloud does not have, and not `bq add-iam-policy-binding`, which requires allowlisting). A success line confirms each SA’s access entry via `bq show`. `--condition=None` avoids the conditional-binding prompt. The same wait/retry applies to the App Engine default SA. If a previous run died on IAM lag, the old `gcloud bigquery` command, or `secret_environment_variables`, run `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
+**Re-running `./deploy`.** Safe end to end, or App Engine only with `--app-only`. Firestore Native, the `responses` dataset, the `responses.responses` table, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not modified or recreated. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret: paste to rotate, or press Enter / pass `--skip-oauth-prompts` to keep existing; `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL` skip the prompts when set. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries **transient** IAM errors only (SA “does not exist” / NOT_FOUND / INVALID_ARGUMENT, 409 concurrent policy). Usage errors (`Invalid choice`, `PERMISSION_DENIED`) fail immediately. Dataset IAM uses `bq --quiet show --dataset` to a file + `bq update --source` (not `gcloud bigquery`, which Cloud Shell gcloud does not have, and not `bq add-iam-policy-binding`, which requires allowlisting). Python warnings on stdout are ignored; JSON is parsed from the first `{`. A success line confirms each SA’s access entry. Verified dataset grants drop the project-level `roles/bigquery.dataEditor` fallback from a previous run. Dataset IAM for **both** the receiver SA and the App Engine SA runs on `--app-only`. `--condition=None` avoids the conditional-binding prompt. The same wait/retry applies to the App Engine default SA. If a previous run died on IAM lag, the old `gcloud bigquery` command, or `secret_environment_variables`, run `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
 
 The App Engine service is only required for hosting, not for running Flask on your laptop.
 

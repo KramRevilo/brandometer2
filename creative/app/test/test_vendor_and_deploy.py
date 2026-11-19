@@ -21,6 +21,7 @@ import textwrap
 import unittest
 
 import app_yaml_check
+import bq_dataset_iam
 
 
 _APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -117,6 +118,8 @@ class DeployIamTest(unittest.TestCase):
     self.assertNotIn('RECEIVER_HMAC_SECRET', yaml_text)
     self.assertNotIn('AUTH_USERNAME', yaml_text)
     self.assertNotIn('AUTH_PASSWORD', yaml_text)
+    self.assertIn('automatic_scaling:', yaml_text)
+    self.assertIn('max_instances: {{MAX_INSTANCES}}', yaml_text)
 
   def test_deploy_is_valid_posix_shell(self):
     script = os.path.join(_REPO_ROOT, 'deploy')
@@ -153,6 +156,13 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('bq update --source', script)
     self.assertIn('Dataset IAM confirmed:', script)
     self.assertNotIn('gcloud bigquery', script)
+    self.assertIn('PYTHONWARNINGS=ignore', script)
+    self.assertIn('bq --format=prettyjson --quiet show --dataset', script)
+    self.assertIn('bq --quiet update --source', script)
+    self.assertIn('bq_dataset_iam.py', script)
+    self.assertIn(
+        'Removing project roles/bigquery.dataEditor from $member', script)
+    self.assertIn('MAX_INSTANCES', script)
 
   def test_deploy_rejects_known_invalid_command_forms(self):
     script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
@@ -201,6 +211,9 @@ class DeployIamTest(unittest.TestCase):
     self.assertGreater(
         script.index('Set up App Engine'),
         script.index('-- Deploy Cloud Function'))
+    receiver_dataset = script.rindex(
+        'grant_dataset_editor "serviceAccount:$RECEIVER_SA"')
+    self.assertGreater(receiver_dataset, script.index('Set up App Engine'))
 
   def test_retry_gcloud_succeeds_after_failures_and_times_out(self):
     script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
@@ -256,8 +269,11 @@ class DeployIamTest(unittest.TestCase):
         .replace('{{RECEIVER_URL}}', 'https://receiver.example/run')
         .replace('{{PROJECT_ID}}', 'brandometer2')
         .replace('{{GTAG_ID}}', '')
-        .replace('{{BOOTSTRAP_ADMIN_EMAIL}}', 'mark@google.com'))
+        .replace('{{BOOTSTRAP_ADMIN_EMAIL}}', 'mark@google.com')
+        .replace('{{MAX_INSTANCES}}', '5'))
     self.assertEqual(app_yaml_check.validate_app_yaml(rendered), [])
+    self.assertIn('automatic_scaling:', rendered)
+    self.assertIn('max_instances: 5', rendered)
     keys = set(app_yaml_check.top_level_keys(rendered))
     self.assertTrue(keys <= app_yaml_check.ALLOWED_TOP_LEVEL, keys)
     self.assertEqual(
@@ -278,31 +294,52 @@ class DeployIamTest(unittest.TestCase):
       self.assertNotEqual(result.returncode, 0)
 
   def test_dataset_iam_merge_adds_writer_once(self):
-    script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
-    start = script.index("path, email = sys.argv[1], sys.argv[2]")
-    end = script.index("sys.exit(2)", start) + len("sys.exit(2)")
-    merge = (
-        'import json, sys\n'
-        + script[script.rindex('import json', 0, start):end]
-        + '\n')
+    email = 'sa@project.iam.gserviceaccount.com'
+    warning = (
+        '/usr/lib/python3/dist-packages/requests/__init__.py:87: '
+        "RequestsDependencyWarning: urllib3 (1.26.5) or chardet (4.0.0) "
+        "doesn't match a supported version!\n"
+        '  warnings.warn(\n')
+    payload = json.dumps({
+        'access': [
+            {'role': 'OWNER', 'specialGroup': 'projectOwners'},
+        ],
+    })
     with tempfile.TemporaryDirectory() as tmp:
       path = os.path.join(tmp, 'ds.json')
-      open(path, 'w', encoding='utf-8').write(json.dumps({
-          'access': [
-              {'role': 'OWNER', 'specialGroup': 'projectOwners'},
-          ],
-      }))
+      open(path, 'w', encoding='utf-8').write(warning + payload + '\ntrailing\n')
+      helper = os.path.join(_APP_DIR, 'bq_dataset_iam.py')
       first = subprocess.run(
-          [sys.executable, '-', path, 'sa@project.iam.gserviceaccount.com'],
-          input=merge, text=True)
-      self.assertEqual(first.returncode, 2)
+          [sys.executable, helper, 'merge', path, email],
+          capture_output=True, text=True)
+      self.assertEqual(first.returncode, 2, first.stderr)
       data = json.loads(open(path, encoding='utf-8').read())
       emails = [row.get('userByEmail') for row in data['access']]
-      self.assertIn('sa@project.iam.gserviceaccount.com', emails)
+      self.assertIn(email, emails)
+      writers = [
+          row for row in data['access']
+          if row.get('userByEmail') == email]
+      self.assertEqual(writers[0]['role'], 'WRITER')
       second = subprocess.run(
-          [sys.executable, '-', path, 'sa@project.iam.gserviceaccount.com'],
-          input=merge, text=True)
-      self.assertEqual(second.returncode, 0)
+          [sys.executable, helper, 'merge', path, email],
+          capture_output=True, text=True)
+      self.assertEqual(second.returncode, 0, second.stderr)
+      verified = subprocess.check_output(
+          [sys.executable, helper, 'verify', path, email], text=True)
+      self.assertEqual(verified.strip(), 'WRITER')
+
+  def test_dataset_iam_strips_stdout_noise_before_json(self):
+    noisy = (
+        'RequestsDependencyWarning: urllib3 (1.26.5) or chardet (4.0.0) '
+        "doesn't match a supported version!\n"
+        '{"access": [{"role": "WRITER", '
+        '"userByEmail": "recv@p.iam.gserviceaccount.com"}]}\n')
+    data = bq_dataset_iam.extract_json_object(noisy)
+    self.assertEqual(
+        bq_dataset_iam.writer_role(data, 'recv@p.iam.gserviceaccount.com'),
+        'WRITER')
+    with self.assertRaises(ValueError):
+      bq_dataset_iam.extract_json_object('not json at all')
 
   def test_dev_requirements_include_pip_audit(self):
     text = open(
