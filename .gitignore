@@ -6,4 +6,6 @@ creative/app/list_ids.py
 lib
 bin
 pyvenv.cfg
+__pycache__/
+.pytest_cache/
 

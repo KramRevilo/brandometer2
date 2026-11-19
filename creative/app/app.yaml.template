@@ -7,17 +7,21 @@ env_variables:
   PROJECT_ID: "{{PROJECT_ID}}"
   TABLE_ID: "{{PROJECT_ID}}.responses.responses"
   GTAG_ID: "{{GTAG_ID}}"
+  BOOTSTRAP_ADMIN_EMAIL: "{{BOOTSTRAP_ADMIN_EMAIL}}"
 
-# Injected from Secret Manager at runtime. Do not put AUTH_* or SECRET_KEY here.
+# Injected from Secret Manager at runtime. Do not put OAuth secrets here as plaintext.
 secret_environment_variables:
-- name: AUTH_USERNAME
-  secret: brandometer-auth-username
+- name: GOOGLE_OAUTH_CLIENT_ID
+  secret: brandometer-oauth-client-id
   version: latest
-- name: AUTH_PASSWORD
-  secret: brandometer-auth-password
+- name: GOOGLE_OAUTH_CLIENT_SECRET
+  secret: brandometer-oauth-client-secret
   version: latest
 - name: SECRET_KEY
   secret: brandometer-secret-key
+  version: latest
+- name: RECEIVER_HMAC_SECRET
+  secret: brandometer-receiver-hmac
   version: latest
 
 handlers:

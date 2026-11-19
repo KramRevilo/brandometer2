@@ -128,6 +128,52 @@ if [ -n "$PROJECT_NUMBER" ]; then
         --role="roles/iam.serviceAccountUser" >/dev/null || true
 fi
 
+echo -e "\n-- HMAC secrets (receiver tokens + daily IP hashes)"
+bind_secret_accessor() {
+    name="$1"
+    extra_member="$2"
+    gcloud secrets add-iam-policy-binding "$name" \
+        --member="serviceAccount:$GAE_SA" \
+        --role="roles/secretmanager.secretAccessor" >/dev/null
+    if [ -n "$extra_member" ]; then
+        gcloud secrets add-iam-policy-binding "$name" \
+            --member="$extra_member" \
+            --role="roles/secretmanager.secretAccessor" >/dev/null
+    fi
+}
+
+# Generated secrets: create once. Rotating them would invalidate live zips / sessions.
+ensure_generated_secret() {
+    name="$1"
+    extra_member="$2"
+    if gcloud secrets describe "$name" >/dev/null 2>&1; then
+        echo "Keeping existing secret $name"
+    else
+        value=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
+        printf '%s' "$value" | gcloud secrets create "$name" \
+            --data-file=- \
+            --replication-policy=automatic >/dev/null
+    fi
+    bind_secret_accessor "$name" "$extra_member"
+}
+
+upsert_secret() {
+    name="$1"
+    value="$2"
+    extra_member="$3"
+    if gcloud secrets describe "$name" >/dev/null 2>&1; then
+        printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- >/dev/null
+    else
+        printf '%s' "$value" | gcloud secrets create "$name" \
+            --data-file=- \
+            --replication-policy=automatic >/dev/null
+    fi
+    bind_secret_accessor "$name" "$extra_member"
+}
+
+ensure_generated_secret brandometer-receiver-hmac "serviceAccount:$RECEIVER_SA"
+ensure_generated_secret brandometer-ip-hmac "serviceAccount:$RECEIVER_SA"
+
 echo -e "\n-- Deploy Cloud Function for receiver (2nd gen)"
 gcloud functions deploy receiver \
     --gen2 \
@@ -140,7 +186,8 @@ gcloud functions deploy receiver \
     --max-instances=20 \
     --timeout=60s \
     --memory=256MB \
-    --set-env-vars TABLE_ID=$PROJECT_ID.responses.responses
+    --set-env-vars TABLE_ID=$PROJECT_ID.responses.responses \
+    --set-secrets RECEIVER_HMAC_SECRET=brandometer-receiver-hmac:latest,IP_HMAC_SECRET=brandometer-ip-hmac:latest
 
 echo -e "\n-- Read deployed receiver URL"
 RECEIVER_URL=$(gcloud functions describe receiver \
@@ -183,35 +230,36 @@ else
     echo "roles/editor was not bound to $GAE_SA (ok)"
 fi
 
-upsert_secret() {
-    name="$1"
-    value="$2"
-    if gcloud secrets describe "$name" >/dev/null 2>&1; then
-        printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- >/dev/null
-    else
-        printf '%s' "$value" | gcloud secrets create "$name" \
-            --data-file=- \
-            --replication-policy=automatic >/dev/null
-    fi
-    gcloud secrets add-iam-policy-binding "$name" \
-        --member="serviceAccount:$GAE_SA" \
-        --role="roles/secretmanager.secretAccessor" >/dev/null
-}
-
-echo -e "\n-- Set authentication credentials (stored in Secret Manager, not echoed)"
-read -p 'Username: ' AUTH_USERNAME
-read -sp 'Password: ' AUTH_PASSWORD
+echo -e "\n-- Google Sign-In (OAuth client id/secret) and first admin"
+echo "Create an OAuth 2.0 Client ID (Web application) in Google Cloud Console:"
+echo "  APIs & Services → Credentials → Create credentials → OAuth client ID"
+echo "Authorized redirect URIs to add:"
+echo "  https://$PROJECT_ID.appspot.com/auth/callback"
+echo "  https://$PROJECT_ID.uc.r.appspot.com/auth/callback"
+echo "  http://127.0.0.1:8080/auth/callback"
+echo "  http://localhost:8080/auth/callback"
+echo "Cloud Shell Web Preview (port 8080) uses a per-session host. After opening"
+echo "Web Preview, add that origin + /auth/callback, for example:"
+echo "  https://8080-<session>.cs-<region>.cloudshell.dev/auth/callback"
+echo "  https://8080-dot-<vm>-dot-devshell.appspot.com/auth/callback"
+echo "Or skip OAuth in Shell and set DISABLE_BASIC_AUTH=1 (refused on App Engine)."
+read -p 'OAuth client ID: ' GOOGLE_OAUTH_CLIENT_ID
+read -sp 'OAuth client secret: ' GOOGLE_OAUTH_CLIENT_SECRET
 echo
-if [ -z "$AUTH_USERNAME" ] || [ -z "$AUTH_PASSWORD" ]; then
-    echo "ERROR: username and password are required"
+read -p 'Bootstrap admin email: ' BOOTSTRAP_ADMIN_EMAIL
+if [ -z "$GOOGLE_OAUTH_CLIENT_ID" ] || [ -z "$GOOGLE_OAUTH_CLIENT_SECRET" ]; then
+    echo "ERROR: Google OAuth client ID and secret are required"
     exit 1
 fi
-echo "-- Username stored for $AUTH_USERNAME (password not printed)"
+if [ -z "$BOOTSTRAP_ADMIN_EMAIL" ]; then
+    echo "ERROR: bootstrap admin email is required"
+    exit 1
+fi
+echo "-- OAuth client stored (secret not printed). Bootstrap admin: $BOOTSTRAP_ADMIN_EMAIL"
 
-SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')
-upsert_secret brandometer-auth-username "$AUTH_USERNAME"
-upsert_secret brandometer-auth-password "$AUTH_PASSWORD"
-upsert_secret brandometer-secret-key "$SECRET_KEY"
+ensure_generated_secret brandometer-secret-key
+upsert_secret brandometer-oauth-client-id "$GOOGLE_OAUTH_CLIENT_ID"
+upsert_secret brandometer-oauth-client-secret "$GOOGLE_OAUTH_CLIENT_SECRET"
 # Optional Google tag (gtag.js) ID for creatives. Empty disables the loader.
 GTAG_ID="${GTAG_ID:-}"
 
@@ -220,6 +268,7 @@ sed \
     -e "s|{{RECEIVER_URL}}|$RECEIVER_URL|" \
     -e "s|{{PROJECT_ID}}|$PROJECT_ID|" \
     -e "s|{{GTAG_ID}}|$GTAG_ID|" \
+    -e "s|{{BOOTSTRAP_ADMIN_EMAIL}}|$BOOTSTRAP_ADMIN_EMAIL|" \
     creative/app/app.yaml.template >./creative/app/$PROJECT_ID.yaml
 echo -e "\n-- Deploy app engine"
 
