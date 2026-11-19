@@ -37,6 +37,34 @@
             {{ form.displayname(class="form-control", id="displayname", placeholder="Optional friendly name") }}
             <div class="form-text">Shown on the homepage when set.</div>
           </div>
+          <div class="col-md-6">
+            <label class="form-label" for="client">Client</label>
+            {{ form.client(class="form-control", id="client", list="client-suggestions", placeholder="Optional") }}
+            <datalist id="client-suggestions">
+              {% for value in client_suggestions %}
+              <option value="{{ value }}"></option>
+              {% endfor %}
+            </datalist>
+            <div class="form-text">Suggestions come from existing surveys. Copy keeps this value.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="agency">Agency</label>
+            {{ form.agency(class="form-control", id="agency", list="agency-suggestions", placeholder="Optional") }}
+            <datalist id="agency-suggestions">
+              {% for value in agency_suggestions %}
+              <option value="{{ value }}"></option>
+              {% endfor %}
+            </datalist>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="campaign_id">Campaign ID</label>
+            {{ form.campaign_id(class="form-control", id="campaign_id", placeholder="Optional CM360 / DV360 campaign ID") }}
+            <div class="form-text">Placeholder for a future cost/impressions join. Not used in reporting yet.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="placement_id">Placement ID</label>
+            {{ form.placement_id(class="form-control", id="placement_id", placeholder="Optional CM360 placement ID") }}
+          </div>
           <div class="col-md-4">
             <label class="form-label" for="surveytype">Type</label>
             {{ form.surveytype(class="form-select", id="surveytype") }}

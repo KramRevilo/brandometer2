@@ -354,6 +354,10 @@ class QuestionForm(FlaskForm):
     
   surveyname = StringField('surveyName', validators=[DataRequired()])
   displayname = StringField('displayName')
+  client = StringField('client')
+  agency = StringField('agency')
+  campaign_id = StringField('campaignId')
+  placement_id = StringField('placementId')
 
   # adding responseType as a property of the survey
   responsetype = SelectField('responseType', choices=[

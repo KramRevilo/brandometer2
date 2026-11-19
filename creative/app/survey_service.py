@@ -36,6 +36,9 @@ from forms import BRAND_TRACK
 from forms import DEFAULT_CSS
 from forms import RESPONSES_AT_END
 
+UNKNOWN_YEAR = 'unknown'
+_IDENTITY_KEYS = ('client', 'agency', 'campaign_id', 'placement_id')
+
 # Homepage status chips. Active <= 3 days, Stale <= 7, Timed out after that.
 # 2022 backlog (yellow at 7 days). Previously Stale ran through 14 days.
 STATUS_ACTIVE_DAYS = 3
@@ -121,6 +124,125 @@ def is_archived(survey):
   return data.get('archived') is True
 
 
+def _survey_data(survey):
+  if hasattr(survey, 'to_dict'):
+    return survey.to_dict() or {}
+  return survey or {}
+
+
+def created_year(survey):
+  """Calendar year of created_at, or None when missing/unparseable (unknown)."""
+  data = _survey_data(survey)
+  raw = data.get('created_at')
+  if raw is None or raw == '':
+    return None
+  if isinstance(raw, datetime.datetime):
+    return str(raw.year)
+  text = str(raw).strip()
+  if len(text) >= 4 and text[:4].isdigit():
+    year = int(text[:4])
+    if 1990 <= year <= 2100:
+      return str(year)
+  return None
+
+
+def survey_identity_line(survey):
+  data = _survey_data(survey)
+  parts = []
+  client = (data.get('client') or '').strip()
+  agency = (data.get('agency') or '').strip()
+  if client:
+    parts.append(client)
+  if agency:
+    parts.append(agency)
+  return ' · '.join(parts)
+
+
+def homepage_filter_options(surveys):
+  clients = set()
+  agencies = set()
+  years = set()
+  has_unknown_year = False
+  for survey in surveys:
+    data = _survey_data(survey)
+    client = (data.get('client') or '').strip()
+    agency = (data.get('agency') or '').strip()
+    if client:
+      clients.add(client)
+    if agency:
+      agencies.add(agency)
+    year = created_year(data)
+    if year:
+      years.add(year)
+    else:
+      has_unknown_year = True
+  return {
+      'clients': sorted(clients, key=lambda value: (value.lower(), value)),
+      'agencies': sorted(agencies, key=lambda value: (value.lower(), value)),
+      'years': sorted(years, reverse=True),
+      'has_unknown_year': has_unknown_year,
+  }
+
+
+def apply_homepage_filters(surveys, q='', client='', agency='', year=''):
+  """Filter in Python so Firestore stays a single select() of list fields."""
+  q = (q or '').strip().lower()
+  client = (client or '').strip()
+  agency = (agency or '').strip()
+  year = (year or '').strip()
+  matched = []
+  for survey in surveys:
+    data = _survey_data(survey)
+    if client and (data.get('client') or '').strip() != client:
+      continue
+    if agency and (data.get('agency') or '').strip() != agency:
+      continue
+    if year:
+      survey_year = created_year(data)
+      if year == UNKNOWN_YEAR:
+        if survey_year is not None:
+          continue
+      elif survey_year != year:
+        continue
+    if q:
+      name = (data.get('surveyname') or '')
+      display = (data.get('displayname') or '')
+      if q not in name.lower() and q not in display.lower():
+        continue
+    matched.append(survey)
+  return matched
+
+
+def identity_suggestions():
+  """Distinct client/agency values for editor datalists."""
+  clients = set()
+  agencies = set()
+  try:
+    docs = survey_collection.get_all(survey_collection.IDENTITY_SUGGESTION_FIELDS)
+  except Exception:
+    return {'clients': [], 'agencies': []}
+  for doc in docs:
+    data = _survey_data(doc)
+    client = (data.get('client') or '').strip()
+    agency = (data.get('agency') or '').strip()
+    if client:
+      clients.add(client)
+    if agency:
+      agencies.add(agency)
+  return {
+      'clients': sorted(clients, key=lambda value: (value.lower(), value)),
+      'agencies': sorted(agencies, key=lambda value: (value.lower(), value)),
+  }
+
+
+def _strip_identity(data):
+  payload = dict(data or {})
+  for key in _IDENTITY_KEYS:
+    if key in payload and payload[key] is not None:
+      payload[key] = str(payload[key]).strip()
+  return payload
+
+
 def list_surveys(include_archived=False):
   surveys = list(survey_collection.get_all(survey_collection.LIST_FIELDS))
   if include_archived:
@@ -128,8 +250,8 @@ def list_surveys(include_archived=False):
   else:
     surveys = [survey for survey in surveys if not is_archived(survey)]
   surveys.sort(key=lambda s: (
-      ((s.to_dict() or {}).get('displayname')
-       or (s.to_dict() or {}).get('surveyname') or '').lower(),
+      ((_survey_data(s).get('displayname')
+        or _survey_data(s).get('surveyname') or '')).lower(),
       s.id,
   ))
   return surveys
@@ -238,15 +360,17 @@ def classify_status(days_since_response):
 
 
 def create(form):
-  data = dict(form.data)
+  data = _strip_identity(dict(form.data))
   data['archived'] = False
+  if not data.get('created_at'):
+    data['created_at'] = survey_collection.utc_now_iso()
   doc_ref = survey_collection.create(data)
   flash(f'{form.surveyname.data} created as {doc_ref.id}')
   return doc_ref
 
 
 def update_by_id(survey_id, form):
-  edit_doc = survey_collection.update_by_id(survey_id, form.data)
+  edit_doc = survey_collection.update_by_id(survey_id, _strip_identity(form.data))
   flash(f'{form.surveyname.data} updated')
   return edit_doc
 

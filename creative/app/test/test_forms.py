@@ -68,6 +68,21 @@ class QuestionFormTest(unittest.TestCase):
         self.assertEqual(form.answer1e.data, 'answerE')
         self.assertFalse(forms.question_section_is_empty(form, '1'))
 
+    def test_client_agency_and_ids_are_optional(self):
+        form = self.create_form({
+            'client': 'Acme',
+            'agency': 'OMD',
+            'campaign_id': '123',
+            'placement_id': '456',
+        })
+        self.assertEqual(form.client.data, 'Acme')
+        self.assertEqual(form.agency.data, 'OMD')
+        self.assertEqual(form.campaign_id.data, '123')
+        self.assertEqual(form.placement_id.data, '456')
+        empty = self.create_form({})
+        self.assertFalse(empty.client.data)
+        self.assertFalse(empty.agency.data)
+
     def test_creativesize_defaults_to_300x250(self):
         form = self.create_form({})
         self.assertEqual(form.creativesize.data, '300x250')

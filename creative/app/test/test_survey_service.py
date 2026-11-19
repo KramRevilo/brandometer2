@@ -676,8 +676,11 @@ class TestSurveyService(unittest.TestCase):
       fields = get_all.call_args[0][0]
       self.assertNotIn('custom_css', fields)
       for name in (
-          'surveyname', 'displayname', 'archived', 'surveytype', 'question1'):
+          'surveyname', 'displayname', 'archived', 'surveytype', 'question1',
+          'client', 'agency', 'created_at'):
         self.assertIn(name, fields)
+      self.assertNotIn('campaign_id', fields)
+      self.assertNotIn('placement_id', fields)
 
   def test_list_surveys_hides_archived_and_treats_missing_as_active(self):
     docs = [
@@ -703,6 +706,11 @@ class TestSurveyService(unittest.TestCase):
           'surveytype': 'brand_track',
           'language': 'de',
           'archived': True,
+          'client': 'Acme',
+          'agency': 'OMD',
+          'campaign_id': 'camp-1',
+          'placement_id': 'plc-9',
+          'created_at': '2024-01-02T00:00:00Z',
       })
       new_ref = survey_collection.copy(original.id)
       self.assertIsNotNone(new_ref)
@@ -715,6 +723,12 @@ class TestSurveyService(unittest.TestCase):
       self.assertEqual(data['surveytype'], 'brand_track')
       self.assertEqual(data['language'], 'de')
       self.assertIs(data['archived'], False)
+      self.assertEqual(data['client'], 'Acme')
+      self.assertEqual(data['agency'], 'OMD')
+      self.assertEqual(data['campaign_id'], 'camp-1')
+      self.assertEqual(data['placement_id'], 'plc-9')
+      self.assertTrue(data.get('created_at'))
+      self.assertNotEqual(data['created_at'], '2024-01-02T00:00:00Z')
 
   def test_copy_missing_survey_returns_none(self):
     with mock.patch.object(
@@ -742,6 +756,8 @@ class TestSurveyService(unittest.TestCase):
       saved = create_mock.call_args[0][0]
       self.assertIs(saved['archived'], False)
       self.assertEqual(saved['surveyname'], 'New')
+      self.assertTrue(saved.get('created_at'))
+      self.assertRegex(saved['created_at'], r'^\d{4}-\d{2}-\d{2}T')
 
   def test_paginate_surveys(self):
     docs = [self._survey_doc(str(i), {'surveyname': 'S%s' % i}) for i in range(5)]
@@ -814,3 +830,75 @@ class TestSurveyService(unittest.TestCase):
         survey_service.get_all_response_counts()
         survey_service.get_all_response_counts()
         self.assertEqual(fetch.call_count, 2)
+
+  def test_created_year_unknown_when_missing(self):
+    self.assertIsNone(survey_service.created_year({}))
+    self.assertIsNone(survey_service.created_year({'created_at': ''}))
+    self.assertEqual(
+        survey_service.created_year({'created_at': '2026-11-19T02:00:00Z'}),
+        '2026')
+    self.assertEqual(
+        survey_service.created_year({
+            'created_at': datetime.datetime(2025, 3, 1, tzinfo=datetime.timezone.utc)
+        }),
+        '2025')
+
+  def test_apply_homepage_filters_client_agency_year_and_search(self):
+    docs = [
+        self._survey_doc('a', {
+            'surveyname': 'Alpha study',
+            'displayname': 'Friendly A',
+            'client': 'Acme',
+            'agency': 'OMD',
+            'created_at': '2026-01-01T00:00:00Z',
+        }),
+        self._survey_doc('b', {
+            'surveyname': 'Beta',
+            'client': 'Other',
+            'agency': 'WPP',
+            'created_at': '2025-06-01T00:00:00Z',
+        }),
+        self._survey_doc('c', {
+            'surveyname': 'Gamma',
+            'client': 'Acme',
+            'agency': 'OMD',
+        }),
+    ]
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(docs, client='Acme')],
+        ['a', 'c'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(docs, agency='WPP')],
+        ['b'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(docs, year='2026')],
+        ['a'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(
+            docs, year=survey_service.UNKNOWN_YEAR)],
+        ['c'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(docs, q='friendly')],
+        ['a'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(
+            docs, client='Acme', q='gamma')],
+        ['c'])
+    self.assertEqual(
+        survey_service.survey_identity_line(docs[0]), 'Acme · OMD')
+    options = survey_service.homepage_filter_options(docs)
+    self.assertEqual(options['clients'], ['Acme', 'Other'])
+    self.assertEqual(options['agencies'], ['OMD', 'WPP'])
+    self.assertEqual(options['years'], ['2026', '2025'])
+    self.assertTrue(options['has_unknown_year'])
+
+  def test_identity_suggestions_from_existing_values(self):
+    docs = [
+        self._survey_doc('a', {'client': 'Acme', 'agency': 'OMD'}),
+        self._survey_doc('b', {'client': 'acme', 'agency': ''}),
+        self._survey_doc('c', {'client': '  ', 'agency': 'WPP'}),
+    ]
+    with mock.patch.object(survey_collection, 'get_all', return_value=docs):
+      suggestions = survey_service.identity_suggestions()
+    self.assertEqual(suggestions['clients'], ['Acme', 'acme'])
+    self.assertEqual(suggestions['agencies'], ['OMD', 'WPP'])

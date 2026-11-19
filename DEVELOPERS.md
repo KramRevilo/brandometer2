@@ -103,28 +103,30 @@ export RECEIVER_URL="$(gcloud functions describe receiver --gen2 --region=us-cen
 
 If `gcloud functions describe` fails because the function is not deployed yet, omit `RECEIVER_URL` or set it later.
 
-Start the app from `creative/app` so Flask finds the templates:
+Start the app from `creative/app` so Flask finds the templates. Cloud Shell Web Preview only proxies port **8080**, so local and Shell both use that:
 
 ```shell
 cd creative/app
-python main.py
+flask --app main run --port 8080 --debug
 ```
 
-Open http://127.0.0.1:5000 and sign in with `AUTH_USERNAME` / `AUTH_PASSWORD`.
+`python main.py` also works: it reads `PORT` (default 8080).
+
+Open http://127.0.0.1:8080 and sign in with `AUTH_USERNAME` / `AUTH_PASSWORD`.
 
 The app imports without GCP. Listing surveys, saving surveys, and downloading responses need Application Default Credentials against the project above (`gcloud auth application-default login`).
 
 # Google Cloud Shell
 
-Cloud Shell **Web Preview** on port 5000 sits in front of Flask with its own login. Flask-BasicAuth then returns `401` on `GET /`, and the preview page reloads in a loop. For Cloud Shell only, disable basic auth and start as usual:
+Cloud Shell **Web Preview** sits in front of Flask with its own login, and it is stuck on port **8080**. Flask-BasicAuth then returns `401` on `GET /`, and the preview page reloads in a loop. For Cloud Shell only, disable basic auth and bind 8080:
 
 ```shell
 export DISABLE_BASIC_AUTH=1
 cd creative/app
-python main.py
+flask --app main run --port 8080 --debug
 ```
 
-Then use Web Preview → port 5000. You do not need `AUTH_USERNAME` / `AUTH_PASSWORD` in this mode.
+Then use Web Preview → port 8080. You do not need `AUTH_USERNAME` / `AUTH_PASSWORD` in this mode.
 
 Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Production stays behind basic auth.
 
@@ -144,7 +146,9 @@ Segment roles come from the stored `seg` value (`control` / `expos` in the strin
 
 Status chips: **Active** up to 3 days since last response, **Stale** up to 7 days, **Timed out** after 7. (Previously Stale ran through 14 days.) Thresholds are `STATUS_ACTIVE_DAYS` / `STATUS_STALE_DAYS` in `creative/app/survey_service.py`.
 
-The homepage paginates at 50 surveys, projects list fields only (no `custom_css`), and caches the BigQuery count query in-process for 90 seconds (`STATS_CACHE_SECONDS`). Each App Engine instance has its own cache; values can be up to that TTL stale. Count / last-response / status cells poll every 30s via htmx against that cache (polling pauses while the tab is hidden).
+The homepage paginates at 50 surveys, projects list fields only (no `custom_css`; includes `client`, `agency`, `created_at`), and caches the BigQuery count query in-process for 90 seconds (`STATS_CACHE_SECONDS`). Each App Engine instance has its own cache; values can be up to that TTL stale. Count / last-response / status cells poll every 30s via htmx against that cache (polling pauses while the tab is hidden).
+
+Homepage filters (`q`, `client`, `agency`, `year`) are query params, applied in Python after the list `select()`, and are kept on pagination and the archive toggle. Year **Unknown** is for old documents with no `created_at`. Optional **Client** and **Agency** on the editor (datalist of existing values) copy with the survey. `created_at` is set on create and copy. Optional **Campaign ID** / **Placement ID** are placeholders for a future cost join; they are not used in reporting yet.
 
 The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. **Presets** (Classic green, Dark, High contrast, Ocean) fill the pickers only. The live preview iframe resizes to the selected **creative size** (300×250 default, or 160×600). Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
 
@@ -286,10 +290,10 @@ export STATS_CACHE_SECONDS=0
 export RECEIVER_URL="$(gcloud functions describe receiver --gen2 --region=us-central1 --format='value(serviceConfig.uri)')"
 
 cd creative/app
-python main.py
+flask --app main run --port 8080 --debug
 ```
 
-Web Preview → port 5000.
+Web Preview → port 8080.
 
 1. Create or open a Brand Track survey and a Brand Lift survey. Copy the Survey ID.
 2. Confirm preview still does not post (Network tab / BigQuery unchanged).
@@ -303,7 +307,7 @@ Redeploy App Engine before this is live in production. Receiver redeploy is only
 
 # Cloud Shell test (Phase 4)
 
-Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, Web Preview port 5000). Then:
+Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, Web Preview port 8080). Then:
 
 1. **Size.** Create survey → Creative size **160×600**. Live preview iframe should grow to 160×600. Save, download zip: filename contains `_160x600`. Unzip `index.html` and check `<meta name="ad.size" content="width=160,height=600">` and `#master_container` width/height 160/600. Open preview: same meta. Optional curl with `creative_size=160x600` then `bq query` that `CreativeSize` column.
 2. **Answers.** On question 1, **Add answer** until E is visible; **Remove last answer** hides it and clears the field. Save a 2-answer question and a 5-answer question. Preview should show only filled options. Reporting/CSV should list A–E when present and skip blanks.
@@ -319,3 +323,22 @@ Existing 300×250 four-answer surveys should look the same until you change them
 **Video creative.** Do not build yet. DV360/CM video line items serve **VAST** (2/3/4), not an HTML5 zip. Typical brand-lift-on-video setup is a linear video plus an IAB **companion banner** (300×250) that is our existing survey. Recommended path: keep the HTML5 survey as the companion; generate a VAST XML that references a hosted video file and a public URL for the companion (that URL is the extra piece — App Engine or GCS). In-stream SIMID/VPAID overlays are a much larger project and VPAID is on the way out. Effort: companion-VAST generator is a later phase of its own (hosting + XML + CM/DV360 video placement docs); not a small add-on to this zip.
 
 **Asset templates (backlog ID 4 / old #8).** Implemented as **style presets** in the editor (Classic green, Dark, High contrast, Ocean). They only write picker values into `custom_css`. Full “asset packs” (logos, CM placement kits, multi-size zips as one template library) would be a separate piece of work and are not in this phase.
+
+**Cost / impressions dashboard.** Not built. Two ingestion options:
+
+1. **CM360 / DV360 → BigQuery Data Transfer.** Campaign Manager 360 Data Transfer v2 and the Display & Video 360 BigQuery Data Transfer dump impressions, clicks, and cost (with campaign and placement IDs) on a schedule. Join `Surveys.campaign_id` or `Surveys.placement_id` to those tables, then show cost, impressions, CPM, and cost per completed survey. This is the production path if CM/DV360 is already the source of truth: transfer IAM, schema mapping, currency, and aligning report dates with response `CreatedAt` are the real work. Do not scrape the DV360 UI.
+
+2. **Sheet / CSV upload.** Columns such as date, campaign_id or placement_id, impressions, cost. Parse in Flask and store in BigQuery or a Firestore subcollection, same join. Faster to prototype, manual, no daily refresh, easy to get IDs wrong.
+
+Join: each BOM cut is usually one CM placement (and one DV360 line item). **Placement ID** is the precise key; **campaign ID** is enough only when a survey maps 1:1 to a campaign. Both optional fields are on Identity now so surveys can be tagged before a dashboard exists. They are not read by reporting or the receiver.
+
+Effort: the dashboard (join quality, unmatched IDs, currency, a cost table next to Brand Lift) is a later phase of its own. A sheet upload is the smaller stopgap. The Data Transfer path is larger but is what you want if this will be used weekly. Redeploy is not required for the placeholder ID fields until you want them in production editor.
+
+# Cloud Shell test (Phase 5)
+
+Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, then from `creative/app`: `flask --app main run --port 8080 --debug`). Web Preview → port 8080.
+
+1. **Identity.** Create survey: Client, Agency, Campaign ID, Placement ID in Identity. Type a client used on another survey and confirm the datalist suggests it. Save. Homepage row shows `Client · Agency` under the name.
+2. **Copy.** Copy that survey. Editor should still have the same client/agency/IDs. `created_at` on the copy is now (old docs without a timestamp stay year **Unknown**).
+3. **Filters.** Homepage: filter by client, agency, year, and a name search. Combine with **Show archived**. Next/Previous should keep the query params. Clear returns to the unfiltered list (archive toggle unchanged).
+4. **Old surveys.** A document with no `created_at` appears under Year → Unknown and still lists if you do not filter by year.

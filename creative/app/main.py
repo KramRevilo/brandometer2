@@ -63,12 +63,35 @@ def _page_arg(value):
     return 1
 
 
-def _index_query(show_archived, page=None):
+def flask_port():
+  """Local `python main.py` port. Cloud Shell Web Preview is stuck on 8080."""
+  raw = os.environ.get('PORT', '8080')
+  try:
+    return int(raw)
+  except (TypeError, ValueError):
+    return 8080
+
+
+def _filter_args():
+  return {
+      'q': (request.args.get('q') or '').strip(),
+      'client': (request.args.get('client') or '').strip(),
+      'agency': (request.args.get('agency') or '').strip(),
+      'year': (request.args.get('year') or '').strip(),
+  }
+
+
+def _index_query(show_archived, page=None, filters=None):
   args = {}
   if show_archived:
     args['archived'] = 1
   if page:
     args['page'] = page
+  filters = filters or {}
+  for key in ('q', 'client', 'agency', 'year'):
+    value = (filters.get(key) or '').strip()
+    if value:
+      args[key] = value
   return args
 
 
@@ -81,7 +104,20 @@ def root():
 @app.route('/index')
 def index():
   show_archived = _truthy_arg(request.args.get('archived'))
+  filters = _filter_args()
   surveys = survey_service.list_surveys(include_archived=show_archived)
+  filter_options = survey_service.homepage_filter_options(surveys)
+  unfiltered_count = len(surveys)
+  surveys = survey_service.apply_homepage_filters(
+      surveys,
+      q=filters['q'],
+      client=filters['client'],
+      agency=filters['agency'],
+      year=filters['year'])
+
+  def index_query(archived_flag, page=None):
+    return _index_query(archived_flag, page, filters)
+
   page_surveys, pager = survey_service.paginate_surveys(
       surveys,
       page=_page_arg(request.args.get('page')),
@@ -97,7 +133,11 @@ def index():
       pager=pager,
       stats_poll_seconds=survey_service.STATS_POLL_SECONDS,
       stats_ids=','.join(survey_ids),
-      index_query=_index_query,
+      index_query=index_query,
+      filters=filters,
+      filter_options=filter_options,
+      filters_active=any(filters.values()),
+      unfiltered_count=unfiltered_count,
       title=title)
 
 
@@ -121,6 +161,7 @@ def _editor_context(form):
 
 def _render_editor(form, page_title, survey_id=None, versions=None):
   ctx = _editor_context(form)
+  suggestions = survey_service.identity_suggestions()
   return render_template(
       'questions.html',
       title=page_title,
@@ -130,7 +171,9 @@ def _render_editor(form, page_title, survey_id=None, versions=None):
       font_choices=ctx['font_choices'],
       presets=ctx['presets'],
       survey_id=survey_id,
-      versions=versions or [])
+      versions=versions or [],
+      client_suggestions=suggestions.get('clients') or [],
+      agency_suggestions=suggestions.get('agencies') or [])
 
 
 @app.route('/survey/create', methods=['GET', 'POST'])
@@ -347,6 +390,11 @@ def survey_label_filter(survey):
   return survey_service.survey_label(survey)
 
 
+@app.template_filter('survey_identity_line')
+def survey_identity_line_filter(survey):
+  return survey_service.survey_identity_line(survey)
+
+
 @app.template_filter('format_percentage')
 def format_percentage(num):
   if num is None or (isinstance(num, float) and math.isnan(num)):
@@ -375,5 +423,4 @@ def has_reporting(survey):
 
 
 if __name__ == '__main__':
-    app.run(host='127.0.0.1', port=5000, debug=True)
-    # index()
+    app.run(host='127.0.0.1', port=flask_port(), debug=True)

@@ -2,12 +2,57 @@
 {% from 'stats_macros.html' import count_content, last_content, status_content %}
 {% block content %}
 <div class="container pb-4">
+    <form class="row g-2 align-items-end mb-3" method="get" action="{{ url_for('index') }}">
+        {% if show_archived %}
+        <input type="hidden" name="archived" value="1">
+        {% endif %}
+        <div class="col-md-4">
+            <label class="form-label" for="filter-q">Search</label>
+            <input class="form-control" type="search" id="filter-q" name="q" value="{{ filters.q }}" placeholder="Name or display name">
+        </div>
+        <div class="col-md-2">
+            <label class="form-label" for="filter-client">Client</label>
+            <select class="form-select" id="filter-client" name="client">
+                <option value="">All clients</option>
+                {% for value in filter_options.clients %}
+                <option value="{{ value }}"{% if filters.client == value %} selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label" for="filter-agency">Agency</label>
+            <select class="form-select" id="filter-agency" name="agency">
+                <option value="">All agencies</option>
+                {% for value in filter_options.agencies %}
+                <option value="{{ value }}"{% if filters.agency == value %} selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="col-md-2">
+            <label class="form-label" for="filter-year">Year</label>
+            <select class="form-select" id="filter-year" name="year">
+                <option value="">All years</option>
+                {% for value in filter_options.years %}
+                <option value="{{ value }}"{% if filters.year == value %} selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+                {% if filter_options.has_unknown_year %}
+                <option value="unknown"{% if filters.year == 'unknown' %} selected{% endif %}>Unknown</option>
+                {% endif %}
+            </select>
+        </div>
+        <div class="col-md-2 d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Filter</button>
+            {% if filters_active %}
+            <a class="btn btn-outline-secondary" href="{{ url_for('index', archived=1) if show_archived else url_for('index') }}">Clear</a>
+            {% endif %}
+        </div>
+    </form>
     <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
         {% if show_archived %}
             <span>Showing archived surveys.</span>
-            <a href="{{ url_for('index') }}">Hide archived</a>
+            <a href="{{ url_for('index', **index_query(false)) }}">Hide archived</a>
         {% else %}
-            <a href="{{ url_for('index', archived=1) }}">Show archived</a>
+            <a href="{{ url_for('index', **index_query(true)) }}">Show archived</a>
         {% endif %}
         {% if pager and pager.total %}
             <span class="text-muted">
@@ -43,7 +88,10 @@
         {% if not all_surveys %}
         <tr>
             <td colspan="9" class="text-center py-4">
-                {% if show_archived %}
+                {% if unfiltered_count %}
+                    No surveys match these filters.
+                    <a href="{{ url_for('index', archived=1) if show_archived else url_for('index') }}">Clear filters</a>
+                {% elif show_archived %}
                     No archived surveys.
                 {% else %}
                     No surveys yet. <a href="{{ url_for('create') }}">Create survey</a>
@@ -55,6 +103,10 @@
         <tr>
             <td class="text-center small">
                 {{ survey | survey_label }}
+                {% set identity = survey | survey_identity_line %}
+                {% if identity %}
+                <div class="text-muted">{{ identity }}</div>
+                {% endif %}
             </td>
             <td class="text-center" style="font-size:8pt;">
                 {{ survey.id }}

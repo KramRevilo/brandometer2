@@ -46,7 +46,12 @@ LIST_FIELDS = (
     'question3',
     'question4',
     'question5',
+    'client',
+    'agency',
+    'created_at',
 )
+
+IDENTITY_SUGGESTION_FIELDS = ('client', 'agency')
 
 
 def get_all(field_names=None):
@@ -94,9 +99,17 @@ def update_by_id(survey_id, data):
   return ref
 
 
+def utc_now_iso():
+  return datetime.datetime.now(datetime.timezone.utc).strftime(
+      '%Y-%m-%dT%H:%M:%SZ')
+
+
 def create(data):
+  payload = dict(data or {})
+  if not payload.get('created_at'):
+    payload['created_at'] = utc_now_iso()
   ref = _collection().document()
-  ref.set(data)
+  ref.set(payload)
   return ref
 
 
@@ -189,4 +202,5 @@ def copy(survey_id):
   if data.get('displayname'):
     data['displayname'] = 'Copy of ' + data['displayname']
   data['archived'] = False
+  data['created_at'] = utc_now_iso()
   return create(data)
