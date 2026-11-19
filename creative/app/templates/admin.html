@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container pb-5">
+  <h1 class="h3 mb-2">Admin</h1>
+  <p class="text-muted">Every allowed user sees every survey. There is no per-client tenancy. Verified @{{ google_domain }} Google accounts can always sign in as editors. Bootstrap admin: <code>{{ bootstrap_admin or '(not set)' }}</code></p>
+
+  <section class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5">Allowed users</h2>
+      <form class="row g-2 align-items-end mb-3" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="add_user">
+        <div class="col-md-5">
+          <label class="form-label" for="email">Email</label>
+          <input class="form-control" id="email" name="email" type="email" required>
+        </div>
+        <div class="col-md-3">
+          <label class="form-label" for="role">Role</label>
+          <select class="form-select" id="role" name="role">
+            <option value="editor">editor</option>
+            <option value="admin">admin</option>
+          </select>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary" type="submit">Save user</button>
+        </div>
+      </form>
+      {% if users %}
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
+          <tbody>
+          {% for user in users %}
+            <tr>
+              <td>{{ user.email }}</td>
+              <td>{{ user.role }}</td>
+              <td>
+                <form method="post" class="d-inline" onsubmit="return confirm('Remove this user?');">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="delete_user">
+                  <input type="hidden" name="email" value="{{ user.email }}">
+                  <button class="btn btn-sm btn-outline-danger" type="submit">Remove</button>
+                </form>
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">No users listed yet. The bootstrap admin and @{{ google_domain }} accounts can still sign in.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5">Allowed domains</h2>
+      <form class="row g-2 align-items-end mb-3" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="add_domain">
+        <div class="col-md-5">
+          <label class="form-label" for="domain">Domain</label>
+          <input class="form-control" id="domain" name="domain" placeholder="agency.example" required>
+        </div>
+        <div class="col-md-2">
+          <button class="btn btn-primary" type="submit">Allow domain</button>
+        </div>
+      </form>
+      {% if domains %}
+      <ul class="list-unstyled mb-0">
+        {% for domain in domains %}
+        <li class="d-flex align-items-center gap-2 mb-1">
+          <code>{{ domain }}</code>
+          <form method="post" class="d-inline">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="remove_domain">
+            <input type="hidden" name="domain" value="{{ domain }}">
+            <button class="btn btn-sm btn-outline-secondary" type="submit">Remove</button>
+          </form>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="text-muted mb-0">No extra domains. Verified @{{ google_domain }} still always works.</p>
+      {% endif %}
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="card-body">
+      <h2 class="h5">Audit log</h2>
+      {% if audit %}
+      <div class="table-responsive">
+        <table class="table table-sm">
+          <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Survey</th><th>Detail</th></tr></thead>
+          <tbody>
+          {% for row in audit %}
+            <tr>
+              <td class="text-nowrap">{{ row.created_at }}</td>
+              <td>{{ row.actor }}</td>
+              <td>{{ row.action }}</td>
+              <td>{{ row.survey_id }}</td>
+              <td>{{ row.detail }}</td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <p class="text-muted mb-0">No audit events yet.</p>
+      {% endif %}
+    </div>
+  </section>
+</div>
+{% endblock %}

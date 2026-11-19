@@ -18,7 +18,7 @@
     <script>
         var fullConfiguration = {
             "survey_config": {
-                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&times={time_measurement}{% endif %}",
+                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&times={time_measurement}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
                 
                 "id": "{{survey_id}}",
                 
@@ -479,6 +479,10 @@
 
                     document.getElementById(this.uiConfig.component_selectors.thankyou.container)
                         .textContent = this.uiConfig.component_selectors.thankyou.text;
+                    var privacyNote = document.getElementById('privacy_note');
+                    if (privacyNote) {
+                        privacyNote.className = 'privacy-note';
+                    }
 
 
                     // console.log(this.surveyConfig.thankyou_text);
@@ -690,6 +694,16 @@
     <style id='creative_stylesheet'>
         {{ custom_css }}
     </style>
+    <style id="privacy_note_style">
+        #privacy_note.invisible { display: none !important; }
+        #privacy_note.privacy-note {
+            font-size: 9px;
+            line-height: 1.15;
+            color: #444;
+            text-align: center;
+            padding: 2px 6px;
+        }
+    </style>
 </head>
 
 <body>
@@ -715,6 +729,7 @@
         <div id="thankyou_container" class="invisible">
             <div id="thankyou_text"></div>
         </div>
+        <div id="privacy_note" class="invisible privacy-note">Your IP address is not stored. A daily hash is used only to limit repeat responses.</div>
         <div id="bottom_container">
             <span id="question_comment"></span>
             <span id="next_button">Next</span>

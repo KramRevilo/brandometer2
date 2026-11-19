@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import io
+import os
 import unittest
 from unittest import mock
 
@@ -21,6 +22,7 @@ import pandas
 
 import creative_size
 import css_theme
+import receiver_crypto
 import reporting
 import survey_collection
 import survey_service
@@ -72,6 +74,28 @@ class HtmlAndReportingTest(unittest.TestCase):
     self.assertIn('option_container_7', html)
     self.assertIn('width: 160px;', html)
 
+  def test_html_embeds_signed_token_and_privacy_note(self):
+    previous = main.app.config.get('RECEIVER_HMAC_SECRET')
+    try:
+      with main.app.app_context():
+        main.app.config['RECEIVER_HMAC_SECRET'] = 'unit-test-hmac'
+        with mock.patch.dict(os.environ, {'RECEIVER_URL': 'https://recv.example'}):
+          html = survey_service.get_html_template(
+              'sid', {
+                  'surveyname': 'Signed',
+                  'question1': 'Q',
+                  'answer1a': 'A',
+                  'answer1b': 'B',
+              }, '')
+    finally:
+      main.app.config['RECEIVER_HMAC_SECRET'] = previous or ''
+    self.assertIn('&token=', html)
+    self.assertIn(receiver_crypto.survey_token('sid', 'unit-test-hmac'), html)
+    self.assertIn(
+        'Your IP address is not stored. A daily hash is used only to limit repeat responses.',
+        html)
+    self.assertIn('id="privacy_note"', html)
+
   def test_reporting_includes_answer_e(self):
     df = pandas.DataFrame({
         'CreatedAt': pandas.to_datetime(['2026-11-18'] * 3),
@@ -115,8 +139,10 @@ class VersioningTest(unittest.TestCase):
           'surveytype': 'brand_track',
           'custom_css': 'body { color: red; }',
       })
-      first = survey_collection.add_version(ref.id, ref.get().to_dict())
+      first = survey_collection.add_version(
+          ref.id, ref.get().to_dict(), actor='mark@google.com')
       self.assertEqual(first['version'], 1)
+      self.assertEqual(first['created_by'], 'mark@google.com')
       ref.update({'question1': 'Changed Q', 'creativesize': '160x600'})
       second = survey_collection.add_version(ref.id, ref.get().to_dict())
       self.assertEqual(second['version'], 2)
@@ -149,12 +175,12 @@ class EditorAndPreviewRoutesTest(unittest.TestCase):
 
   def setUp(self):
     super().setUp()
-    main.app.config['BASIC_AUTH_FORCE'] = False
+    main.app.config['AUTH_BYPASS'] = True
     main.app.config['WTF_CSRF_ENABLED'] = False
     self.client = main.app.test_client()
 
   def tearDown(self):
-    main.app.config['BASIC_AUTH_FORCE'] = True
+    main.app.config['AUTH_BYPASS'] = False
     main.app.config['WTF_CSRF_ENABLED'] = True
     super().tearDown()
 
@@ -183,6 +209,8 @@ class EditorAndPreviewRoutesTest(unittest.TestCase):
     self.assertIn(b'width=160,height=600', response.data)
     self.assertIn(b'"width": 160', response.data)
     self.assertIn(b'option_container_4', response.data)
+    self.assertNotIn(b'&token=', response.data)
+    self.assertIn(b'"response_server": ""', response.data)
 
   @mock.patch.object(survey_service, 'list_versions')
   @mock.patch.object(survey_service, 'get_doc_by_id')

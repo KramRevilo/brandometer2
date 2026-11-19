@@ -40,6 +40,7 @@ import creative_size
 import css_theme
 import forms
 from forms import DEFAULT_CSS
+import google_auth
 import survey_collection
 import survey_service
 from forms import RESPONSES_AT_END
@@ -48,11 +49,11 @@ from forms import RESPONSES_AT_END
 title = brand.DEFAULT_BRAND_NAME
 app = Flask(__name__)
 app_security.configure_app(app)
-app_security.install_basic_auth(app)
+google_auth.init_app(app)
 csrf = CSRFProtect(app)
-# Cloud Shell Web Preview (and similar proxies) cannot complete the browser
-# basic-auth challenge. Set DISABLE_BASIC_AUTH=1 for local/proxy use only.
-# Never set this in App Engine / ./deploy. GAE_ENV + DISABLE_BASIC_AUTH refuses to start.
+# Cloud Shell Web Preview cannot complete Google Sign-In when the preview
+# hostname is not on the OAuth client. Set DISABLE_BASIC_AUTH=1 for local/proxy
+# use only. Never set this in App Engine / ./deploy. GAE_ENV refuses that bypass.
 
 def _truthy_arg(value):
   return (value or '').strip().lower() in ('1', 'true', 'yes', 'on')
@@ -275,6 +276,7 @@ def preview(survey_id):
         ad_size_meta=creative_size.ad_size_meta(size),
         # Do not post preview answers to BigQuery.
         receiver_url='',
+        receiver_token='',
         thankyou_text=survey_service.get_thank_you_text(survey_info),
         next_text=survey_service.get_next_text(survey_info),
         comment_text=survey_service.get_comment_text(survey_info),
@@ -450,13 +452,15 @@ def reporting(survey_id):
 
 @app.context_processor
 def inject_receiver_params():
-  return {
+  ctx = google_auth.login_context()
+  ctx.update({
       'receiver_url': os.environ.get('RECEIVER_URL') or '',
       'gtag_id': os.environ.get('GTAG_ID') or '',
       'brand_name': brand.brand_name(),
       'badge_letter': brand.badge_letter(),
       'badge_tooltip': brand.badge_tooltip(),
-  }
+  })
+  return ctx
 
 
 @app.template_filter('get_all_question_text')

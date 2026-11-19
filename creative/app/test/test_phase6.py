@@ -203,7 +203,7 @@ class PresetAndBrandTest(unittest.TestCase):
       self.assertEqual(brand.badge_letter(), 'Q')
 
   def test_navbar_uses_brand_name(self):
-    main.app.config['BASIC_AUTH_FORCE'] = False
+    main.app.config['AUTH_BYPASS'] = True
     client = main.app.test_client()
     with mock.patch.object(
         survey_service, 'identity_suggestions',
@@ -211,7 +211,10 @@ class PresetAndBrandTest(unittest.TestCase):
       response = client.get('/survey/create')
     self.assertIn(b'Brandometer', response.data)
     self.assertNotIn(b'>Sonar</a>', response.data)
-    main.app.config['BASIC_AUTH_FORCE'] = True
+    self.assertIn(b'Sign out', response.data)
+    self.assertIn(b'local-dev', response.data)
+    self.assertIn(b'Admin', response.data)
+    main.app.config['AUTH_BYPASS'] = False
 
   def test_reporting_includes_answer_h(self):
     df = pandas.DataFrame({

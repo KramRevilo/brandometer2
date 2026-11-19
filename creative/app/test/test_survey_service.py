@@ -123,7 +123,8 @@ class TestSurveyService(unittest.TestCase):
 
     filename, _ = survey_service.zip_file(survey_id, survey_dict)
     self.assertRegex(filename, '.*_test-survey_300x250.zip$')
-    version_mock.assert_called_once_with(survey_id, survey_dict)
+    version_mock.assert_called_once_with(
+        survey_id, survey_dict, actor=mock.ANY)
 
   @mock.patch.object(survey_collection, 'add_version')
   @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
@@ -763,6 +764,8 @@ class TestSurveyService(unittest.TestCase):
       self.assertEqual(data['placement_id'], 'plc-9')
       self.assertTrue(data.get('created_at'))
       self.assertNotEqual(data['created_at'], '2024-01-02T00:00:00Z')
+      self.assertEqual(data['created_by'], '')
+      self.assertEqual(data['updated_by'], '')
       self.assertEqual(data['badge_icon'], 'Dentsu')
       self.assertEqual(
           data['badge_text'], 'Survey Type Dentsu Ad - powered by Google')
@@ -818,6 +821,9 @@ class TestSurveyService(unittest.TestCase):
       self.assertEqual(saved['surveyname'], 'New')
       self.assertTrue(saved.get('created_at'))
       self.assertRegex(saved['created_at'], r'^\d{4}-\d{2}-\d{2}T')
+      self.assertEqual(saved['created_by'], 'local-dev')
+      self.assertEqual(saved['updated_by'], 'local-dev')
+      self.assertTrue(saved.get('updated_at'))
 
   def test_paginate_surveys(self):
     docs = [self._survey_doc(str(i), {'surveyname': 'S%s' % i}) for i in range(5)]

@@ -175,9 +175,13 @@ def create(data):
   return ref
 
 
-def set_archived(survey_id, archived):
+def set_archived(survey_id, archived, actor=None):
   ref = _collection().document(survey_id)
-  ref.update({'archived': bool(archived)})
+  payload = {'archived': bool(archived)}
+  if actor:
+    payload['updated_by'] = actor
+    payload['updated_at'] = utc_now_iso()
+  ref.update(payload)
   return ref
 
 
@@ -259,7 +263,7 @@ def _google_firestore_client(survey_ref):
   return None
 
 
-def add_version(survey_id, survey_dict):
+def add_version(survey_id, survey_dict, actor=None):
   """Append an immutable snapshot. Version numbers are transactional 1, 2, 3, …"""
   col = _versions_collection(survey_id)
   seq_ref = col.document(VERSION_SEQ_DOC)
@@ -272,6 +276,7 @@ def add_version(survey_id, survey_dict):
     payload['version'] = next_n
     payload['created_at'] = datetime.datetime.now(
         datetime.timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+    payload['created_by'] = actor or ''
     return payload
 
   if client is not None:
@@ -315,7 +320,7 @@ def get_version(survey_id, version):
   return doc.to_dict() or {}
 
 
-def copy(survey_id):
+def copy(survey_id, actor=None):
   """Create a new survey document cloned from survey_id."""
   doc = get_doc_by_id(survey_id)
   if not doc.exists:
@@ -326,6 +331,10 @@ def copy(survey_id):
   if data.get('displayname'):
     data['displayname'] = 'Copy of ' + data['displayname']
   data['archived'] = False
-  data['created_at'] = utc_now_iso()
+  now = utc_now_iso()
+  data['created_at'] = now
+  data['updated_at'] = now
+  data['created_by'] = actor or ''
+  data['updated_by'] = actor or ''
   data.pop('version_seq', None)
   return create(data)

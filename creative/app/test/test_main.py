@@ -36,7 +36,7 @@ class MainRoutesTest(unittest.TestCase):
 
   def setUp(self):
     super().setUp()
-    main.app.config['BASIC_AUTH_FORCE'] = False
+    main.app.config['AUTH_BYPASS'] = True
     main.app.config['WTF_CSRF_ENABLED'] = False
     self.client = main.app.test_client()
     survey_service.clear_stats_cache()
@@ -47,7 +47,7 @@ class MainRoutesTest(unittest.TestCase):
     self.addCleanup(self._suggestions.stop)
 
   def tearDown(self):
-    main.app.config['BASIC_AUTH_FORCE'] = True
+    main.app.config['AUTH_BYPASS'] = False
     main.app.config['WTF_CSRF_ENABLED'] = True
     super().tearDown()
 
@@ -687,7 +687,7 @@ class CsrfProtectionTest(unittest.TestCase):
 
   def setUp(self):
     super().setUp()
-    main.app.config['BASIC_AUTH_FORCE'] = False
+    main.app.config['AUTH_BYPASS'] = True
     main.app.config['WTF_CSRF_ENABLED'] = True
     self.client = main.app.test_client()
     self._suggestions = mock.patch.object(
@@ -700,7 +700,7 @@ class CsrfProtectionTest(unittest.TestCase):
   def tearDown(self):
     self._suggestions.stop()
     self._list.stop()
-    main.app.config['BASIC_AUTH_FORCE'] = True
+    main.app.config['AUTH_BYPASS'] = False
     super().tearDown()
 
   def _token(self):

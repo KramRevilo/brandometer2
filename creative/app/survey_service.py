@@ -22,8 +22,10 @@ import re
 import threading
 import time
 import zipfile
+import access
 import brand
 import css_theme
+import receiver_crypto
 from flask import flash
 from flask import render_template
 from markupsafe import Markup
@@ -124,7 +126,10 @@ def get_by_id(survey_id):
 
 
 def delete_by_id(survey_id):
-  return survey_collection.delete_by_id(survey_id)
+  actor = access.actor_email()
+  result = survey_collection.delete_by_id(survey_id)
+  access.write_audit('delete', actor, survey_id=survey_id)
+  return result
 
 
 def is_archived(survey):
@@ -339,11 +344,20 @@ def build_stat_array(survey_ids, counts_df=None):
 
 
 def set_archived(survey_id, archived):
-  return survey_collection.set_archived(survey_id, archived)
+  actor = access.actor_email()
+  result = survey_collection.set_archived(survey_id, archived, actor=actor)
+  access.write_audit(
+      'archive' if archived else 'restore', actor, survey_id=survey_id)
+  return result
 
 
 def copy_by_id(survey_id):
-  return survey_collection.copy(survey_id)
+  actor = access.actor_email()
+  result = survey_collection.copy(survey_id, actor=actor)
+  if result is not None:
+    access.write_audit(
+        'copy', actor, survey_id=survey_id, detail=result.id)
+  return result
 
 
 def is_brand_lift(survey):
@@ -381,9 +395,16 @@ def create(form):
   data = brand.persist_badge(_strip_identity(dict(form.data)))
   data, _ = creative_size.persist_sizes(data)
   data['archived'] = False
+  actor = access.actor_email()
+  now = survey_collection.utc_now_iso()
   if not data.get('created_at'):
-    data['created_at'] = survey_collection.utc_now_iso()
+    data['created_at'] = now
+  data['created_by'] = actor
+  data['updated_at'] = now
+  data['updated_by'] = actor
   doc_ref = survey_collection.create(data)
+  access.write_audit(
+      'create', actor, survey_id=doc_ref.id, detail=form.surveyname.data)
   flash(f'{form.surveyname.data} created as {doc_ref.id}')
   return doc_ref
 
@@ -391,8 +412,15 @@ def create(form):
 def update_by_id(survey_id, form, last_update_time=None):
   data, _ = creative_size.persist_sizes(
       brand.persist_badge(_strip_identity(form.data)))
+  actor = access.actor_email()
+  data['updated_at'] = survey_collection.utc_now_iso()
+  data['updated_by'] = actor
+  data.pop('created_by', None)
+  data.pop('created_at', None)
   edit_doc = survey_collection.update_by_id(
       survey_id, data, last_update_time=last_update_time)
+  access.write_audit(
+      'edit', actor, survey_id=survey_id, detail=form.surveyname.data)
   flash(f'{form.surveyname.data} updated')
   return edit_doc
 
@@ -438,7 +466,8 @@ def zip_file(survey_id, survey_dict, record_version=True):
   delete_tmp_zip_files([combined_zip] + template_zips)
 
   if record_version:
-    survey_collection.add_version(survey_id, survey_dict)
+    survey_collection.add_version(
+        survey_id, survey_dict, actor=access.actor_email())
 
   return os.path.basename(combined_zip.filename), file_data
 
@@ -486,6 +515,14 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None):
   custom_css = Markup(creative_size.apply_overlay(
       css_theme.sanitize_user_css(custom_css), spec))
 
+  receiver_url = os.environ.get('RECEIVER_URL') or ''
+  hmac_secret = ''
+  try:
+    from flask import current_app
+    hmac_secret = current_app.config.get('RECEIVER_HMAC_SECRET') or ''
+  except Exception:
+    hmac_secret = os.environ.get('RECEIVER_HMAC_SECRET') or ''
+  receiver_token = receiver_crypto.survey_token(survey_id, hmac_secret)
   return render_template(
       'creative.html',
       survey=survey_dict,
@@ -504,6 +541,8 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None):
       next_text=get_next_text(survey_dict),
       comment_text=get_comment_text(survey_dict),
       brand_name=brand.brand_name(),
+      receiver_url=receiver_url,
+      receiver_token=receiver_token,
       **brand.badge_render_vars(survey_dict))
 
 
