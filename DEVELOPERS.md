@@ -38,7 +38,9 @@ gcloud services enable \
   cloudfunctions.googleapis.com \
   bigquery.googleapis.com \
   run.googleapis.com \
-  artifactregistry.googleapis.com
+  artifactregistry.googleapis.com \
+  secretmanager.googleapis.com \
+  iam.googleapis.com
 
 # Firestore Native (default) — do this *before* `gcloud app create`, which
 # otherwise provisions (default) in Datastore mode.
@@ -59,7 +61,19 @@ bq mk --table \
   --description "Survey response rows for Brandometer" \
   "$PROJECT_ID:responses.responses"
 
-# Optional: deploy the HTTP receiver so survey creatives can post answers
+# Optional: deploy the HTTP receiver so survey creatives can post answers.
+# Create a dedicated SA first (./deploy does this). Do not reuse the App Engine SA.
+gcloud iam service-accounts create brandometer-receiver \
+  --display-name="Brandometer response receiver"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/datastore.viewer"
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="serviceAccount:brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/logging.logWriter"
+gcloud bigquery datasets add-iam-policy-binding "$PROJECT_ID:responses" \
+  --member="serviceAccount:brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
+  --role="roles/bigquery.dataEditor"
 gcloud functions deploy receiver \
   --gen2 \
   --trigger-http \
@@ -68,8 +82,24 @@ gcloud functions deploy receiver \
   --entry-point=receiver \
   --region=us-central1 \
   --source=receiver \
+  --service-account="brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
+  --max-instances=20 \
+  --timeout=60s \
+  --memory=256MB \
   --set-env-vars TABLE_ID="$PROJECT_ID.responses.responses"
 ```
+
+**App Engine service account IAM.** `./deploy` grants the default App Engine SA (`$PROJECT_ID@appspot.gserviceaccount.com`) least privilege and **removes** `roles/editor` if it was bound:
+
+* `roles/datastore.user` (Firestore reads/writes)
+* `roles/bigquery.jobUser` (run queries)
+* `roles/bigquery.dataEditor` on the `responses` dataset (falls back to the project role if dataset IAM is unavailable)
+* `roles/logging.logWriter`
+* `roles/secretmanager.secretAccessor` (plus per-secret accessor bindings)
+
+The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), dataset `roles/bigquery.dataEditor`, and `roles/logging.logWriter`. It does **not** create BigQuery tables at runtime.
+
+**Secrets.** `./deploy` creates or updates Secret Manager secrets `brandometer-auth-username`, `brandometer-auth-password`, and `brandometer-secret-key`, and `app.yaml.template` injects them as `AUTH_USERNAME` / `AUTH_PASSWORD` / `SECRET_KEY`. The password is never echoed. Local runs still use env vars. If you already deployed with those values in a generated yaml, re-run `./deploy` once so they live in Secret Manager (the generated yaml is gitignored and is no longer the source of truth).
 
 The App Engine service is only required for hosting, not for running Flask on your laptop.
 
@@ -120,7 +150,7 @@ The app imports without GCP. Listing surveys, saving surveys, and downloading re
 
 # Google Cloud Shell
 
-Cloud Shell **Web Preview** sits in front of Flask with its own login, and it is stuck on port **8080**. Flask-BasicAuth then returns `401` on `GET /`, and the preview page reloads in a loop. For Cloud Shell only, disable basic auth and bind 8080:
+Cloud Shell **Web Preview** sits in front of Flask with its own login, and it is stuck on port **8080**. Timing-safe Basic Auth then returns `401` on `GET /`, and the preview page reloads in a loop. For Cloud Shell only, disable basic auth and bind 8080:
 
 ```shell
 export DISABLE_BASIC_AUTH=1
@@ -130,7 +160,9 @@ flask --app main run --port 8080 --debug
 
 Then use Web Preview → port 8080. You do not need `AUTH_USERNAME` / `AUTH_PASSWORD` in this mode.
 
-Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Production stays behind basic auth.
+Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Production stays behind basic auth. If `GAE_ENV` is set, the app **refuses to start** when `DISABLE_BASIC_AUTH` is set or when `SECRET_KEY` is the local default. Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on App Engine (`secure: always` in `app.yaml.template`).
+
+Homepage **Copy / Archive / Delete** are POST forms with Flask-WTF CSRF (confirm still runs on delete). Stats cells stay GET `/index/stats-partial` (no CSRF). htmx non-GET requests send `X-CSRFToken` from the page meta tag. Saving a survey that someone else already saved returns **409** with “Someone else saved this survey, reload” (Firestore `last_update_time` precondition). Version numbers are assigned transactionally via `Surveys/{id}/versions/_seq`.
 
 Homepage: archived surveys are hidden unless you click **Show archived**. Copy opens the new survey in the editor. The stats button and `/survey/reporting/...` work for **Brand Lift and Brand Track**. Preview does not write to BigQuery (empty `receiver_url`); generate test rows with curl against the receiver as in [Generate test responses](#generate-test-responses).
 
@@ -138,7 +170,7 @@ Homepage: archived surveys are hidden unless you click **Show archived**. Copy o
 
 Reporting (parameterized `WHERE ID = @survey_id`):
 
-* Daily responses by stored `seg` (Chart.js CDN)
+* Daily responses by stored `seg` (self-hosted Chart.js 4.4.6)
 * Per-question answer distributions
 * Brand Lift only: control vs exposed table, Wilson 95% CIs, two-proportion z-test p-value, n-too-small warning when an arm has fewer than 30 respondents
 * Empty states when there is no data, no control, or no exposed segment
@@ -154,7 +186,7 @@ Homepage filters (`q`, `client`, `agency`, `year`, `size`) are query params, app
 
 **View Survey.** Single-size rows keep a plain eye button (no `?size=`). Multi-size rows use a split button: the main control opens the first configured size; the caret lists every size as `/survey/preview/<id>?size=WxH`. The preview page itself has a size switcher when there is more than one size, defaulting to the first configured key. Unknown `?size=` falls back to that first key.
 
-The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. **Presets** are a grouped dropdown (Classic / Loud solids / Complementary / Patterns); Classic green is the default. Patterns are CSS gradients only, with a solid panel behind question and answer text. The live preview iframe resizes to the previewed **creative size** and has a size switcher when more than one size is selected. Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
+The admin UI is self-hosted Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12, Alpine.js 3.14.3, and Chart.js 4.4.6 under `creative/app/static/vendor/` (see `VERSIONS`). Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. **Presets** are a grouped dropdown (Classic / Loud solids / Complementary / Patterns); Classic green is the default. Patterns are CSS gradients only, with a solid panel behind question and answer text. The live preview iframe resizes to the previewed **creative size** and has a size switcher when more than one size is selected. Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
 
 **Creative sizes.** 300×250 (default for old docs), 160×600, 300×600, 336×280, 970×250. Not 728×90 / 320×50 / 320×100. Stored as `creativesizes` (list) plus `creativesize` (single string when there is one size, otherwise the list) so old docs still load. 970×250 lays answers out in a wrapping grid. Download is an **outer ZIP** of one HTML5 inner ZIP per size (and per Brand Lift segment: `default_control` / `default_expose`). Inner ZIPs contain only `index.html` (never a nested zip), `ad.size` for that size, filename ≤ 50 characters, well under 5 MB. clickTag/exit is unchanged.
 
@@ -179,6 +211,10 @@ gcloud functions deploy receiver \
   --entry-point=receiver \
   --region=us-central1 \
   --source=receiver \
+  --service-account="brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
+  --max-instances=20 \
+  --timeout=60s \
+  --memory=256MB \
   --set-env-vars TABLE_ID="$PROJECT_ID.responses.responses"
 ```
 
@@ -231,15 +267,23 @@ GCP is not required. From the repo root:
 
 ```shell
 source .venv/bin/activate
+pip install -r creative/app/requirements.txt -r requirements-dev.txt
 cd creative/app
 PYTHONPATH=. pytest
 ```
 
+`requirements-dev.txt` includes **pip-audit**. From the repo root:
+
+```shell
+pip-audit -r creative/app/requirements.txt
+pip-audit -r receiver/requirements.txt
+```
+
 # Receiver (Cloud Function)
 
-Dependencies: `receiver/requirements.txt`. Deploy is handled by `./deploy` or the `gcloud functions deploy` command in [One-time GCP setup](#one-time-gcp-setup).
+Dependencies: `receiver/requirements.txt`. Deploy is handled by `./deploy` or the `gcloud functions deploy` command in [One-time GCP setup](#one-time-gcp-setup). Redeploy the receiver for Phase 7a (validation, 204/4xx/5xx, Firestore survey check, no table auto-create).
 
-The receiver writes `Type` (default `survey`), `ID`, `Segmentation` (`seg`), `Response`, `BomID` (`bomid`), and the other REQUIRED schema fields. Live creatives post here; **preview does not**.
+The receiver writes `Type` (default `survey`), `ID`, `Segmentation` (`seg`), `Response`, `BomID` (`bomid`), and the other REQUIRED schema fields. Live creatives post here via a 0×0 iframe pixel; **preview does not**. Success is **HTTP 204** with an empty body (safe for that iframe). Invalid params are **400**, unknown/archived surveys **404**, BigQuery/Firestore failures **500** with a small JSON body (`reason=…`). The table must already exist — missing `TABLE_ID` / table is 500, not a create. Survey existence is cached in memory for 30 seconds.
 
 # Generate test responses
 
@@ -277,7 +321,7 @@ post "default_expose" "1:A|2:A" "lift-e1"
 post "default_expose" "1:A" "lift-e2"
 ```
 
-A successful insert returns `{"errors": []}`. Streaming inserts can take a few seconds to show up in `SELECT`. Homepage counts are cached up to 90 seconds (`STATS_CACHE_SECONDS`; set `0` while testing). Reporting and CSV query BigQuery on each request.
+A successful insert returns HTTP 204 (empty body). `curl -sS` still exits 0; add `-w '%{http_code}\n'` if you want to see the status. Invalid `id` / `response` / size characters return 400. Streaming inserts can take a few seconds to show up in `SELECT`. Homepage counts are cached up to 90 seconds (`STATS_CACHE_SECONDS`; set `0` while testing). Reporting and CSV query BigQuery on each request.
 
 Per-question submits for `lift-c1` / `lift-e1` collapse to **one respondent each** (the longer Response). Raw `COUNT(*)` in BigQuery stays higher.
 
@@ -311,7 +355,7 @@ Web Preview → port 8080.
 6. Download CSV: one row per BomID; streaming (not a single buffered string).
 7. Optional: `bq query --nouse_legacy_sql "SELECT BomID, Response FROM \`$TABLE_ID\` WHERE ID='$SURVEY_ID' ORDER BY CreatedAt"` to compare raw vs consolidated.
 
-Redeploy App Engine before this is live in production. Receiver redeploy is only for the `Type` default.
+Redeploy App Engine before this is live in production. Receiver redeploy is required for Phase 7a validation and status codes.
 
 # Cloud Shell test (Phase 4)
 
@@ -371,4 +415,14 @@ Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --p
 4. Do not put a zip inside a zip when uploading; each inner file is already a legal HTML5 creative (`index.html` only).
 5. Brand Lift: assign `…_default_control.zip` to the Control ad and `…_default_expose.zip` to the Expose ad, same as before.
 
-Redeploy **App Engine** for Phase 6. Receiver redeploy is not required (`Response` already stores `1:H`). Optional env: `APP_BRAND_NAME`, `APP_BRAND_BADGE_LETTER`, `APP_BRAND_BADGE_TOOLTIP`.
+Redeploy **App Engine** for Phase 6. Receiver redeploy is not required for sizes/answers (`Response` already stores `1:H`). Optional env: `APP_BRAND_NAME`, `APP_BRAND_BADGE_LETTER`, `APP_BRAND_BADGE_TOOLTIP`.
+
+# Cloud Shell test (Phase 7a)
+
+Same start as Phase 3 (`DISABLE_BASIC_AUTH=1` locally only). Then:
+
+1. Homepage: Copy / Archive / Delete are buttons inside POST forms. Delete still confirms. A GET to `/survey/delete` is 405. Edit a survey, save, then in another tab save the same survey again — you should see **Someone else saved this survey, reload** (HTTP 409).
+2. Network: `/index/stats-partial` is GET. Any future htmx POST would send `X-CSRFToken`.
+3. Preview / zip: question and answer text is assigned with `textContent`. A `custom_css` value containing `</style><script>` must not appear in the creative HTML.
+4. Receiver (after redeploy): `curl` a missing survey id → 404; omit `response` → 400; valid row → 204. The function must not create a BigQuery table.
+5. Production: `./deploy` prompts for username/password without printing the password, writes Secret Manager, and binds least-privilege IAM. Do not set `DISABLE_BASIC_AUTH` in App Engine.
