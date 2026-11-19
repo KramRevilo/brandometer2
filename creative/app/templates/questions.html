@@ -14,6 +14,13 @@
   .preview-sticky { top: 1rem; }
   .color-row input[type="color"] { width: 3rem; height: 2.25rem; padding: 0.15rem; }
   [x-cloak] { display: none !important; }
+  .preset-swatch {
+    width: 1.75rem;
+    height: 1.75rem;
+    border-radius: 0.35rem;
+    border: 1px solid #212529;
+    flex: 0 0 auto;
+  }
 </style>
 {% endblock %}
 {% block content %}
@@ -77,10 +84,23 @@
             <label class="form-label" for="responsetype">Response mode</label>
             {{ form.responsetype(class="form-select", id="responsetype") }}
           </div>
-          <div class="col-md-4">
-            <label class="form-label" for="creativesize">Creative size</label>
-            {{ form.creativesize(class="form-select", id="creativesize") }}
-            <div class="form-text">300×250 is the default for existing surveys. 160×600 is a wide skyscraper.</div>
+          <div class="col-12">
+            <div class="form-label">Creative sizes</div>
+            <div class="d-flex flex-wrap gap-3" id="creativesize">
+              {% set selected_sizes = form.creativesize.data or ['300x250'] %}
+              {% for value, label in form.creativesize.choices %}
+              <div class="form-check">
+                <input class="form-check-input" type="checkbox" name="creativesize" id="creativesize-{{ value }}"
+                       value="{{ value }}" {% if value in selected_sizes %}checked{% endif %}
+                       @change="onSizesChange()">
+                <label class="form-check-label" for="creativesize-{{ value }}">{{ label }}</label>
+              </div>
+              {% endfor %}
+            </div>
+            {% for error in form.creativesize.errors %}
+            <div class="text-danger small">{{ error }}</div>
+            {% endfor %}
+            <div class="form-text">Select every size this survey should traffic. 160×600 and 300×600 allow up to 8 answers; the others cap at 5. Download produces one HTML5 zip per size (and per Brand Lift segment).</div>
           </div>
         </div>
       </div>
@@ -92,13 +112,20 @@
           <div class="card-body">
             <h2 class="h5 mb-3">Style</h2>
             <div class="mb-3">
-              <div class="form-label">Presets</div>
-              <div class="d-flex flex-wrap gap-2">
-                {% for preset in presets %}
-                <button type="button" class="btn btn-sm btn-outline-secondary" @click="applyPreset('{{ preset.id }}')">{{ preset.label }}</button>
-                {% endfor %}
+              <label class="form-label" for="theme-preset">Theme preset</label>
+              <div class="d-flex align-items-center gap-2">
+                <span class="preset-swatch" :style="presetSwatchStyle()" aria-hidden="true"></span>
+                <select id="theme-preset" class="form-select" @change="applyPreset($event.target.value)">
+                  {% for group in preset_groups %}
+                  <optgroup label="{{ group.label }}">
+                    {% for preset in group.presets %}
+                    <option value="{{ preset.id }}">{{ preset.label }}</option>
+                    {% endfor %}
+                  </optgroup>
+                  {% endfor %}
+                </select>
               </div>
-              <div class="form-text">Sets the pickers. You can still tweak colours after applying a preset.</div>
+              <div class="form-text">Classic green is the default. Patterns are CSS-only (no image files). You can still tweak colours after applying a preset.</div>
             </div>
             <div class="row g-3">
               <div class="col-sm-6 color-row">
@@ -156,8 +183,16 @@
         <section class="card mb-4 preview-sticky sticky-top">
           <div class="card-body">
             <h2 class="h5 mb-3">Live preview (<span x-text="sizeLabel()"></span>)</h2>
+            <div class="d-flex flex-wrap gap-2 mb-2" x-show="selectedSizeKeys().length > 1">
+              <template x-for="key in selectedSizeKeys()" :key="key">
+                <button type="button" class="btn btn-sm"
+                        :class="previewSize === key ? 'btn-primary' : 'btn-outline-secondary'"
+                        @click="previewSize = key; syncCss()"
+                        x-text="key.replace('x', '×')"></button>
+              </template>
+            </div>
             <iframe class="preview-frame" title="Survey creative preview" scrolling="no" :srcdoc="previewSrcdoc" :style="previewFrameStyle()"></iframe>
-            <p class="form-text mb-0 mt-2">Updates as you type. The iframe matches the selected creative size.</p>
+            <p class="form-text mb-0 mt-2">Updates as you type. Switch sizes above when more than one is selected.</p>
           </div>
         </section>
       </div>
@@ -187,7 +222,7 @@
               {{ form[question + "order"](class="form-select", id=question + "order") }}
             </div>
           </div>
-          {% for letter in ['a', 'b', 'c', 'd', 'e'] %}
+          {% for letter in ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'] %}
           {% set answer = 'answer' + n|string + letter %}
           {% set next_name = answer + 'next' %}
           {% set cur_next = form[next_name].data or 'end' %}
@@ -228,10 +263,10 @@
           </div>
           {% endfor %}
           <div class="d-flex gap-2 mt-2">
-            <button type="button" class="btn btn-sm btn-outline-primary" @click="addAnswer({{ n }})" :disabled="answerCounts[{{ n }}] >= 5">Add answer</button>
+            <button type="button" class="btn btn-sm btn-outline-primary" @click="addAnswer({{ n }})" :disabled="answerCounts[{{ n }}] >= maxAnswers()">Add answer</button>
             <button type="button" class="btn btn-sm btn-outline-secondary" @click="removeAnswer({{ n }})" :disabled="answerCounts[{{ n }}] <= 2">Remove last answer</button>
           </div>
-          <div class="form-text">2 to 5 answers. Empty rows are skipped in the creative, reporting, and CSV.</div>
+          <div class="form-text">2 to <span x-text="maxAnswers()"></span> answers for the selected sizes. Empty rows are skipped in the creative, reporting, and CSV. F–H need 160×600 or 300×600 only.</div>
         </div>
       </div>
       {% endfor %}
@@ -273,7 +308,7 @@
           <tr>
             <td>{{ ver.version }}</td>
             <td class="small">{{ ver.created_at }}</td>
-            <td>{{ ver.creativesize or '300x250' }}</td>
+            <td>{% if ver.creativesizes %}{{ ver.creativesizes|join(', ') }}{% else %}{{ ver.creativesize or '300x250' }}{% endif %}</td>
             <td>{{ ver.surveytype or '' }}</td>
             <td>
               <a class="btn btn-sm btn-success" href="{{ url_for('download_zip_version', survey_id=survey_id, version=ver.version) }}">Download this version</a>
@@ -296,7 +331,14 @@
   window.SONAR_EDITOR = {
     theme: {{ theme|tojson }},
     extra: {{ extra_css|tojson }},
-    presets: {{ presets|tojson }}
+    presets: {{ presets|tojson }},
+    layoutFixCss: {{ layout_fix_css|tojson }},
+    sizeOverlayCss: {{ size_overlay_css|tojson }},
+    brand: {
+      name: {{ brand_name|tojson }},
+      letter: {{ badge_letter|tojson }},
+      tooltip: {{ badge_tooltip|tojson }}
+    }
   };
 </script>
 <script src="{{ url_for('static', filename='survey-editor.js') }}"></script>

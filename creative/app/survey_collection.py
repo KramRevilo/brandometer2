@@ -124,6 +124,7 @@ _VERSION_SCALAR_FIELDS = (
     'displayname',
     'surveytype',
     'creativesize',
+    'creativesizes',
     'custom_css',
     'language',
     'responsetype',

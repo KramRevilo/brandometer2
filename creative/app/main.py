@@ -31,6 +31,7 @@ from flask import url_for
 from flask_basicauth import BasicAuth
 
 # local file imports
+import brand
 import creative_size
 import css_theme
 import forms
@@ -38,8 +39,8 @@ from forms import DEFAULT_CSS
 import survey_service
 from forms import RESPONSES_AT_END
 
-# Project setup
-title = 'Sonar'
+# Project setup. Overridden per request by APP_BRAND_NAME (default Brandometer).
+title = brand.DEFAULT_BRAND_NAME
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-only-not-for-production')
 app.config['BASIC_AUTH_USERNAME'] = os.environ.get('AUTH_USERNAME')
@@ -138,7 +139,7 @@ def index():
       filter_options=filter_options,
       filters_active=any(filters.values()),
       unfiltered_count=unfiltered_count,
-      title=title)
+      title=brand.brand_name())
 
 
 @app.route('/index/stats-partial')
@@ -156,6 +157,12 @@ def _editor_context(form):
       'extra_css': parsed['extra'],
       'font_choices': css_theme.FONT_CHOICES,
       'presets': css_theme.STYLE_PRESETS,
+      'preset_groups': css_theme.STYLE_PRESET_GROUPS,
+      'size_choices': creative_size.SIZE_CHOICES,
+      'layout_fix_css': creative_size.layout_fix_css(),
+      'size_overlay_css': {
+          key: creative_size.overlay_css(key) for key in creative_size.SIZES
+      },
   }
 
 
@@ -173,7 +180,11 @@ def _render_editor(form, page_title, survey_id=None, versions=None):
       survey_id=survey_id,
       versions=versions or [],
       client_suggestions=suggestions.get('clients') or [],
-      agency_suggestions=suggestions.get('agencies') or [])
+      agency_suggestions=suggestions.get('agencies') or [],
+      preset_groups=ctx.get('preset_groups') or [],
+      size_choices=ctx.get('size_choices') or creative_size.SIZE_CHOICES,
+      layout_fix_css=ctx.get('layout_fix_css') or '',
+      size_overlay_css=ctx.get('size_overlay_css') or {})
 
 
 @app.route('/survey/create', methods=['GET', 'POST'])
@@ -218,6 +229,8 @@ def preview(survey_id):
         response_type=response_type,
         creative_width=size['width'],
         creative_height=size['height'],
+        size_key=size['key'],
+        size_layout=size.get('layout') or 'stack',
         ad_size_meta=creative_size.ad_size_meta(size),
         # Do not post preview answers to BigQuery.
         receiver_url='',
@@ -377,6 +390,9 @@ def inject_receiver_params():
   return {
       'receiver_url': os.environ.get('RECEIVER_URL') or '',
       'gtag_id': os.environ.get('GTAG_ID') or '',
+      'brand_name': brand.brand_name(),
+      'badge_letter': brand.badge_letter(),
+      'badge_tooltip': brand.badge_tooltip(),
   }
 
 

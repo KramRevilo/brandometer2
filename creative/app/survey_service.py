@@ -17,9 +17,11 @@ import datetime
 import io
 import math
 import os
+import re
 import threading
 import time
 import zipfile
+import brand
 from flask import flash
 from flask import render_template
 from google.api_core.exceptions import NotFound
@@ -361,6 +363,7 @@ def classify_status(days_since_response):
 
 def create(form):
   data = _strip_identity(dict(form.data))
+  data, _ = creative_size.persist_sizes(data)
   data['archived'] = False
   if not data.get('created_at'):
     data['created_at'] = survey_collection.utc_now_iso()
@@ -370,7 +373,8 @@ def create(form):
 
 
 def update_by_id(survey_id, form):
-  edit_doc = survey_collection.update_by_id(survey_id, _strip_identity(form.data))
+  data, _ = creative_size.persist_sizes(_strip_identity(form.data))
+  edit_doc = survey_collection.update_by_id(survey_id, data)
   flash(f'{form.surveyname.data} updated')
   return edit_doc
 
@@ -381,44 +385,38 @@ def set_form_data(form, edit_doc):
   for key, value in edit_doc_dict.items():
     if key in form:
       form[key].data = edit_doc.get(key,)
+  if 'creativesize' in form:
+    form['creativesize'].data = creative_size.selected_keys(edit_doc_dict)
 
 
 def zip_file(survey_id, survey_dict, record_version=True):
-  """File download function."""
-  # Make these use temp files in '/tmp/' to work around
-  # App Engine read only filesystem
-
-  # Prepare data
+  """Outer ZIP of one HTML5 inner ZIP per size (and per Brand Lift segment)."""
   current_datetime = datetime.datetime.now().strftime('%Y%m%d')
-  surveyname = survey_dict['surveyname'].replace(' ', '-')
-  size_key = creative_size.resolve(survey_dict)['key']
-  prefix_filename = current_datetime + '_' + surveyname + '_' + size_key
-  # Missing surveytype matches the form default (Brand Track): one creative.
+  surveyname = (survey_dict.get('surveyname') or 'survey').replace(' ', '-')
+  size_keys = creative_size.selected_keys(survey_dict)
   survey_type = survey_dict.get('surveytype', BRAND_TRACK)
   if survey_type == BRAND_LIFT:
     seg_types = ['default_control', 'default_expose']
   else:
-    # Empty seg in the HTML; zip suffix is added separately so the file
-    # is not named "..._.zip" and does not collide with the outer zip.
     seg_types = ['']
 
-  # In order to make the responsetype backward compatible we need to support
-  # surveys defined WITHOUT a responsetype and default them to RESPONSES_AT_END.
-  # Check to see if there's a key for answer type 'responsetype' and, if not,
-  # then this is an old survey. Insert a key:value pair for RESPONSES_AT_END.
   if 'responsetype' not in survey_dict:
     survey_dict['responsetype'] = RESPONSES_AT_END
 
-  # create zip
-  template_zips = write_html_template(survey_id, survey_dict, prefix_filename,
-                                      seg_types)
-  combined_zip = zip_dir(prefix_filename, template_zips)
+  template_zips = []
+  for size_key in size_keys:
+    prefix = current_datetime + '_' + surveyname + '_' + size_key
+    template_zips.extend(
+        write_html_template(
+            survey_id, survey_dict, prefix, seg_types, size_key=size_key))
+  outer_name = creative_size.outer_zip_basename(
+      current_datetime, surveyname, size_keys)
+  outer_stem = outer_name[:-4] if outer_name.endswith('.zip') else outer_name
+  combined_zip = zip_dir(outer_stem, template_zips)
 
-  # make data response
   with open(combined_zip.filename, 'rb') as file:
     file_data = io.BytesIO(file.read())
 
-  # clean up tmp files
   delete_tmp_zip_files([combined_zip] + template_zips)
 
   if record_version:
@@ -430,34 +428,44 @@ def zip_file(survey_id, survey_dict, record_version=True):
 def zip_dir(filename, template_zips):
   with zipfile.ZipFile('/tmp/' + filename + '.zip', 'w',
                        zipfile.ZIP_DEFLATED) as zipdir:
-    for zip in template_zips:
-      zipdir.write(zip.filename)
+    for inner in template_zips:
+      zipdir.write(inner.filename, arcname=os.path.basename(inner.filename))
   return zipdir
 
 
-def write_html_template(survey_id, survey_dict, prefix_filename, seg_types):
+def write_html_template(survey_id, survey_dict, prefix_filename, seg_types,
+                        size_key=None):
   template_zips = []
+  date_stamp = datetime.datetime.now().strftime('%Y%m%d')
+  surveyname = (survey_dict.get('surveyname') or 'survey').replace(' ', '-')
+  resolved_key = size_key or creative_size.resolve(survey_dict)['key']
 
   for seg_type in seg_types:
     file_suffix = seg_type if seg_type else 'creative'
-    dir_name = '/tmp/' + prefix_filename + '_' + file_suffix
-    # write html file
-    with zipfile.ZipFile(dir_name + '.zip', 'w',
-                         zipfile.ZIP_DEFLATED) as zip_write_file:
+    inner_name = creative_size.inner_zip_basename(
+        date_stamp, surveyname, resolved_key, file_suffix)
+    # Tests pass a prefix like test_prefix; honour it when it is not a dated name.
+    if prefix_filename and not re.match(r'^\d{8}_', prefix_filename or ''):
+      path = '/tmp/' + prefix_filename + '_' + file_suffix + '.zip'
+    else:
+      path = '/tmp/' + inner_name
+    with zipfile.ZipFile(path, 'w', zipfile.ZIP_DEFLATED) as zip_write_file:
       zip_write_file.writestr(
-          'index.html', get_html_template(survey_id, survey_dict, seg_type))
+          'index.html',
+          get_html_template(
+              survey_id, survey_dict, seg_type, size=resolved_key))
       template_zips.append(zip_write_file)
 
   return template_zips
 
 
-def get_html_template(survey_id, survey_dict, seg_type):
+def get_html_template(survey_id, survey_dict, seg_type, size=None):
   if 'custom_css' in survey_dict:
     custom_css = survey_dict['custom_css']
   else:
     custom_css = DEFAULT_CSS
-  size = creative_size.resolve(survey_dict)
-  custom_css = creative_size.apply_overlay(custom_css, size)
+  spec = creative_size.resolve(size or survey_dict)
+  custom_css = creative_size.apply_overlay(custom_css, spec)
 
   return render_template(
       'creative.html',
@@ -468,12 +476,17 @@ def get_html_template(survey_id, survey_dict, seg_type):
       all_question_json=get_question_json(survey_dict),
       seg=seg_type,
       custom_css=custom_css,
-      creative_width=size['width'],
-      creative_height=size['height'],
-      ad_size_meta=creative_size.ad_size_meta(size),
+      creative_width=spec['width'],
+      creative_height=spec['height'],
+      size_key=spec['key'],
+      size_layout=spec.get('layout') or 'stack',
+      ad_size_meta=creative_size.ad_size_meta(spec),
       thankyou_text=get_thank_you_text(survey_dict),
       next_text=get_next_text(survey_dict),
-      comment_text=get_comment_text(survey_dict))
+      comment_text=get_comment_text(survey_dict),
+      badge_letter=brand.badge_letter(),
+      badge_tooltip=brand.badge_tooltip(),
+      brand_name=brand.brand_name())
 
 
 def delete_tmp_zip_files(zipfiles):

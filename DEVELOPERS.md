@@ -1,6 +1,6 @@
-# Sonar developer guide
+# Brandometer developer guide
 
-Sonar is a Flask + Google Cloud app (App Engine, Firestore, BigQuery, Cloud Functions) for building brand-lift / brand-track survey creatives. It started as a fork of Google Brandometer (Apache-2.0).
+Brandometer is a Flask + Google Cloud app (App Engine, Firestore, BigQuery, Cloud Functions) for building brand-lift / brand-track survey creatives. It started as a fork of Google Brandometer (Apache-2.0). The product name is `APP_BRAND_NAME` (default **Brandometer**). Internal CSS markers stay `SONAR_THEME_*` / `--sonar-*` / `SONAR_SIZE_*` so existing `custom_css` still parses.
 
 # Prerequisites
 
@@ -50,13 +50,13 @@ gcloud firestore databases create \
 # BigQuery dataset + responses table (same schema as the receiver).
 # New tables are partitioned by CreatedAt and clustered by ID. Skip this
 # `bq mk --table` if the table already exists; do not migrate an existing table.
-bq --location=us-central1 mk --dataset --description "Main response data set for Sonar" "$PROJECT_ID:responses"
+bq --location=us-central1 mk --dataset --description "Main response data set for Brandometer" "$PROJECT_ID:responses"
 bq mk --table \
   --schema receiver/responses.schema.json \
   --time_partitioning_field CreatedAt \
   --time_partitioning_type DAY \
   --clustering_fields ID \
-  --description "Survey response rows for Sonar" \
+  --description "Survey response rows for Brandometer" \
   "$PROJECT_ID:responses.responses"
 
 # Optional: deploy the HTTP receiver so survey creatives can post answers
@@ -150,11 +150,15 @@ The homepage paginates at 50 surveys, projects list fields only (no `custom_css`
 
 Homepage filters (`q`, `client`, `agency`, `year`) are query params, applied in Python after the list `select()`, and are kept on pagination and the archive toggle. Year **Unknown** is for old documents with no `created_at`. Optional **Client** and **Agency** on the editor (datalist of existing values) copy with the survey. `created_at` is set on create and copy. Optional **Campaign ID** / **Placement ID** are placeholders for a future cost join; they are not used in reporting yet.
 
-The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. **Presets** (Classic green, Dark, High contrast, Ocean) fill the pickers only. The live preview iframe resizes to the selected **creative size** (300×250 default, or 160×600). Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
+The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. **Presets** are a grouped dropdown (Classic / Loud solids / Complementary / Patterns); Classic green is the default. Patterns are CSS gradients only, with a solid panel behind question and answer text. The live preview iframe resizes to the previewed **creative size** and has a size switcher when more than one size is selected. Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
 
-**Creative size.** Stored as `creativesize`. Missing on old docs means 300×250. Zip names include the size (`…_survey_300x250.zip`). The creative `ad.size` meta, `#master_container` CSS, and `creative_size` posted to the receiver all use that size.
+**Creative sizes.** 300×250 (default for old docs), 160×600, 300×600, 336×280, 970×250. Not 728×90 / 320×50 / 320×100. Stored as `creativesizes` (list) plus `creativesize` (single string when there is one size, otherwise the list) so old docs still load. 970×250 lays answers out in a wrapping grid. Download is an **outer ZIP** of one HTML5 inner ZIP per size (and per Brand Lift segment: `default_control` / `default_expose`). Inner ZIPs contain only `index.html` (never a nested zip), `ad.size` for that size, filename ≤ 50 characters, well under 5 MB. clickTag/exit is unchanged.
 
-**Answers.** Each question supports 2–5 answers (a–e). Empty rows are skipped in the creative JSON, reporting, and CSV. Existing four-answer surveys are unchanged (no `e` field).
+**Answers.** 2–5 answers on 300×250 / 336×280 / 970×250; up to 8 (a–h) when **every** selected size is 160×600 or 300×600. Empty rows are skipped. Answer text wraps (always-injected layout CSS overrides old `.AText { height: 27px }` in stored `custom_css`). Reporting and the receiver treat `1:F` the same as `1:A` (Response is a string).
+
+**Ad badge.** Every creative and the preview has a bottom-left bevelled letter badge (first letter of `APP_BRAND_NAME`, overridable with `APP_BRAND_BADGE_LETTER`). Tooltip: `Survey Type {brand} Ad - powered by Google` (`APP_BRAND_BADGE_TOOLTIP` to override). It does not fire clickTag.
+
+**Brand.** `export APP_BRAND_NAME=Brandometer` (that is the default). Navbar, page titles, and the badge letter/tooltip use it.
 
 **Version history.** Each zip download writes an immutable snapshot to the Firestore subcollection `Surveys/{id}/versions/{n}` (questions, CSS, size, type, timestamp, version number). The edit page lists them with **Download this version**. Editing the live survey does not change past snapshots. No GCS. No new index.
 
@@ -179,7 +183,7 @@ If `/index` fails with `Not found: Table …responses.responses` (a dataset with
 ```shell
 bq mk --table \
   --schema receiver/responses.schema.json \
-  --description "Survey response rows for Sonar" \
+  --description "Survey response rows for Brandometer" \
   brandometer2:responses.responses
 ```
 
@@ -195,7 +199,7 @@ Do not pass `--location` on `bq mk --table`; the table inherits `us-central1` fr
 
 # Firestore Datastore mode
 
-If the app fails with `The Cloud Firestore API is not available for Firestore in Datastore Mode database projects/…/databases/(default)`, App Engine (or an older `./deploy`) created `(default)` in **Datastore mode**. Sonar needs **Firestore Native**.
+If the app fails with `The Cloud Firestore API is not available for Firestore in Datastore Mode database projects/…/databases/(default)`, App Engine (or an older `./deploy`) created `(default)` in **Datastore mode**. Brandometer needs **Firestore Native**.
 
 Check:
 
@@ -322,7 +326,7 @@ Existing 300×250 four-answer surveys should look the same until you change them
 
 **Video creative.** Do not build yet. DV360/CM video line items serve **VAST** (2/3/4), not an HTML5 zip. Typical brand-lift-on-video setup is a linear video plus an IAB **companion banner** (300×250) that is our existing survey. Recommended path: keep the HTML5 survey as the companion; generate a VAST XML that references a hosted video file and a public URL for the companion (that URL is the extra piece — App Engine or GCS). In-stream SIMID/VPAID overlays are a much larger project and VPAID is on the way out. Effort: companion-VAST generator is a later phase of its own (hosting + XML + CM/DV360 video placement docs); not a small add-on to this zip.
 
-**Asset templates (backlog ID 4 / old #8).** Implemented as **style presets** in the editor (Classic green, Dark, High contrast, Ocean). They only write picker values into `custom_css`. Full “asset packs” (logos, CM placement kits, multi-size zips as one template library) would be a separate piece of work and are not in this phase.
+**Asset templates (backlog ID 4 / old #8).** Implemented as the grouped **theme preset** dropdown (26 themes, Classic green first). They write picker values, accent, panel, and CSS-only patterns into `custom_css`. Full “asset packs” (logos, CM placement kits) would still be a separate piece of work.
 
 **Cost / impressions dashboard.** Not built. Two ingestion options:
 
@@ -342,3 +346,22 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, then from `creative/app`: `flask 
 2. **Copy.** Copy that survey. Editor should still have the same client/agency/IDs. `created_at` on the copy is now (old docs without a timestamp stay year **Unknown**).
 3. **Filters.** Homepage: filter by client, agency, year, and a name search. Combine with **Show archived**. Next/Previous should keep the query params. Clear returns to the unfiltered list (archive toggle unchanged).
 4. **Old surveys.** A document with no `created_at` appears under Year → Unknown and still lists if you do not filter by year.
+
+# Cloud Shell test (Phase 6)
+
+Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --port 8080 --debug`). Web Preview → port 8080.
+
+1. Navbar says **Brandometer** (or `APP_BRAND_NAME`). Create survey: check **300×250** and **970×250**. Preview switcher appears; 970×250 is wide with answers in a grid. Check only **160×600** and **Add answer** through H. Checking 300×250 as well should drop F–H on save (validation).
+2. Theme preset dropdown: Classic green first; groups Classic / Loud solids / Complementary / Patterns. Hazard stripes should show a striped background with readable answer panels.
+3. Download zip with two sizes: outer zip contains two inner zips; each inner has only `index.html`, `ad.size` matching that size, a **B** badge bottom-left. Hover/tap the badge for the tooltip. Inner filenames ≤ 50 chars.
+4. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips, one placement per size. Assign Brand Lift control/expose creatives to the matching audience ads. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
+
+# CM360 batch upload (Phase 6)
+
+1. Download the survey zip from the homepage.
+2. Unzip the **outer** archive on your machine. You should see one `.zip` per size (Brand Lift: two per size, `default_control` and `default_expose`).
+3. In Campaign Manager 360 → Creatives → **New** → **Display** → upload each **inner** zip as HTML5. The `ad.size` meta inside `index.html` must match the placement.
+4. Do not put a zip inside a zip when uploading; each inner file is already a legal HTML5 creative (`index.html` only).
+5. Brand Lift: assign `…_default_control.zip` to the Control ad and `…_default_expose.zip` to the Expose ad, same as before.
+
+Redeploy **App Engine** for Phase 6. Receiver redeploy is not required (`Response` already stores `1:H`). Optional env: `APP_BRAND_NAME`, `APP_BRAND_BADGE_LETTER`, `APP_BRAND_BADGE_TOOLTIP`.

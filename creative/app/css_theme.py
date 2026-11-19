@@ -33,63 +33,130 @@ FONT_CHOICES = [
 DEFAULT_THEME = {
     'bg': '#008000',
     'question_color': '#ffffff',
-    'answer_bg': 'rgba(255, 255, 255, 0.149)',
-    'answer_color': '#ffffff',
+    'answer_bg': '#ffc800',
+    'answer_color': '#1a1400',
     'font_family': "'Open Sans', sans-serif",
     'font_size': '13px',
     'bg_image': '',
+    'accent': '#ffc800',
+    'panel': 'rgba(0, 0, 0, 0.35)',
+    'bg_pattern': 'none',
 }
 
-# Editor style presets (backlog asset templates). Applied to pickers only.
-STYLE_PRESETS = [
+
+def _preset(preset_id, label, bg, accent, text, button_bg, button_text,
+            pattern='none', font_size='13'):
+  return {
+      'id': preset_id,
+      'label': label,
+      'bg': bg,
+      'accent': accent,
+      'question_color': text,
+      'answer_bg': button_bg,
+      'answer_bg_opacity': 100,
+      'answer_color': button_text,
+      'font_family': "'Open Sans', sans-serif",
+      'font_size': font_size,
+      'bg_image': '',
+      'panel': 'rgba(0, 0, 0, 0.42)',
+      'bg_pattern': pattern,
+      'swatch': [bg, accent, button_bg],
+  }
+
+
+_STRIPES_HAZARD = (
+    'repeating-linear-gradient(45deg,#000000 0 12px,#FFD000 12px 24px)')
+_STRIPES_NEON = (
+    'repeating-linear-gradient(45deg,rgba(17,255,0,0.18) 0 10px,transparent 10px 20px)')
+_CHECK_LIME = 'repeating-conic-gradient(#000000 0% 25%, #B8FF00 0% 50%)'
+_CHECK_MAGENTA = 'repeating-conic-gradient(#120012 0% 25%, #FF00AA 0% 50%)'
+_DOTS_WHITE = (
+    'radial-gradient(#FFFFFF 1.15px, transparent 1.4px)')
+_DOTS_YELLOW = (
+    'radial-gradient(#FFE600 1.15px, transparent 1.4px)')
+
+
+STYLE_PRESET_GROUPS = [
     {
         'id': 'classic',
-        'label': 'Classic green',
-        'bg': '#008000',
-        'question_color': '#ffffff',
-        'answer_bg': '#ffffff',
-        'answer_bg_opacity': 15,
-        'answer_color': '#ffffff',
-        'font_family': "'Open Sans', sans-serif",
-        'font_size': '13',
-        'bg_image': '',
+        'label': 'Classic',
+        'presets': [
+            _preset('classic', 'Classic green', '#008000', '#FFC800', '#FFFFFF',
+                    '#FFC800', '#1A1400'),
+            _preset('dark', 'Dark', '#1A1A1A', '#F5F5F5', '#F5F5F5',
+                    '#FFFFFF', '#1A1A1A'),
+            _preset('contrast', 'High contrast', '#000000', '#FFFF00', '#FFFF00',
+                    '#FFFFFF', '#000000', font_size='14'),
+            _preset('ocean', 'Ocean', '#0B3D91', '#E8F4FF', '#FFFFFF',
+                    '#FFFFFF', '#0B3D91'),
+        ],
     },
     {
-        'id': 'dark',
-        'label': 'Dark',
-        'bg': '#1a1a1a',
-        'question_color': '#f5f5f5',
-        'answer_bg': '#ffffff',
-        'answer_bg_opacity': 18,
-        'answer_color': '#f5f5f5',
-        'font_family': 'Arial, Helvetica, sans-serif',
-        'font_size': '13',
-        'bg_image': '',
+        'id': 'loud',
+        'label': 'Loud solids',
+        'presets': [
+            _preset('electric-lime', 'Electric lime', '#111111', '#11FF00',
+                    '#C6FF00', '#11FF00', '#111111'),
+            _preset('neon-magenta', 'Neon magenta', '#120012', '#FF00AA',
+                    '#FF7AD4', '#FF00AA', '#120012'),
+            _preset('hot-pink', 'Hot pink punch', '#1A0010', '#FF1493',
+                    '#FF1493', '#FF1493', '#1A0010'),
+            _preset('safety-orange', 'Safety orange', '#1A0A00', '#FF5A00',
+                    '#FF5A00', '#FF5A00', '#1A0A00'),
+            _preset('school-bus', 'School bus yellow', '#FFD000', '#1A1400',
+                    '#1A1400', '#1A1400', '#FFD000'),
+            _preset('cyber-yellow', 'Cyber yellow', '#000000', '#FFE600',
+                    '#FFE600', '#FFE600', '#000000'),
+            _preset('electric-cyan', 'Electric cyan', '#001018', '#00E5FF',
+                    '#00E5FF', '#00E5FF', '#001018'),
+            _preset('chartreuse', 'Chartreuse shock', '#B6FF00', '#111111',
+                    '#111111', '#111111', '#B6FF00'),
+            _preset('fire-engine', 'Fire-engine red', '#D00000', '#FFD000',
+                    '#FFFFFF', '#FFD000', '#111111'),
+        ],
     },
     {
-        'id': 'contrast',
-        'label': 'High contrast',
-        'bg': '#000000',
-        'question_color': '#ffff00',
-        'answer_bg': '#ffffff',
-        'answer_bg_opacity': 100,
-        'answer_color': '#000000',
-        'font_family': 'Verdana, Geneva, sans-serif',
-        'font_size': '14',
-        'bg_image': '',
+        'id': 'complementary',
+        'label': 'Complementary',
+        'presets': [
+            _preset('royal-blue', 'Royal blue shock', '#000C24', '#FFB000',
+                    '#66B3FF', '#FFB000', '#000C24'),
+            _preset('ultraviolet', 'Ultraviolet', '#0A0018', '#7A00FF',
+                    '#E0C2FF', '#7A00FF', '#FFFFFF'),
+            _preset('crimson', 'Crimson flare', '#140004', '#E0002A',
+                    '#FFFFFF', '#FFD000', '#140004'),
+            _preset('lime-magenta', 'Lime and magenta', '#051405', '#FF00E5',
+                    '#B8FF00', '#FF00E5', '#FFFFFF'),
+            _preset('navy-orange', 'Navy and orange', '#001A4D', '#FF6A00',
+                    '#FFFFFF', '#FF6A00', '#001A4D'),
+            _preset('blood-cyan', 'Blood red and cyan', '#3B0000', '#00FFF0',
+                    '#00FFF0', '#00FFF0', '#3B0000'),
+            _preset('purple-yellow', 'Purple and yellow', '#3B0066', '#FFE600',
+                    '#FFE600', '#FFE600', '#3B0066'),
+        ],
     },
     {
-        'id': 'ocean',
-        'label': 'Ocean',
-        'bg': '#0b3d91',
-        'question_color': '#ffffff',
-        'answer_bg': '#ffffff',
-        'answer_bg_opacity': 22,
-        'answer_color': '#e8f4ff',
-        'font_family': 'Tahoma, Geneva, sans-serif',
-        'font_size': '13',
-        'bg_image': '',
+        'id': 'patterns',
+        'label': 'Patterns',
+        'presets': [
+            _preset('hazard', 'Hazard stripes', '#000000', '#FFD000', '#FFD000',
+                    '#FFD000', '#000000', pattern=_STRIPES_HAZARD),
+            _preset('neon-stripes', 'Neon green stripes', '#0A0A0A', '#11FF00',
+                    '#C6FF00', '#11FF00', '#0A0A0A', pattern=_STRIPES_NEON),
+            _preset('lime-checkers', 'Lime checkers', '#000000', '#B8FF00',
+                    '#B8FF00', '#B8FF00', '#000000', pattern=_CHECK_LIME),
+            _preset('magenta-checkers', 'Magenta checkers', '#120012', '#FF00AA',
+                    '#FF7AD4', '#FF00AA', '#120012', pattern=_CHECK_MAGENTA),
+            _preset('white-dots', 'White dots on navy', '#001F4D', '#FFFFFF',
+                    '#FFFFFF', '#FFFFFF', '#001F4D', pattern=_DOTS_WHITE),
+            _preset('yellow-dots', 'Yellow dots on black', '#000000', '#FFE600',
+                    '#FFE600', '#FFE600', '#000000', pattern=_DOTS_YELLOW),
+        ],
     },
+]
+
+STYLE_PRESETS = [
+    preset for group in STYLE_PRESET_GROUPS for preset in group['presets']
 ]
 
 _NAMED_COLORS = {
@@ -140,11 +207,29 @@ def _css_image_value(url):
   return 'url("%s")' % safe.replace('"', '')
 
 
+def _pattern_value(value):
+  raw = (value or '').strip()
+  if not raw or raw.lower() == 'none':
+    return 'none'
+  if 'url(' in raw.lower() or 'javascript:' in raw.lower():
+    return 'none'
+  return raw
+
+
 def generate_theme_block(theme):
   """Return the SONAR_THEME block for picker values."""
   t = dict(DEFAULT_THEME)
   t.update(theme or {})
   image_value = _css_image_value(t.get('bg_image') or '')
+  pattern_value = _pattern_value(t.get('bg_pattern') or 'none')
+  if 'conic-gradient' in pattern_value:
+    pattern_size = '16px 16px'
+  elif 'radial-gradient' in pattern_value:
+    pattern_size = '10px 10px'
+  else:
+    pattern_size = 'auto'
+  panel = t.get('panel') or DEFAULT_THEME['panel']
+  accent = t.get('accent') or t.get('answer_bg') or DEFAULT_THEME['accent']
   return '\n'.join([
       THEME_START,
       ':root {',
@@ -155,17 +240,22 @@ def generate_theme_block(theme):
       '  --sonar-font-family: %s;' % t['font_family'],
       '  --sonar-font-size: %s;' % t['font_size'],
       '  --sonar-bg-image: %s;' % image_value,
+      '  --sonar-bg-pattern: %s;' % pattern_value,
+      '  --sonar-bg-pattern-size: %s;' % pattern_size,
+      '  --sonar-panel: %s;' % panel,
+      '  --sonar-accent: %s;' % accent,
       '}',
       '#master_container {',
       '  background-color: var(--sonar-bg);',
-      '  background-image: var(--sonar-bg-image);',
-      '  background-size: cover;',
-      '  background-position: center;',
+      '  background-image: var(--sonar-bg-image), var(--sonar-bg-pattern);',
+      '  background-size: cover, var(--sonar-bg-pattern-size);',
+      '  background-position: center, 0 0;',
       '}',
       '.Qbox {',
       '  color: var(--sonar-question-color);',
       '  font-family: var(--sonar-font-family);',
       '  font-size: var(--sonar-font-size);',
+      '  background-color: var(--sonar-panel);',
       '}',
       '.Abox {',
       '  background-color: var(--sonar-answer-bg);',
@@ -176,6 +266,9 @@ def generate_theme_block(theme):
       '}',
       '.AText {',
       '  font-size: var(--sonar-font-size);',
+      '}',
+      '#next_button {',
+      '  background-color: var(--sonar-accent);',
       '}',
       THEME_END,
   ])
@@ -215,6 +308,8 @@ def parse_theme_block(block):
       'answer-color': 'answer_color',
       'font-family': 'font_family',
       'font-size': 'font_size',
+      'panel': 'panel',
+      'accent': 'accent',
   }
   for css_name, key in mapping.items():
     value = _var(block, css_name)
@@ -223,6 +318,9 @@ def parse_theme_block(block):
   image = _var(block, 'bg-image')
   if image is not None:
     theme['bg_image'] = _image_url_from_css_value(image)
+  pattern = _var(block, 'bg-pattern')
+  if pattern is not None:
+    theme['bg_pattern'] = pattern
   return theme
 
 

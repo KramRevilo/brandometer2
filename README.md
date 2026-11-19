@@ -1,8 +1,8 @@
-# Sonar
+# Brandometer
 
 N.B. This is not an officially supported Google product.
 
-Sonar is a tool for marketers to measure brand impact through inexpensive, automated brand studies. It started as an independent copy of [Google Brandometer](https://github.com/google/brandometer) (Apache-2.0).
+Brandometer is a tool for marketers to measure brand impact through inexpensive, automated brand studies. It started as an independent copy of [Google Brandometer](https://github.com/google/brandometer) (Apache-2.0). The in-app name is `APP_BRAND_NAME` (default Brandometer).
 
 For developers, check out [DEVELOPERS.md](DEVELOPERS.md).
 
@@ -44,18 +44,18 @@ If the deploy fails with an error, wait 5 minutes and try again. Sometimes a new
 
 # Survey Creation
 
-1. Open the Sonar app and click on "Create survey"
+1. Open the Brandometer app and click on "Create survey"
 2. Input details (check below) then submit
 ![Survey creation input details](survey_creation_screenshot.png)
-3. In the home page, download the zip file which will have 2 HTML5 creatives “Control & Expose” for Brand Lift surveys and only one creative for Brand Track surveys (survey only, no lift). Zip names include the creative size (`300x250` default, or `160x600`). Each download is snapshotted on the edit page as a version you can re-download.
-4. Use both the creatives to run a Brand Lift survey or only one of the two creatives to run a Brand Track survey on Display only inventory through DV360. Match the CM/DV360 placement dimension to the size you selected.
+3. In the home page, download the zip file. The outer archive contains one HTML5 zip per selected size (300×250, 160×600, 300×600, 336×280, 970×250). Brand Lift adds Control and Expose zips per size. Unzip the outer file and upload each **inner** zip to CM360; do not upload the outer zip as a creative. Each download is snapshotted on the edit page as a version you can re-download.
+4. Use both the creatives to run a Brand Lift survey or only one of the two creatives to run a Brand Track survey on Display only inventory through DV360. Match the CM/DV360 placement dimension to each size you selected.
 
 # Campaign Manager setup
 
 1. Create a new campaign in DCM within the Advertiser (No other channel should be part of this)
-2. Create Sonar Audiences within the campaign with Control(wt:1) and Expose(wt:7) Segments (See Below)
+2. Create Brandometer Audiences within the campaign with Control(wt:1) and Expose(wt:7) Segments (See Below)
    a. Navigation: Campaign -> Property -> Audience segmentation
-3. Create a placement within the Campaign with the naming convention containing the dimensions. Use 300x250 or 160x600 to match the survey’s creative size.
+3. Create a placement within the Campaign with the naming convention containing the dimensions. Use 300×250, 160×600, 300×600, 336×280, or 970×250 to match each selected survey size.
 4. Upload all the survey creatives/default creatives
 5. Default Ad should be assigned to all placements (Use brand neutral creative[Its a creative that does not have any brand related comms/logos/names etc] for default ads
 6. Create a Control Survey Ad and assign it to 300x250 placement with following details
@@ -83,7 +83,7 @@ If the deploy fails with an error, wait 5 minutes and try again. Sometimes a new
 1. Backup images can be any jpg brand creatives for respective dimensions.
 2. No of placements: 1
 3. No of ads for 300x250: 5
-4. Each Sonar placement will have : Default, pre-survey(expose audience), Expose survey, control survey, Master ads.
+4. Each Brandometer placement will have : Default, pre-survey(expose audience), Expose survey, control survey, Master ads.
 
 *300x250 Dimension*
 | Ad type | Creative type | Audience | Frequency | Priority |

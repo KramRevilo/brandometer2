@@ -85,12 +85,33 @@ class QuestionFormTest(unittest.TestCase):
 
     def test_creativesize_defaults_to_300x250(self):
         form = self.create_form({})
-        self.assertEqual(form.creativesize.data, '300x250')
+        self.assertEqual(form.creativesize.data, ['300x250'])
         values = [
             c[0] if isinstance(c, (list, tuple)) else c
             for c in form.creativesize.choices
         ]
-        self.assertEqual(values, ['300x250', '160x600'])
+        self.assertEqual(
+            values, ['300x250', '160x600', '300x600', '336x280', '970x250'])
+
+    def test_creativesize_coerces_legacy_string(self):
+        form = self.create_form({'creativesize': '160x600'})
+        self.assertEqual(form.creativesize.data, ['160x600'])
+
+    def test_answers_beyond_e_rejected_on_standard_size(self):
+        data = self._valid_survey(answer1f='Too many')
+        ok, form = self._validate(data)
+        self.assertFalse(ok)
+        self.assertTrue(form.creativesize.errors)
+
+    def test_eight_answers_allowed_on_tall_sizes_only(self):
+        data = self._valid_survey(
+            creativesize=['160x600', '300x600'],
+            answer1c='C', answer1d='D', answer1e='E',
+            answer1f='F', answer1g='G', answer1h='H',
+            answer1cnext='end', answer1dnext='end', answer1enext='end',
+            answer1fnext='end', answer1gnext='end', answer1hnext='end')
+        ok, form = self._validate(data)
+        self.assertTrue(ok, form.errors)
 
     def _validate(self, data):
         app = Flask(__name__)

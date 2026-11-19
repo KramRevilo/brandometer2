@@ -67,8 +67,9 @@ class HtmlAndReportingTest(unittest.TestCase):
     self.assertIn('width=160,height=600', html)
     self.assertIn('"width": 160', html)
     self.assertIn('"height": 600', html)
-    self.assertIn('"max_options": 5', html)
+    self.assertIn('"max_options": 8', html)
     self.assertIn('option_container_4', html)
+    self.assertIn('option_container_7', html)
     self.assertIn('width: 160px;', html)
 
   def test_reporting_includes_answer_e(self):
@@ -218,4 +219,5 @@ class EditorAndPreviewRoutesTest(unittest.TestCase):
 
   def test_style_presets_are_defined(self):
     ids = [item['id'] for item in css_theme.STYLE_PRESETS]
-    self.assertEqual(ids, ['classic', 'dark', 'contrast', 'ocean'])
+    self.assertEqual(ids[:4], ['classic', 'dark', 'contrast', 'ocean'])
+    self.assertEqual(css_theme.STYLE_PRESETS[0]['label'], 'Classic green')

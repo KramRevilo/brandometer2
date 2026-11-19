@@ -19,6 +19,7 @@ input.
 import re
 from flask_wtf import FlaskForm
 from wtforms import SelectField
+from wtforms import SelectMultipleField
 from wtforms import StringField
 from wtforms import SubmitField
 from wtforms import TextAreaField
@@ -33,11 +34,11 @@ ANSWERS_ORDERED = 'ORDERED'
 ANSWERS_SHUFFLED = 'SHUFFLED'
 RESPONSES_AT_END = "Submit Responses at End of Survey"
 RESPONSES_IMMEDIATELY = "Submit Responses after each Question"
-ANSWER_LETTERS = ('a', 'b', 'c', 'd', 'e')
+ANSWER_LETTERS = ('a', 'b', 'c', 'd', 'e', 'f', 'g', 'h')
 MIN_ANSWERS = 2
-MAX_ANSWERS = 5
+MAX_ANSWERS = 8
 NEXT_END = 'end'
-_NEXT_FIELD_NAME = re.compile(r'^answer([1-5])([a-e])next$')
+_NEXT_FIELD_NAME = re.compile(r'^answer([1-5])([a-h])next$')
 
 # this is the default stylesheet for the custom creative
 DEFAULT_CSS = """
@@ -111,6 +112,8 @@ body {
     box-shadow: rgba(0, 0, 0, 0.8) 0px 0px 3px 0px;
     position: relative;
     margin: 4px 0;
+    width: 100%;
+    box-sizing: border-box;
 }
 
 /* The .Abox[selected="true"] class allows for the formmating of
@@ -135,13 +138,16 @@ body {
 */
 .AText {
     font-family: 'Open Sans', sans-serif;
-    font-size: 13px;
+    font-size: 12px;
     color: white;
     text-shadow: rgba(0, 0, 0, 0.8) 1px 1px 1px;
-    padding-left: 5px;
-    font-size: 12px;
-    height: 27px;
-    line-height: 27px;
+    padding: 4px 6px 4px 5px;
+    min-height: 27px;
+    height: auto;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    white-space: normal;
 }
 
 /* The #bottom_container class is used to format the blank space
@@ -224,6 +230,16 @@ Use position: absolute; with 5 answers that has multiple options
     font-size: 5px;
 }
 """
+
+class CreativeSizeField(SelectMultipleField):
+  """Accept a legacy string, a list, or checkbox form data."""
+
+  def process_data(self, value):
+    self.data = creative_size.selected_keys(value)
+
+  def process_formdata(self, valuelist):
+    self.data = creative_size.selected_keys(valuelist or [])
+
 
 # LANGUAGE_CHOICES = "'en', 'ms', 'zh', 'ja', 'ko'"
 
@@ -367,10 +383,10 @@ class QuestionForm(FlaskForm):
   # adding portion of form to customize creative
   custom_css = TextAreaField('custom_css', default=DEFAULT_CSS)
 
-  creativesize = SelectField(
+  creativesize = CreativeSizeField(
       'creativeSize',
       choices=creative_size.SIZE_CHOICES,
-      default=creative_size.DEFAULT_SIZE)
+      default=[creative_size.DEFAULT_SIZE])
 
   question1 = StringField('question1', validators=[DataRequired()])
   answer1a = StringField('answer1a', validators=[DataRequired()])
@@ -378,6 +394,9 @@ class QuestionForm(FlaskForm):
   answer1c = StringField('answer1c')
   answer1d = StringField('answer1d')
   answer1e = StringField('answer1e')
+  answer1f = StringField('answer1f')
+  answer1g = StringField('answer1g')
+  answer1h = StringField('answer1h')
   answer1anext = StringField(
       'answer1aNext', default=NEXT_END,
       validators=[DataRequired(), validate_next_target])
@@ -390,6 +409,12 @@ class QuestionForm(FlaskForm):
       'answer1dNext', default=NEXT_END, validators=[validate_next_target])
   answer1enext = StringField(
       'answer1eNext', default=NEXT_END, validators=[validate_next_target])
+  answer1fnext = StringField(
+      'answer1fNext', default=NEXT_END, validators=[validate_next_target])
+  answer1gnext = StringField(
+      'answer1gNext', default=NEXT_END, validators=[validate_next_target])
+  answer1hnext = StringField(
+      'answer1hNext', default=NEXT_END, validators=[validate_next_target])
   answer2anext = StringField(
       'answer2aNext', default=NEXT_END, validators=[validate_next_target])
   answer2bnext = StringField(
@@ -400,6 +425,12 @@ class QuestionForm(FlaskForm):
       'answer2dNext', default=NEXT_END, validators=[validate_next_target])
   answer2enext = StringField(
       'answer2eNext', default=NEXT_END, validators=[validate_next_target])
+  answer2fnext = StringField(
+      'answer2fNext', default=NEXT_END, validators=[validate_next_target])
+  answer2gnext = StringField(
+      'answer2gNext', default=NEXT_END, validators=[validate_next_target])
+  answer2hnext = StringField(
+      'answer2hNext', default=NEXT_END, validators=[validate_next_target])
   answer3anext = StringField(
       'answer3aNext', default=NEXT_END, validators=[validate_next_target])
   answer3bnext = StringField(
@@ -410,6 +441,12 @@ class QuestionForm(FlaskForm):
       'answer3dNext', default=NEXT_END, validators=[validate_next_target])
   answer3enext = StringField(
       'answer3eNext', default=NEXT_END, validators=[validate_next_target])
+  answer3fnext = StringField(
+      'answer3fNext', default=NEXT_END, validators=[validate_next_target])
+  answer3gnext = StringField(
+      'answer3gNext', default=NEXT_END, validators=[validate_next_target])
+  answer3hnext = StringField(
+      'answer3hNext', default=NEXT_END, validators=[validate_next_target])
   answer4anext = StringField(
       'answer4aNext', default=NEXT_END, validators=[validate_next_target])
   answer4bnext = StringField(
@@ -420,6 +457,12 @@ class QuestionForm(FlaskForm):
       'answer4dNext', default=NEXT_END, validators=[validate_next_target])
   answer4enext = StringField(
       'answer4eNext', default=NEXT_END, validators=[validate_next_target])
+  answer4fnext = StringField(
+      'answer4fNext', default=NEXT_END, validators=[validate_next_target])
+  answer4gnext = StringField(
+      'answer4gNext', default=NEXT_END, validators=[validate_next_target])
+  answer4hnext = StringField(
+      'answer4hNext', default=NEXT_END, validators=[validate_next_target])
   answer5anext = StringField(
       'answer5aNext', default=NEXT_END, validators=[validate_next_target])
   answer5bnext = StringField(
@@ -430,31 +473,66 @@ class QuestionForm(FlaskForm):
       'answer5dNext', default=NEXT_END, validators=[validate_next_target])
   answer5enext = StringField(
       'answer5eNext', default=NEXT_END, validators=[validate_next_target])
+  answer5fnext = StringField(
+      'answer5fNext', default=NEXT_END, validators=[validate_next_target])
+  answer5gnext = StringField(
+      'answer5gNext', default=NEXT_END, validators=[validate_next_target])
+  answer5hnext = StringField(
+      'answer5hNext', default=NEXT_END, validators=[validate_next_target])
   question2 = StringField('question2')
   answer2a = StringField('answer2a')
   answer2b = StringField('answer2b')
   answer2c = StringField('answer2c')
   answer2d = StringField('answer2d')
   answer2e = StringField('answer2e')
+  answer2f = StringField('answer2f')
+  answer2g = StringField('answer2g')
+  answer2h = StringField('answer2h')
   question3 = StringField('question3')
   answer3a = StringField('answer3a')
   answer3b = StringField('answer3b')
   answer3c = StringField('answer3c')
   answer3d = StringField('answer3d')
   answer3e = StringField('answer3e')
+  answer3f = StringField('answer3f')
+  answer3g = StringField('answer3g')
+  answer3h = StringField('answer3h')
   question4 = StringField('question4')
   answer4a = StringField('answer4a')
   answer4b = StringField('answer4b')
   answer4c = StringField('answer4c')
   answer4d = StringField('answer4d')
   answer4e = StringField('answer4e')
+  answer4f = StringField('answer4f')
+  answer4g = StringField('answer4g')
+  answer4h = StringField('answer4h')
   question5 = StringField('question5')
   answer5a = StringField('answer5a')
   answer5b = StringField('answer5b')
   answer5c = StringField('answer5c')
   answer5d = StringField('answer5d')
   answer5e = StringField('answer5e')
+  answer5f = StringField('answer5f')
+  answer5g = StringField('answer5g')
+  answer5h = StringField('answer5h')
   submit = SubmitField('Submit')
+
+  def validate_creativesize(form, field):
+    keys = creative_size.selected_keys(field.data)
+    if not keys:
+      raise ValidationError('Choose at least one creative size.')
+    field.data = keys
+    limit = creative_size.max_answers(keys)
+    extra = []
+    for question_index in range(1, 6):
+      for letter in ANSWER_LETTERS[limit:]:
+        text = form.data.get('answer' + str(question_index) + letter) or ''
+        if str(text).strip():
+          extra.append('Q%s %s' % (question_index, letter.upper()))
+    if extra:
+      raise ValidationError(
+          'Answers F–H are only allowed when every selected size is 160×600 or '
+          '300×600. Remove extra answers or deselect the smaller sizes.')
 
   def validate_question1(form, field):
     validate_next_question(form, field)

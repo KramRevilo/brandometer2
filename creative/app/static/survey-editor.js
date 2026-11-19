@@ -68,6 +68,12 @@
   function generateThemeBlock(theme) {
     var image = sanitizeUrl(theme.bgImage);
     var imageValue = image ? 'url("' + image.replace(/"/g, '') + '")' : 'none';
+    var pattern = theme.bgPattern && theme.bgPattern !== 'none' ? theme.bgPattern : 'none';
+    var patternSize = 'auto';
+    if (pattern.indexOf('conic-gradient') !== -1) patternSize = '16px 16px';
+    else if (pattern.indexOf('radial-gradient') !== -1) patternSize = '10px 10px';
+    var panel = theme.panel || 'rgba(0, 0, 0, 0.35)';
+    var accent = theme.accent || theme.answerBg || '#ffc800';
     return [
       THEME_START,
       ':root {',
@@ -78,17 +84,22 @@
       '  --sonar-font-family: ' + theme.fontFamily + ';',
       '  --sonar-font-size: ' + theme.fontSize + ';',
       '  --sonar-bg-image: ' + imageValue + ';',
+      '  --sonar-bg-pattern: ' + pattern + ';',
+      '  --sonar-bg-pattern-size: ' + patternSize + ';',
+      '  --sonar-panel: ' + panel + ';',
+      '  --sonar-accent: ' + accent + ';',
       '}',
       '#master_container {',
       '  background-color: var(--sonar-bg);',
-      '  background-image: var(--sonar-bg-image);',
-      '  background-size: cover;',
-      '  background-position: center;',
+      '  background-image: var(--sonar-bg-image), var(--sonar-bg-pattern);',
+      '  background-size: cover, var(--sonar-bg-pattern-size);',
+      '  background-position: center, 0 0;',
       '}',
       '.Qbox {',
       '  color: var(--sonar-question-color);',
       '  font-family: var(--sonar-font-family);',
       '  font-size: var(--sonar-font-size);',
+      '  background-color: var(--sonar-panel);',
       '}',
       '.Abox {',
       '  background-color: var(--sonar-answer-bg);',
@@ -99,6 +110,9 @@
       '}',
       '.AText {',
       '  font-size: var(--sonar-font-size);',
+      '}',
+      '#next_button {',
+      '  background-color: var(--sonar-accent);',
       '}',
       THEME_END
     ].join('\n');
@@ -117,14 +131,16 @@
     var qParsed = namedOrHex(theme.question_color) || { hex: '#ffffff', opacity: 1 };
     var aParsed = namedOrHex(theme.answer_color) || { hex: '#ffffff', opacity: 1 };
     var fontSize = String(theme.font_size || '13px').replace(/px$/i, '');
-    var letters = ['a', 'b', 'c', 'd', 'e'];
+    var letters = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
+    var tallKeys = { '160x600': true, '300x600': true };
 
-    function filledAnswerCount(q) {
+    function filledAnswerCount(q, maxN) {
       var count = 2;
+      var cap = maxN || 8;
       for (var i = 0; i < letters.length; i++) {
         if (fieldValue('answer' + q + letters[i])) count = i + 1;
       }
-      return Math.max(2, Math.min(5, count));
+      return Math.max(2, Math.min(cap, count));
     }
 
     return {
@@ -138,6 +154,10 @@
       bgImage: theme.bg_image || '',
       extraCss: boot.extra || '',
       previewSrcdoc: '',
+      previewSize: '',
+      bgPattern: theme.bg_pattern || 'none',
+      panel: theme.panel || 'rgba(0, 0, 0, 0.35)',
+      accent: theme.accent || '#ffc800',
       formEpoch: 0,
       editorReady: false,
       prevFilled: {},
@@ -152,16 +172,54 @@
 
       init: function () {
         this.prevFilled = this.filledQuestionMap();
+        var keys = this.selectedSizeKeys();
+        this.previewSize = keys[0] || '300x250';
+        this.trimAnswersToMax();
         this.syncCss();
         this.editorReady = true;
       },
 
+      selectedSizeKeys: function () {
+        void this.formEpoch;
+        var boxes = document.querySelectorAll('input[name="creativesize"]:checked');
+        var keys = [];
+        for (var i = 0; i < boxes.length; i++) {
+          if (boxes[i].value && keys.indexOf(boxes[i].value) === -1) keys.push(boxes[i].value);
+        }
+        return keys.length ? keys : ['300x250'];
+      },
+
+      maxAnswers: function () {
+        var keys = this.selectedSizeKeys();
+        for (var i = 0; i < keys.length; i++) {
+          if (!tallKeys[keys[i]]) return 5;
+        }
+        return 8;
+      },
+
+      onSizesChange: function () {
+        var keys = this.selectedSizeKeys();
+        if (keys.indexOf(this.previewSize) === -1) this.previewSize = keys[0];
+        this.trimAnswersToMax();
+        this.syncCss();
+      },
+
+      trimAnswersToMax: function () {
+        var maxN = this.maxAnswers();
+        for (var q = 1; q <= 5; q++) {
+          while ((this.answerCounts[q] || 2) > maxN) this.removeAnswer(q);
+        }
+      },
+
       currentSize: function () {
-        var raw = fieldValue('creativesize') || '300x250';
-        var parts = String(raw).toLowerCase().split('x');
+        var keys = this.selectedSizeKeys();
+        var key = this.previewSize && keys.indexOf(this.previewSize) !== -1
+          ? this.previewSize : (keys[0] || '300x250');
+        var parts = String(key).toLowerCase().split('x');
         var width = parseInt(parts[0], 10) || 300;
         var height = parseInt(parts[1], 10) || 250;
-        return { width: width, height: height, key: width + 'x' + height };
+        var layout = (key === '970x250') ? 'wide' : ((key === '160x600' || key === '300x600') ? 'tall' : 'stack');
+        return { width: width, height: height, key: key, layout: layout };
       },
 
       sizeLabel: function () {
@@ -281,7 +339,7 @@
 
       addAnswer: function (question) {
         var current = this.answerCounts[question] || 2;
-        if (current >= 5) return;
+        if (current >= this.maxAnswers()) return;
         this.answerCounts[question] = current + 1;
         this.syncCss();
       },
@@ -299,6 +357,7 @@
       },
 
       applyPreset: function (id) {
+        if (!id) return;
         var presets = boot.presets || [];
         var preset = null;
         for (var i = 0; i < presets.length; i++) {
@@ -311,12 +370,20 @@
         this.bg = preset.bg;
         this.questionColor = preset.question_color;
         this.answerBg = preset.answer_bg;
-        this.answerBgOpacity = preset.answer_bg_opacity;
+        this.answerBgOpacity = preset.answer_bg_opacity == null ? 100 : preset.answer_bg_opacity;
         this.answerColor = preset.answer_color;
         this.fontFamily = preset.font_family;
         this.fontSize = preset.font_size;
         this.bgImage = preset.bg_image || '';
+        this.bgPattern = preset.bg_pattern || 'none';
+        this.panel = preset.panel || 'rgba(0, 0, 0, 0.42)';
+        this.accent = preset.accent || preset.answer_bg;
         this.syncCss();
+      },
+
+      presetSwatchStyle: function () {
+        return 'background: linear-gradient(135deg, ' + this.bg + ' 50%, ' +
+          (this.accent || this.answerBg) + ' 50%);';
       },
 
       composedTheme: function () {
@@ -327,7 +394,10 @@
           answerColor: this.answerColor,
           fontFamily: this.fontFamily,
           fontSize: String(this.fontSize || '13') + 'px',
-          bgImage: this.bgImage
+          bgImage: this.bgImage,
+          bgPattern: this.bgPattern || 'none',
+          panel: this.panel || 'rgba(0, 0, 0, 0.35)',
+          accent: this.accent || this.answerBg
         };
       },
 
@@ -366,21 +436,35 @@
         var size = this.currentSize();
         var w = size.width;
         var h = size.height;
+        var overlay = (boot.sizeOverlayCss && boot.sizeOverlayCss[size.key]) || '';
+        var layoutFix = boot.layoutFixCss || '';
+        var brand = boot.brand || {};
+        var letter = brand.letter || 'B';
+        var tip = brand.tooltip || 'Survey Type Brandometer Ad - powered by Google';
         var chromeCss = 'html,body{margin:0!important;padding:0!important;overflow:hidden!important;' +
           'width:' + w + 'px;height:' + h + 'px;box-sizing:border-box;}' +
           '*,*::before,*::after{box-sizing:border-box;}' +
           '#master_container{box-sizing:border-box;width:' + w + 'px!important;height:' + h + 'px!important;' +
           'overflow:hidden;margin:0;max-width:' + w + 'px;max-height:' + h + 'px;}';
+        var badge = '<button type="button" class="brand-badge" title="' + escapeHtml(tip) + '">' +
+          '<svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">' +
+          '<rect x="1" y="1" width="18" height="18" rx="3.5" fill="#ddd" stroke="#111" stroke-width="1.2"/>' +
+          '<text x="10" y="14.5" text-anchor="middle" font-size="12" font-family="Georgia,serif" font-weight="700" fill="#111">' +
+          escapeHtml(letter) + '</text></svg>' +
+          '<span class="brand-badge-tip">' + escapeHtml(tip) + '</span></button>';
         return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
           '<style>' + safeCss + '</style>' +
+          '<style>' + overlay + '</style>' +
+          '<style>' + layoutFix + '</style>' +
           '<style>' + chromeCss + '</style></head><body>' +
-          '<div id="master_container"><div id="ad_background"><div id="ad_text">Advertisement</div></div>' +
+          '<div id="master_container" class="size-' + size.key + ' layout-' + size.layout + '">' +
+          '<div id="ad_background"><div id="ad_text">Advertisement</div></div>' +
           '<div id="survey_container"><div id="question_container" class="Qbox">' +
           '<span id="question_text">' + escapeHtml(q) + '</span></div>' +
-          options + '</div>' +
+          '<div class="answers-grid">' + options + '</div></div>' +
           '<div id="thankyou_container" class="invisible"><div id="thankyou_text"></div></div>' +
           '<div id="bottom_container"><span id="question_comment"></span>' +
-          '<span id="next_button">Next</span></div></div></body></html>';
+          '<span id="next_button">Next</span></div>' + badge + '</div></body></html>';
       }
     };
   };
