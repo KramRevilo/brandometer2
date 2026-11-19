@@ -11,10 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""HTTP receiver: validate survey pixels and stream one BigQuery row."""
+"""HTTP receiver: validate signed survey pixels and stream one BigQuery row."""
 
 import datetime
 import hashlib
+import hmac
 import logging
 import os
 import re
@@ -37,21 +38,29 @@ _SURVEY_CACHE_SECONDS = 30
 _survey_cache = {}
 _survey_lock = threading.Lock()
 
+# Per hashed-IP + survey, per instance. Deploy caps instances at 20.
+RATE_LIMIT_PER_MINUTE = 30
+RATE_LIMIT_MAX_KEYS = 20000
+_rate_hits = {}
+_rate_lock = threading.Lock()
+
 _ID_RE = re.compile(r'^[A-Za-z0-9_-]{1,128}$')
 _SEG_RE = re.compile(r'^[A-Za-z0-9_.-]{0,64}$')
 _TYPE_RE = re.compile(r'^[A-Za-z0-9_]{1,32}$')
 _SIZE_RE = re.compile(r'^[0-9]{2,4}x[0-9]{2,4}$')
 _TEXT_RE = re.compile(r'^[0-9A-Za-z:|,._\-]{0,2048}$')
 _BOM_RE = re.compile(r'^[A-Za-z0-9._-]{0,128}$')
+_TOKEN_RE = re.compile(r'^[A-Fa-f0-9]{64}$')
 
 
 def _reset_for_tests():
-  global _bq_client, _fs_client, _table, _table_checked, _survey_cache
+  global _bq_client, _fs_client, _table, _table_checked, _survey_cache, _rate_hits
   _bq_client = None
   _fs_client = None
   _table = None
   _table_checked = False
   _survey_cache = {}
+  _rate_hits = {}
 
 
 def _bq():
@@ -124,6 +133,68 @@ def _match(pattern, value, default=''):
   return None
 
 
+def _as_bytes(value):
+  if isinstance(value, bytes):
+    return value
+  return str(value).encode('utf-8')
+
+
+def survey_token(survey_id, secret):
+  if not secret or not survey_id:
+    return ''
+  return hmac.new(
+      _as_bytes(secret), _as_bytes(survey_id), hashlib.sha256).hexdigest()
+
+
+def token_is_valid(survey_id, token, secret):
+  expected = survey_token(survey_id, secret)
+  got = token if isinstance(token, str) else ''
+  if not expected or not got:
+    return False
+  return hmac.compare_digest(got, expected)
+
+
+def utc_day_key(secret, when=None):
+  when = when or datetime.datetime.now(datetime.timezone.utc)
+  day = when.astimezone(datetime.timezone.utc).strftime('%Y-%m-%d')
+  return hmac.new(_as_bytes(secret), day.encode('utf-8'), hashlib.sha256).digest()
+
+
+def hash_ip(ip_address, secret, when=None):
+  ip = '' if ip_address is None else str(ip_address)
+  if not secret:
+    return ''
+  day_key = utc_day_key(secret, when=when)
+  return hmac.new(day_key, ip.encode('utf-8'), hashlib.sha256).hexdigest()
+
+
+def receiver_hmac_secret():
+  return (os.environ.get('RECEIVER_HMAC_SECRET') or '').strip()
+
+
+def ip_hmac_secret():
+  return (os.environ.get('IP_HMAC_SECRET') or '').strip()
+
+
+def allow_request(rate_key, now=None, limit=None):
+  """Sliding 60s window per key, in-memory on this instance."""
+  limit = RATE_LIMIT_PER_MINUTE if limit is None else limit
+  now = time.monotonic() if now is None else now
+  with _rate_lock:
+    if len(_rate_hits) > RATE_LIMIT_MAX_KEYS:
+      stale = [key for key, hits in _rate_hits.items()
+               if not hits or now - hits[-1] >= 60]
+      for key in stale:
+        _rate_hits.pop(key, None)
+    hits = [stamp for stamp in _rate_hits.get(rate_key, []) if now - stamp < 60]
+    if len(hits) >= limit:
+      _rate_hits[rate_key] = hits
+      return False
+    hits.append(now)
+    _rate_hits[rate_key] = hits
+    return True
+
+
 def validate_params(params):
   """Return (row_fields, error_message). error_message set on 400."""
   survey_id = _match(_ID_RE, params.get('id'))
@@ -147,6 +218,9 @@ def validate_params(params):
   bomid = _match(_BOM_RE, params.get('bomid'), '')
   if bomid is None:
     return None, 'invalid bomid'
+  token = params.get('token') or ''
+  if token and _match(_TOKEN_RE, token) is None:
+    return None, 'invalid token'
   if not response:
     return None, 'missing response'
   return {
@@ -157,6 +231,7 @@ def validate_params(params):
       'Visual': visual,
       'CreativeSize': size,
       'BomID': bomid,
+      'token': token,
   }, None
 
 
@@ -176,6 +251,25 @@ def receiver(request):
   if error:
     _log.info('event=receiver_reject status=400 reason=%s', error)
     return _pixel_response(400, reason=error)
+
+  secret = receiver_hmac_secret()
+  if not secret:
+    _log.error('event=receiver_hmac_secret_missing')
+    return _pixel_response(500, reason='hmac_secret_missing')
+  if not token_is_valid(fields['ID'], fields.get('token'), secret):
+    _log.info('event=receiver_reject status=403 reason=bad_token survey_id=%s',
+              fields['ID'])
+    return _pixel_response(403, reason='invalid_token')
+
+  ip_secret = ip_hmac_secret()
+  if not ip_secret:
+    _log.error('event=receiver_ip_secret_missing')
+    return _pixel_response(500, reason='ip_secret_missing')
+  ip_hash = hash_ip(getattr(request, 'remote_addr', None), ip_secret)
+  rate_key = '%s:%s' % (ip_hash, fields['ID'])
+  if not allow_request(rate_key):
+    _log.info('event=receiver_reject status=429 survey_id=%s', fields['ID'])
+    return _pixel_response(429, reason='rate_limited')
 
   survey_id = fields['ID']
   try:
@@ -204,8 +298,7 @@ def receiver(request):
       'Response': fields['Response'],
       'Visual': fields['Visual'],
       'CreativeSize': fields['CreativeSize'],
-      'RandomTimeStamp': hashlib.sha256(
-          f'{request.remote_addr}'.encode('utf-8')).hexdigest(),
+      'RandomTimeStamp': ip_hash,
       'BomID': fields['BomID'],
   }
   try:
