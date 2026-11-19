@@ -84,6 +84,15 @@ class CssThemeTest(unittest.TestCase):
     self.assertEqual(css_theme.normalize_color('#08F'), '#0088ff')
     self.assertEqual(css_theme.normalize_color('rgb(0, 128, 0)'), '#008000')
 
+  def test_sanitize_user_css_strips_style_breakout_and_import(self):
+    dirty = '</style><script>alert(1)</script> @import url("x"); url(javascript:alert(1)); .A { color: red; }'
+    clean = css_theme.sanitize_user_css(dirty)
+    self.assertNotIn('</style', clean.lower())
+    self.assertNotIn('<', clean)
+    self.assertNotIn('@import', clean.lower())
+    self.assertNotIn('javascript:', clean.lower())
+    self.assertIn('.A { color: red; }', clean)
+
   def test_live_preview_script_fits_creative_in_iframe(self):
     with open('static/survey-editor.js', encoding='utf-8') as handle:
       source = handle.read()

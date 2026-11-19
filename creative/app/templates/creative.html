@@ -350,7 +350,7 @@
                     // show comment section if multiple options
                     document
                         .getElementById(this.uiConfig.component_selectors.comment.container)
-                        .innerHTML = (this.isCurrentQuestionSingleOption()) ?
+                        .textContent = (this.isCurrentQuestionSingleOption()) ?
                         '' :
                         this.uiConfig.component_selectors.comment.text;
                     return true;
@@ -367,7 +367,7 @@
                     document
                         .getElementById(
                             this.uiConfig.component_selectors.survey.question.text)
-                        .innerHTML = question.text;
+                        .textContent = question.text;
                 },
 
                 renderOptions: function(questionOptions) {
@@ -401,7 +401,7 @@
                             //    String.fromCharCode(65 + optIndex);
 
                             // Set option text
-                            document.getElementById(optionsUIConfig.text + optIndex).innerHTML =
+                            document.getElementById(optionsUIConfig.text + optIndex).textContent =
                                 questionOptions[optIndex].text;
                         } else {
                             // hide unused option-divs
@@ -478,7 +478,7 @@
                         .setAttribute('class', 'thankyoucontainer');
 
                     document.getElementById(this.uiConfig.component_selectors.thankyou.container)
-                        .innerHTML = this.uiConfig.component_selectors.thankyou.text;
+                        .textContent = this.uiConfig.component_selectors.thankyou.text;
 
 
                     // console.log(this.surveyConfig.thankyou_text);
@@ -688,7 +688,7 @@
 
     </script>
     <style id='creative_stylesheet'>
-        {{ custom_css|safe }}
+        {{ custom_css }}
     </style>
 </head>
 
@@ -725,7 +725,7 @@
                 aria-label="{{ badge_tooltip|default('Survey Type Brandometer Ad - powered by Google') }}"
                 onclick="event.preventDefault(); event.stopPropagation(); this.classList.toggle('is-open'); return false;">
             {% if badge_svg %}
-            {{ badge_svg|safe }}
+            {{ badge_svg }}
             {% elif (badge_kind|default('letter')) == 'letter' %}
             <svg viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
                 <defs>

@@ -145,6 +145,26 @@ class ZipAndHtmlTest(unittest.TestCase):
     ids = [opt['id'] for opt in json[0]['options']]
     self.assertEqual(ids, ['A', 'H'])
 
+  def test_html_uses_textcontent_and_sanitizes_custom_css(self):
+    with main.app.app_context():
+      html = survey_service.get_html_template('sid', {
+          'surveyname': 'Xss',
+          'question1': '<img src=x onerror=alert(1)>',
+          'answer1a': '<script>alert(1)</script>',
+          'answer1b': 'Ok',
+          'custom_css': '</style><script>alert(1)</script> @import url("x"); .ok { color: red; }',
+      }, '')
+    self.assertIn('.textContent = question.text', html)
+    self.assertIn('optionsUIConfig.text + optIndex).textContent', html)
+    self.assertIn(
+        '.textContent = this.uiConfig.component_selectors.thankyou.text', html)
+    self.assertNotIn('</style><script>', html)
+    self.assertNotIn('<script>alert(1)</script>', html)
+    self.assertNotIn('@import', html)
+    self.assertIn('.ok { color: red; }', html)
+    self.assertNotIn('<img src=x onerror=alert(1)>', html)
+    self.assertTrue('\\u003c' in html or '&lt;img' in html)
+
 
 class PresetAndBrandTest(unittest.TestCase):
 

@@ -190,6 +190,20 @@ def strip_theme_block(css):
   return _THEME_BLOCK_RE.sub('', css).strip()
 
 
+def sanitize_user_css(css):
+  """Strip HTML/CSS constructs that can break out of a <style> tag.
+
+  Removes ``</style``, ``<``, ``@import``, and ``url(javascript:``. Remaining
+  CSS is safe to emit in a style element without Jinja |safe on raw input.
+  """
+  text = '' if css is None else str(css)
+  text = re.sub(r'</style', '', text, flags=re.IGNORECASE)
+  text = text.replace('<', '')
+  text = re.sub(r'@import', '', text, flags=re.IGNORECASE)
+  text = re.sub(r'url\s*\(\s*javascript\s*:', '', text, flags=re.IGNORECASE)
+  return text
+
+
 def _sanitize_url(url):
   if not url:
     return ''
