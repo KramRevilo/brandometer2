@@ -74,6 +74,7 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 gcloud bigquery datasets add-iam-policy-binding "$PROJECT_ID:responses" \
   --member="serviceAccount:brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/bigquery.dataEditor"
+# HMAC secrets: create once (./deploy does this). Then:
 gcloud functions deploy receiver \
   --gen2 \
   --trigger-http \
@@ -86,7 +87,8 @@ gcloud functions deploy receiver \
   --max-instances=20 \
   --timeout=60s \
   --memory=256MB \
-  --set-env-vars TABLE_ID="$PROJECT_ID.responses.responses"
+  --set-env-vars TABLE_ID="$PROJECT_ID.responses.responses" \
+  --set-secrets RECEIVER_HMAC_SECRET=brandometer-receiver-hmac:latest,IP_HMAC_SECRET=brandometer-ip-hmac:latest
 ```
 
 **App Engine service account IAM.** `./deploy` grants the default App Engine SA (`$PROJECT_ID@appspot.gserviceaccount.com`) least privilege and **removes** `roles/editor` if it was bound:
@@ -99,7 +101,14 @@ gcloud functions deploy receiver \
 
 The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), dataset `roles/bigquery.dataEditor`, and `roles/logging.logWriter`. It does **not** create BigQuery tables at runtime.
 
-**Secrets.** `./deploy` creates or updates Secret Manager secrets `brandometer-auth-username`, `brandometer-auth-password`, and `brandometer-secret-key`, and `app.yaml.template` injects them as `AUTH_USERNAME` / `AUTH_PASSWORD` / `SECRET_KEY`. The password is never echoed. Local runs still use env vars. If you already deployed with those values in a generated yaml, re-run `./deploy` once so they live in Secret Manager (the generated yaml is gitignored and is no longer the source of truth).
+**Secrets.** Shared Basic Auth is retired in production. `./deploy` stores:
+
+* `brandometer-oauth-client-id` / `brandometer-oauth-client-secret` — Google OAuth Web client (prompted each deploy; secret is never echoed)
+* `brandometer-secret-key` — Flask session signing (created once; not rotated on redeploy)
+* `brandometer-receiver-hmac` — per-survey creative token HMAC (created once; rotating it invalidates live zips)
+* `brandometer-ip-hmac` — daily IP-hash master (created once)
+
+`app.yaml.template` injects OAuth id/secret, `SECRET_KEY`, `RECEIVER_HMAC_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL`. The receiver gets `RECEIVER_HMAC_SECRET` and `IP_HMAC_SECRET` via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
 
 The App Engine service is only required for hosting, not for running Flask on your laptop.
 
@@ -113,17 +122,24 @@ source .venv/bin/activate
 pip install -r creative/app/requirements.txt
 ```
 
-Export credentials and config (the homepage talks to Firestore + BigQuery; basic auth is on unless you set `DISABLE_BASIC_AUTH=1`):
+Export credentials and config (the homepage talks to Firestore + BigQuery). Production uses Google Sign-In. Locally you can either configure OAuth or set `DISABLE_BASIC_AUTH=1` (refused when `GAE_ENV` is set):
 
 ```shell
 export PROJECT_ID="your-gcp-project-id"
 export TABLE_ID="$PROJECT_ID.responses.responses"
-export AUTH_USERNAME="mark"
-export AUTH_PASSWORD="choose-a-local-password"
+# Local-dev bypass (full admin). Never set this on App Engine / ./deploy.
+export DISABLE_BASIC_AUTH=1
 # Optional. A dev default is used if unset; set a real value before any shared deploy.
 # export SECRET_KEY="replace-me"
 # Optional until the receiver function exists. Preview still works without it.
 export RECEIVER_URL="$(gcloud functions describe receiver --gen2 --region=us-central1 --format='value(serviceConfig.uri)')"
+# Required to stamp signed tokens into downloaded zips. Preview stays unsigned.
+# export RECEIVER_HMAC_SECRET="$(gcloud secrets versions access latest --secret=brandometer-receiver-hmac)"
+# Optional Google Sign-In locally (http://127.0.0.1:8080/auth/callback must be on the OAuth client).
+# AUTHLIB_INSECURE_TRANSPORT is set automatically off App Engine so http:// redirects work.
+# export GOOGLE_OAUTH_CLIENT_ID="....apps.googleusercontent.com"
+# export GOOGLE_OAUTH_CLIENT_SECRET="..."
+# export BOOTSTRAP_ADMIN_EMAIL="you@google.com"
 # Optional. Google tag (gtag.js) ID for creatives. Unset or empty skips the loader
 # (there is no default Ads ID). Example: export GTAG_ID="AW-123456789"
 # export GTAG_ID=""
@@ -144,13 +160,13 @@ flask --app main run --port 8080 --debug
 
 `python main.py` also works: it reads `PORT` (default 8080).
 
-Open http://127.0.0.1:8080 and sign in with `AUTH_USERNAME` / `AUTH_PASSWORD`.
+Open http://127.0.0.1:8080. With `DISABLE_BASIC_AUTH=1` you are a local admin (`local-dev` in the navbar). With OAuth configured, use **Sign in with Google**.
 
 The app imports without GCP. Listing surveys, saving surveys, and downloading responses need Application Default Credentials against the project above (`gcloud auth application-default login`).
 
 # Google Cloud Shell
 
-Cloud Shell **Web Preview** sits in front of Flask with its own login, and it is stuck on port **8080**. Timing-safe Basic Auth then returns `401` on `GET /`, and the preview page reloads in a loop. For Cloud Shell only, disable basic auth and bind 8080:
+Cloud Shell **Web Preview** sits in front of Flask with its own login, and it is stuck on port **8080**. Google Sign-In needs the preview origin on the OAuth client, and that host **rotates per session**, so the practical Shell path is the local-dev bypass:
 
 ```shell
 export DISABLE_BASIC_AUTH=1
@@ -158,9 +174,9 @@ cd creative/app
 flask --app main run --port 8080 --debug
 ```
 
-Then use Web Preview → port 8080. You do not need `AUTH_USERNAME` / `AUTH_PASSWORD` in this mode.
+Then use Web Preview → port 8080. To try OAuth in Shell instead, open Web Preview first, copy the origin, add `https://<preview-host>/auth/callback` on the OAuth client (and the origin as a JavaScript origin), then unset `DISABLE_BASIC_AUTH`.
 
-Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Production stays behind basic auth. If `GAE_ENV` is set, the app **refuses to start** when `DISABLE_BASIC_AUTH` is set or when `SECRET_KEY` is the local default. Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on App Engine (`secure: always` in `app.yaml.template`).
+Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Production is Google Sign-In only (not IAP, not shared Basic Auth). If `GAE_ENV` is set, the app **refuses to start** when `DISABLE_BASIC_AUTH` is set, when `SECRET_KEY` is the local default, or when OAuth client id/secret or `RECEIVER_HMAC_SECRET` is missing. Session cookies are `HttpOnly`, `SameSite=Lax`, and `Secure` on App Engine (`secure: always` in `app.yaml.template`).
 
 Homepage **Copy / Archive / Delete** are POST forms with Flask-WTF CSRF (confirm still runs on delete). Stats cells stay GET `/index/stats-partial` (no CSRF). htmx non-GET requests send `X-CSRFToken` from the page meta tag. Saving a survey that someone else already saved returns **409** with “Someone else saved this survey, reload” (Firestore `last_update_time` precondition). Version numbers are assigned transactionally via `Surveys/{id}/versions/_seq`.
 
@@ -200,7 +216,7 @@ The admin UI is self-hosted Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12
 
 Redeploy **App Engine** (`./deploy` or `gcloud app deploy creative/app`) to pick up size, variable answers, versioning, and reporting. No new Firestore index is required; archive filtering and version listing are done in the app. Optional: `export GTAG_ID=AW-…` before `./deploy` if creatives should load gtag.js.
 
-**Receiver redeploy is not required for Phase 4.** Creatives already post `creative_size={width}x{height}` from `ui_config`; once App Engine serves sized HTML, new rows get `300x250` or `160x600`. The optional `Type=survey` default from Phase 3 still only needs a receiver redeploy if you want that default.
+**Receiver redeploy is required for Phase 7b** (signed tokens, HMAC IP hashes, rate limit). After that, sized HTML from App Engine still posts `creative_size={width}x{height}` as before.
 
 ```shell
 gcloud functions deploy receiver \
@@ -215,7 +231,8 @@ gcloud functions deploy receiver \
   --max-instances=20 \
   --timeout=60s \
   --memory=256MB \
-  --set-env-vars TABLE_ID="$PROJECT_ID.responses.responses"
+  --set-env-vars TABLE_ID="$PROJECT_ID.responses.responses" \
+  --set-secrets RECEIVER_HMAC_SECRET=brandometer-receiver-hmac:latest,IP_HMAC_SECRET=brandometer-ip-hmac:latest
 ```
 
 If `/index` fails with `Not found: Table …responses.responses` (a dataset without the table), create the table in the **same location as the dataset**. `./deploy` uses the location you pass as the second argument (for Mark's `brandometer2` project that was `us-central1`). From the repo root:
@@ -281,9 +298,15 @@ pip-audit -r receiver/requirements.txt
 
 # Receiver (Cloud Function)
 
-Dependencies: `receiver/requirements.txt`. Deploy is handled by `./deploy` or the `gcloud functions deploy` command in [One-time GCP setup](#one-time-gcp-setup). Redeploy the receiver for Phase 7a (validation, 204/4xx/5xx, Firestore survey check, no table auto-create).
+Dependencies: `receiver/requirements.txt`. Deploy is handled by `./deploy` or the `gcloud functions deploy` command in [One-time GCP setup](#one-time-gcp-setup). Redeploy the receiver for Phase 7b (signed tokens, daily HMAC IP hashes, in-memory rate limit).
 
-The receiver writes `Type` (default `survey`), `ID`, `Segmentation` (`seg`), `Response`, `BomID` (`bomid`), and the other REQUIRED schema fields. Live creatives post here via a 0×0 iframe pixel; **preview does not**. Success is **HTTP 204** with an empty body (safe for that iframe). Invalid params are **400**, unknown/archived surveys **404**, BigQuery/Firestore failures **500** with a small JSON body (`reason=…`). The table must already exist — missing `TABLE_ID` / table is 500, not a create. Survey existence is cached in memory for 30 seconds.
+The receiver writes `Type` (default `survey`), `ID`, `Segmentation` (`seg`), `Response`, `BomID` (`bomid`), and the other REQUIRED schema fields. Live creatives post here via a 0×0 iframe pixel; **preview does not** (`receiver_url` is empty, so no token is needed). Success is **HTTP 204** with an empty body (safe for that iframe). Invalid params are **400**, missing/invalid HMAC token **403**, unknown/archived surveys **404**, too many hits **429**, BigQuery/Firestore / missing HMAC secrets **500** with a small JSON body (`reason=…`). The table must already exist — missing `TABLE_ID` / table is 500, not a create. Survey existence is cached in memory for 30 seconds.
+
+**Signed links are required. There is no grace period.** Each zip/creative embeds `token=` HMAC-SHA256(`RECEIVER_HMAC_SECRET`, survey id) as hex. The receiver and App Engine share `brandometer-receiver-hmac`. Rotating that secret invalidates every live zip until you re-download.
+
+**Rate limit.** 30 requests / minute / (hashed IP + survey id), **per Cloud Function instance**. `./deploy` sets `--max-instances=20`, so the theoretical ceiling for one IP+survey is 600/minute across instances. The map is in-memory (lost on instance recycle) and capped at 20 000 keys per instance. This is abuse control, not a global quota.
+
+**IP hashing.** `RandomTimeStamp` is **not** unsalted SHA-256 of the IP. It is HMAC-SHA256 of the IP, keyed by a daily key `HMAC(IP_HMAC_SECRET, YYYY-MM-DD UTC)`. Same IP on the same UTC day produces the same hash (dedupe still works). Hashes cannot be reversed to an IP and cannot be linked across days. The IP itself is not stored. Creatives show a short privacy line on the thank-you screen: “Your IP address is not stored. A daily hash is used only to limit repeat responses.”
 
 # Generate test responses
 
@@ -292,8 +315,10 @@ Preview never posts (`receiver_url` is empty). To see homepage counts, reporting
 ```shell
 export PROJECT_ID="your-gcp-project-id"
 export RECEIVER_URL="$(gcloud functions describe receiver --gen2 --region=us-central1 --format='value(serviceConfig.uri)')"
+export RECEIVER_HMAC_SECRET="$(gcloud secrets versions access latest --secret=brandometer-receiver-hmac)"
 # Firestore document id from the homepage Survey ID column
-SURVEY_ID="paste-survey-id"
+export SURVEY_ID="paste-survey-id"
+TOKEN="$(python3 -c 'import hmac,hashlib,os; print(hmac.new(os.environ["RECEIVER_HMAC_SECRET"].encode(), os.environ["SURVEY_ID"].encode(), hashlib.sha256).hexdigest())')"
 
 post() {
   # $1=seg  $2=response  $3=bomid
@@ -304,7 +329,8 @@ post() {
     --data-urlencode "response=$2" \
     --data-urlencode "visual=none" \
     --data-urlencode "creative_size=${4:-300x250}" \
-    --data-urlencode "bomid=$3"
+    --data-urlencode "bomid=$3" \
+    --data-urlencode "token=$TOKEN"
   echo
 }
 
@@ -321,7 +347,7 @@ post "default_expose" "1:A|2:A" "lift-e1"
 post "default_expose" "1:A" "lift-e2"
 ```
 
-A successful insert returns HTTP 204 (empty body). `curl -sS` still exits 0; add `-w '%{http_code}\n'` if you want to see the status. Invalid `id` / `response` / size characters return 400. Streaming inserts can take a few seconds to show up in `SELECT`. Homepage counts are cached up to 90 seconds (`STATS_CACHE_SECONDS`; set `0` while testing). Reporting and CSV query BigQuery on each request.
+A successful insert returns HTTP 204 (empty body). `curl -sS` still exits 0; add `-w '%{http_code}\n'` if you want to see the status. Invalid `id` / `response` / size characters return 400. Missing or wrong `token` returns **403**. Streaming inserts can take a few seconds to show up in `SELECT`. Homepage counts are cached up to 90 seconds (`STATS_CACHE_SECONDS`; set `0` while testing). Reporting and CSV query BigQuery on each request.
 
 Per-question submits for `lift-c1` / `lift-e1` collapse to **one respondent each** (the longer Response). Raw `COUNT(*)` in BigQuery stays higher.
 
@@ -424,5 +450,68 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1` locally only). Then:
 1. Homepage: Copy / Archive / Delete are buttons inside POST forms. Delete still confirms. A GET to `/survey/delete` is 405. Edit a survey, save, then in another tab save the same survey again — you should see **Someone else saved this survey, reload** (HTTP 409).
 2. Network: `/index/stats-partial` is GET. Any future htmx POST would send `X-CSRFToken`.
 3. Preview / zip: question and answer text is assigned with `textContent`. A `custom_css` value containing `</style><script>` must not appear in the creative HTML.
-4. Receiver (after redeploy): `curl` a missing survey id → 404; omit `response` → 400; valid row → 204. The function must not create a BigQuery table.
-5. Production: `./deploy` prompts for username/password without printing the password, writes Secret Manager, and binds least-privilege IAM. Do not set `DISABLE_BASIC_AUTH` in App Engine.
+4. Receiver (after 7a redeploy): `curl` a missing survey id → 404; omit `response` → 400; valid row → 204. The function must not create a BigQuery table. After 7b the same curls need `token=` or they return 403.
+5. Production: `./deploy` no longer prompts for a shared password. See [Phase 7b deploy](#phase-7b-deploy-mark). Do not set `DISABLE_BASIC_AUTH` in App Engine.
+
+`pyarrow` is still required (`google-cloud-bigquery-storage` `to_dataframe()`). Do not drop it. App and test pins: `protobuf==5.29.6`, `pytest==9.0.3`.
+
+# Phase 7b (Google Sign-In, signed pixels, daily IP HMAC)
+
+There is **no tenancy**: every allowed user sees every survey. Roles are `admin` (Admin page + everything) and `editor` (everything except Admin). Firestore collections: `AccessUsers` (email → role), `AccessConfig/settings` (allowed domains), `AuditLog` (create/edit/delete/copy/archive + admin changes). Surveys and versions store `created_by` / `created_at` / `updated_by` / `updated_at`. Verified `@google.com` Google identities (`email_verified` and `hd` empty or `google.com`) can always sign in as **editor**. The first admin is `BOOTSTRAP_ADMIN_EMAIL`. Navbar shows the signed-in email and **Sign out**.
+
+Identity-Aware Proxy is **not** used.
+
+# Phase 7b deploy (Mark)
+
+Do this once per GCP project (or when the OAuth client / bootstrap admin changes). `./deploy` creates HMAC and session secrets if they are missing and does **not** rotate them on later runs.
+
+1. In [Google Cloud Console](https://console.cloud.google.com/) open the target project.
+2. **APIs & Services → OAuth consent screen**
+   1. User type: **Internal** if this is a Google Workspace project; otherwise **External** (add yourself as a test user while the app is in Testing).
+   2. App name: `Brandometer`. Support email: your address.
+   3. Scopes: `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` (Authlib requests `openid email profile`).
+   4. Authorized domains: `appspot.com`. Optionally `cloudshell.dev` if you will try Sign-In from Cloud Shell Web Preview.
+3. **APIs & Services → Credentials → Create credentials → OAuth client ID**
+   1. Application type: **Web application**. Name: `Brandometer web`.
+   2. **Authorized JavaScript origins** (replace `PROJECT_ID`; us-central App Engine also uses `uc.r.appspot.com`):
+      - `https://PROJECT_ID.appspot.com`
+      - `https://PROJECT_ID.uc.r.appspot.com`
+      - `http://127.0.0.1:8080`
+      - `http://localhost:8080`
+   3. **Authorized redirect URIs** (exact; this is what Sign-In needs):
+      - `https://PROJECT_ID.appspot.com/auth/callback`
+      - `https://PROJECT_ID.uc.r.appspot.com/auth/callback`
+      - `http://127.0.0.1:8080/auth/callback`
+      - `http://localhost:8080/auth/callback`
+   4. Cloud Shell Web Preview on port **8080** uses a **per-session** host. After you open Web Preview, add that origin and callback, for example:
+      - `https://8080-<session>.cs-<region>.cloudshell.dev`
+      - `https://8080-<session>.cs-<region>.cloudshell.dev/auth/callback`
+      - `https://8080-dot-<vm>-dot-devshell.appspot.com`
+      - `https://8080-dot-<vm>-dot-devshell.appspot.com/auth/callback`
+      Practical Shell path: skip OAuth there and `export DISABLE_BASIC_AUTH=1` (refused on App Engine).
+   5. Create the client. Copy **Client ID** and **Client secret**.
+4. From the repo root, with billing-enabled `gcloud` pointed at the project:
+
+```shell
+./deploy "$PROJECT_ID" us-central1 us-central
+```
+
+5. When prompted:
+   1. **OAuth client ID** — paste the Web client ID.
+   2. **OAuth client secret** — paste the secret (not printed).
+   3. **Bootstrap admin email** — your Google account, e.g. `mark@google.com`. This identity becomes the first **admin** and is upserted into `AccessUsers` on first sign-in.
+6. `./deploy` writes Secret Manager (`brandometer-oauth-client-id`, `brandometer-oauth-client-secret`, `brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`), deploys the receiver with HMAC secrets and `--max-instances=20`, and deploys App Engine with `BOOTSTRAP_ADMIN_EMAIL`.
+7. Open `https://PROJECT_ID.appspot.com`, **Sign in with Google** as the bootstrap email, confirm the navbar shows your address and **Sign out**, then open **Admin**. Add other users (`email` + `admin`/`editor`) and extra allowed domains if needed. `@google.com` accounts can sign in as editors without being listed.
+8. Download a survey zip, unzip an inner `index.html`, and confirm `response_server` contains `&token=`. Preview in the app still has an empty `response_server` (unsigned, does not post).
+9. `curl` the receiver without `token` → **403**. With the HMAC token from [Generate test responses](#generate-test-responses) against an active survey → **204**.
+
+Redeploy **App Engine and the receiver** for Phase 7b. Do not set `DISABLE_BASIC_AUTH` in production.
+
+# Cloud Shell test (Phase 7b)
+
+Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, Web Preview port 8080). Then:
+
+1. Navbar shows `local-dev`, **Admin**, and **Sign out**. Admin page lists users/domains/audit (empty until you add some). Create/edit/copy/archive a survey; Admin → Audit log should show those actions.
+2. Download zip: inner `index.html` `response_server` includes `&token=` when `RECEIVER_HMAC_SECRET` is set. Preview HTML must **not** include a token and must not post.
+3. After receiver redeploy: curl without token → 403; curl with token for a missing id → 404; omit `response` → 400; valid signed row → 204. `RandomTimeStamp` in BigQuery is a 64-char hex string that is **not** `sha256(ip)`.
+4. Thank-you screen in preview shows the privacy sentence after submit.

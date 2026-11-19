@@ -32,7 +32,13 @@ Run command: `gcloud auth login`. It will pop up a new login page to authorize y
    gcloud config set project $YOUR_PROJECT_ID
 ```
 
-5. ```./deploy [project-id] [bigquery-location] [compute-region]```
+5. Create an OAuth Web client (see **Phase 7b deploy (Mark)** in [DEVELOPERS.md](DEVELOPERS.md) for the exact redirect URIs), then:
+
+```shell
+./deploy [project-id] [bigquery-location] [compute-region]
+```
+
+The script prompts for the OAuth client id/secret and the bootstrap admin email. Production uses Google Sign-In (not IAP, not shared Basic Auth).
 
 Use these commands to find possible values for:
 
