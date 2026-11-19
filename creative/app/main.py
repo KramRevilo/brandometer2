@@ -15,8 +15,10 @@
 
 # OS imports
 import datetime
+import logging
 import math
 import os
+import time
 
 # Flask imports
 from flask import flash
@@ -73,12 +75,16 @@ def flask_port():
     return 8080
 
 
+_index_log = logging.getLogger(__name__)
+
+
 def _filter_args():
   return {
       'q': (request.args.get('q') or '').strip(),
       'client': (request.args.get('client') or '').strip(),
       'agency': (request.args.get('agency') or '').strip(),
       'year': (request.args.get('year') or '').strip(),
+      'size': (request.args.get('size') or '').strip(),
   }
 
 
@@ -89,11 +95,18 @@ def _index_query(show_archived, page=None, filters=None):
   if page:
     args['page'] = page
   filters = filters or {}
-  for key in ('q', 'client', 'agency', 'year'):
+  for key in ('q', 'client', 'agency', 'year', 'size'):
     value = (filters.get(key) or '').strip()
     if value:
       args[key] = value
   return args
+
+
+def _log_index_timing(part, started, **fields):
+  extra = ' '.join('%s=%s' % (key, value) for key, value in fields.items())
+  _index_log.debug(
+      'index.%s_ms=%.1f %s',
+      part, (time.perf_counter() - started) * 1000, extra.strip())
 
 
 @app.route('/')
@@ -104,17 +117,25 @@ def root():
 
 @app.route('/index')
 def index():
+  request_started = time.perf_counter()
   show_archived = _truthy_arg(request.args.get('archived'))
   filters = _filter_args()
+  list_started = time.perf_counter()
   surveys = survey_service.list_surveys(include_archived=show_archived)
+  _log_index_timing(
+      'firestore_list', list_started, n=len(surveys),
+      cache='n/a')
   filter_options = survey_service.homepage_filter_options(surveys)
   unfiltered_count = len(surveys)
+  filter_started = time.perf_counter()
   surveys = survey_service.apply_homepage_filters(
       surveys,
       q=filters['q'],
       client=filters['client'],
       agency=filters['agency'],
-      year=filters['year'])
+      year=filters['year'],
+      size=filters['size'])
+  _log_index_timing('filter', filter_started, n=len(surveys))
 
   def index_query(archived_flag, page=None):
     return _index_query(archived_flag, page, filters)
@@ -124,12 +145,13 @@ def index():
       page=_page_arg(request.args.get('page')),
       page_size=survey_service.HOMEPAGE_PAGE_SIZE)
   survey_ids = [survey.id for survey in page_surveys]
-  stat_array = survey_service.build_stat_array(survey_ids)
-  stats_by_id = {item['id']: item for item in stat_array}
-  return render_template(
+  # Do not wait on BigQuery. Count/last/status cells load via htmx on page load.
+  render_started = time.perf_counter()
+  html = render_template(
       'index.html',
       all_surveys=page_surveys,
-      stats_by_id=stats_by_id,
+      stats_by_id={},
+      stats_pending=True,
       show_archived=show_archived,
       pager=pager,
       stats_poll_seconds=survey_service.STATS_POLL_SECONDS,
@@ -137,16 +159,25 @@ def index():
       index_query=index_query,
       filters=filters,
       filter_options=filter_options,
+      size_choices=creative_size.SIZE_CHOICES,
       filters_active=any(filters.values()),
       unfiltered_count=unfiltered_count,
       title=brand.brand_name())
+  _log_index_timing('render', render_started, n=len(page_surveys))
+  _log_index_timing(
+      'request', request_started, n=len(page_surveys), bq='deferred')
+  return html
 
 
 @app.route('/index/stats-partial')
 def index_stats_partial():
-  """Refresh count / last-response / status cells from the in-process cache."""
+  """Load count / last-response / status cells (BQ, cached) after the list paints."""
+  started = time.perf_counter()
   survey_ids = [sid for sid in request.args.get('ids', '').split(',') if sid]
   stat_array = survey_service.build_stat_array(survey_ids)
+  _index_log.debug(
+      'index.stats_partial_ms=%.1f n_ids=%d',
+      (time.perf_counter() - started) * 1000, len(survey_ids))
   return render_template('stats_partial.html', stat_array=stat_array)
 
 
@@ -220,7 +251,8 @@ def preview(survey_id):
     else:
         response_type = RESPONSES_AT_END
 
-    size = creative_size.resolve(survey_info)
+    preview_sizes = creative_size.selected_keys(survey_info)
+    size = creative_size.resolve_preview(survey_info, request.args.get('size'))
     custom_css = creative_size.apply_overlay(custom_css, size)
 
     return render_template(
@@ -229,6 +261,7 @@ def preview(survey_id):
         survey_id=survey_id,
         manual_responses=True,
         show_back_button=True,
+        preview_sizes=preview_sizes,
         all_question_json=survey_service.get_question_json(survey_info),
         seg='preview',
         custom_css=custom_css,
@@ -437,6 +470,11 @@ def format_pvalue(num):
 @app.template_filter('is_brand_lift')
 def is_brand_lift_filter(survey):
   return survey_service.is_brand_lift(survey)
+
+
+@app.template_filter('survey_size_keys')
+def survey_size_keys_filter(survey):
+  return survey_service.survey_size_keys(survey)
 
 
 @app.template_filter('has_reporting')

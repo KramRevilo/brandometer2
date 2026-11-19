@@ -99,6 +99,8 @@ export RECEIVER_URL="$(gcloud functions describe receiver --gen2 --region=us-cen
 # export GTAG_ID=""
 # Optional. Homepage BQ stats cache TTL in seconds (default 90). 0 disables.
 # export STATS_CACHE_SECONDS=90
+# Optional. CreatedAt partition window for homepage counts (default 400 days). 0 disables.
+# export STATS_LOOKBACK_DAYS=400
 ```
 
 If `gcloud functions describe` fails because the function is not deployed yet, omit `RECEIVER_URL` or set it later.
@@ -146,9 +148,11 @@ Segment roles come from the stored `seg` value (`control` / `expos` in the strin
 
 Status chips: **Active** up to 3 days since last response, **Stale** up to 7 days, **Timed out** after 7. (Previously Stale ran through 14 days.) Thresholds are `STATUS_ACTIVE_DAYS` / `STATUS_STALE_DAYS` in `creative/app/survey_service.py`.
 
-The homepage paginates at 50 surveys, projects list fields only (no `custom_css`; includes `client`, `agency`, `created_at`), and caches the BigQuery count query in-process for 90 seconds (`STATS_CACHE_SECONDS`). Each App Engine instance has its own cache; values can be up to that TTL stale. Count / last-response / status cells poll every 30s via htmx against that cache (polling pauses while the tab is hidden).
+The homepage paginates at 50 surveys and projects list fields only (no `custom_css`; includes `client`, `agency`, `created_at`, `creativesize`, `creativesizes`). **GET `/index` does not call BigQuery.** Count / last-response / status cells render as `Loading…` and load from `/index/stats-partial` via htmx `hx-trigger="load, every 30s [!document.hidden]"` (the previous `every 30s` trigger never ran before first paint, so the list waited on BQ). The stats query is limited to the survey IDs on the current page (`ID IN UNNEST(@survey_ids)`) plus a `CreatedAt` partition window (`STATS_LOOKBACK_DAYS`, default 400). Results are cached in-process **per survey ID** for 90 seconds (`STATS_CACHE_SECONDS`). Each App Engine instance has its own cache; values can be up to that TTL stale. Debug logs: `index.firestore_list_ms`, `index.filter_ms`, `index.render_ms`, `index.request_ms`, `index.stats_partial_ms`, `stats.bq_ms` (`cache=hit|miss|skip`).
 
-Homepage filters (`q`, `client`, `agency`, `year`) are query params, applied in Python after the list `select()`, and are kept on pagination and the archive toggle. Year **Unknown** is for old documents with no `created_at`. Optional **Client** and **Agency** on the editor (datalist of existing values) copy with the survey. `created_at` is set on create and copy. Optional **Campaign ID** / **Placement ID** are placeholders for a future cost join; they are not used in reporting yet.
+Homepage filters (`q`, `client`, `agency`, `year`, `size`) are query params, applied in Python after the list `select()`, and are kept on pagination and the archive toggle. A survey matches the size filter if that size is in its configured list (legacy docs with no size field match **300×250**). The **Sizes** column shows those keys as chips. Year **Unknown** is for old documents with no `created_at`. Optional **Client** and **Agency** on the editor (datalist of existing values) copy with the survey. `created_at` is set on create and copy. Optional **Campaign ID** / **Placement ID** are placeholders for a future cost join; they are not used in reporting yet.
+
+**View Survey.** Single-size rows keep a plain eye button (no `?size=`). Multi-size rows use a split button: the main control opens the first configured size; the caret lists every size as `/survey/preview/<id>?size=WxH`. The preview page itself has a size switcher when there is more than one size, defaulting to the first configured key. Unknown `?size=` falls back to that first key.
 
 The admin UI is Bootstrap 5 (CDN) plus Alpine.js on the create/edit page. Style pickers write a `SONAR_THEME` block of CSS variables into `custom_css`; existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. **Presets** are a grouped dropdown (Classic / Loud solids / Complementary / Patterns); Classic green is the default. Patterns are CSS gradients only, with a solid panel behind question and answer text. The live preview iframe resizes to the previewed **creative size** and has a size switcher when more than one size is selected. Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).
 
@@ -344,18 +348,20 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, then from `creative/app`: `flask 
 
 1. **Identity.** Create survey: Client, Agency, Campaign ID, Placement ID in Identity. Type a client used on another survey and confirm the datalist suggests it. Save. Homepage row shows `Client · Agency` under the name.
 2. **Copy.** Copy that survey. Editor should still have the same client/agency/IDs. `created_at` on the copy is now (old docs without a timestamp stay year **Unknown**).
-3. **Filters.** Homepage: filter by client, agency, year, and a name search. Combine with **Show archived**. Next/Previous should keep the query params. Clear returns to the unfiltered list (archive toggle unchanged).
+3. **Filters.** Homepage: filter by client, agency, year, size, and a name search. Combine with **Show archived**. Next/Previous should keep the query params. Clear returns to the unfiltered list (archive toggle unchanged). The Sizes column shows chips (legacy rows show 300×250).
 4. **Old surveys.** A document with no `created_at` appears under Year → Unknown and still lists if you do not filter by year.
 
 # Cloud Shell test (Phase 6)
 
 Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --port 8080 --debug`). Web Preview → port 8080.
 
-1. Navbar says **Brandometer** (or `APP_BRAND_NAME`). Create survey: check **300×250** and **970×250**. Preview switcher appears; 970×250 is wide with answers in a grid. Check only **160×600** and **Add answer** through H. Checking 300×250 as well should drop F–H on save (validation).
-2. Theme preset dropdown: Classic green first; groups Classic / Loud solids / Complementary / Patterns. Hazard stripes should show a striped background with readable answer panels.
-3. Download zip with two sizes: outer zip contains two inner zips; each inner has only `index.html`, `ad.size` matching that size, a **B** badge bottom-left. Hover/tap the badge for the tooltip. Inner filenames ≤ 50 chars.
-4. **Disclosure badge.** Create survey: Icon picker shows B / B2 / Ad / Dentsu. Default B looks like the current bevelled letter. Pick **Dentsu** and 160×600 — the wordmark is a small pill, not overlapping answers. Change popup text; preview updates immediately. **Use default** restores the `Survey Type Brandometer Ad - powered by Google` string. Leave text blank and save — creative still uses that default. Copy the survey; badge choices come along.
-5. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips, one placement per size. Assign Brand Lift control/expose creatives to the matching audience ads. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
+1. Navbar says **Brandometer** (or `APP_BRAND_NAME`). Create survey: check **300×250** and **970×250**. Editor preview switcher appears; 970×250 is wide with answers in a grid. Check only **160×600** and **Add answer** through H. Checking 300×250 as well should drop F–H on save (validation).
+2. Homepage: that two-size survey has Sizes chips and a View split button. Pick **970×250** from the caret (`?size=970x250`). The preview page size switcher highlights 970×250. A one-size survey still has a plain View button and no preview switcher. Filter Size = 970×250 hides surveys that do not include it; combine with page 2 / Show archived.
+3. Theme preset dropdown: Classic green first; groups Classic / Loud solids / Complementary / Patterns. Hazard stripes should show a striped background with readable answer panels.
+4. Download zip with two sizes: outer zip contains two inner zips; each inner has only `index.html`, `ad.size` matching that size, a **B** badge bottom-left. Hover/tap the badge for the tooltip. Inner filenames ≤ 50 chars.
+5. **Disclosure badge.** Create survey: Icon picker shows B / B2 / Ad / Dentsu. Default B looks like the current bevelled letter. Pick **Dentsu** and 160×600 — the wordmark is a small pill, not overlapping answers. Change popup text; preview updates immediately. **Use default** restores the `Survey Type Brandometer Ad - powered by Google` string. Leave text blank and save — creative still uses that default. Copy the survey; badge choices come along.
+6. Homepage speed: the survey table should appear immediately with **Loading…** in count/last/status; those cells fill in after `/index/stats-partial` (check Network: `/index` returns before the stats request). Flask debug log lines `index.request_ms` (bq=deferred) and `stats.bq_ms`.
+7. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips, one placement per size. Assign Brand Lift control/expose creatives to the matching audience ads. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
 
 # CM360 batch upload (Phase 6)
 

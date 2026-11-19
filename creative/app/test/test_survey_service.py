@@ -338,13 +338,45 @@ class TestSurveyService(unittest.TestCase):
     client.query.side_effect = NotFound('Table not found')
     bq_client_mock.return_value = client
 
-    survey_service._fetch_all_response_counts()
+    survey_service._fetch_all_response_counts(['sid-1', 'sid-2'])
 
     sql = client.query.call_args[0][0]
+    job_config = client.query.call_args.kwargs['job_config']
+    names = [p.name for p in job_config.query_parameters]
     self.assertIn('BomID', sql)
     self.assertIn('session_key', sql)
     self.assertIn('n_answers', sql)
     self.assertIn('PARTITION BY ID, session_key', sql)
+    self.assertIn('ID IN UNNEST(@survey_ids)', sql)
+    self.assertIn('CreatedAt >= DATETIME_SUB', sql)
+    self.assertIn('survey_ids', names)
+    self.assertIn('lookback_days', names)
+    survey_ids = [
+        p for p in job_config.query_parameters if p.name == 'survey_ids'][0]
+    self.assertEqual(survey_ids.values, ['sid-1', 'sid-2'])
+
+  @mock.patch.object(survey_service, '_get_bq_client')
+  def test_homepage_counts_sql_can_disable_partition_filter(
+      self, bq_client_mock):
+    client = mock.Mock()
+    client.query.side_effect = NotFound('Table not found')
+    bq_client_mock.return_value = client
+
+    with mock.patch.dict(os.environ, {'STATS_LOOKBACK_DAYS': '0'}):
+      survey_service._fetch_all_response_counts(['sid-1'])
+
+    sql = client.query.call_args[0][0]
+    job_config = client.query.call_args.kwargs['job_config']
+    names = [p.name for p in job_config.query_parameters]
+    self.assertIn('ID IN UNNEST(@survey_ids)', sql)
+    self.assertNotIn('DATETIME_SUB', sql)
+    self.assertNotIn('lookback_days', names)
+
+  def test_fetch_all_response_counts_skips_bq_when_no_ids(self):
+    with mock.patch.object(survey_service, '_get_bq_client') as factory:
+      df = survey_service._fetch_all_response_counts([])
+    factory.assert_not_called()
+    self.assertTrue(df.empty)
 
   @mock.patch.object(survey_service, '_get_bqstorage_client')
   def test_get_survey_responses_limits_to_given_survey(self, _storage_mock):
@@ -384,7 +416,7 @@ class TestSurveyService(unittest.TestCase):
     client.query.side_effect = NotFound('Table not found')
     bq_client_mock.return_value = client
 
-    df = survey_service.get_all_response_counts()
+    df = survey_service.get_response_counts(['s1'])
 
     self.assertTrue(df.empty)
     self.assertEqual(
@@ -677,7 +709,7 @@ class TestSurveyService(unittest.TestCase):
       self.assertNotIn('custom_css', fields)
       for name in (
           'surveyname', 'displayname', 'archived', 'surveytype', 'question1',
-          'client', 'agency', 'created_at'):
+          'client', 'agency', 'created_at', 'creativesize', 'creativesizes'):
         self.assertIn(name, fields)
       self.assertNotIn('campaign_id', fields)
       self.assertNotIn('placement_id', fields)
@@ -815,12 +847,12 @@ class TestSurveyService(unittest.TestCase):
       with mock.patch.object(
           survey_service, '_fetch_all_response_counts',
           return_value=frame) as fetch:
-        first = survey_service.get_all_response_counts()
-        second = survey_service.get_all_response_counts()
+        first = survey_service.get_response_counts(['s1'])
+        second = survey_service.get_response_counts(['s1'])
         self.assertEqual(fetch.call_count, 1)
-        self.assertIs(first, second)
+        self.assertEqual(list(first['ID']), list(second['ID']))
         survey_service._stats_cache['expires_at'] = 0
-        survey_service.get_all_response_counts()
+        survey_service.get_response_counts(['s1'])
         self.assertEqual(fetch.call_count, 2)
 
   def test_response_counts_cache_disabled_when_ttl_zero(self):
@@ -832,9 +864,29 @@ class TestSurveyService(unittest.TestCase):
       with mock.patch.object(
           survey_service, '_fetch_all_response_counts',
           return_value=frame) as fetch:
-        survey_service.get_all_response_counts()
-        survey_service.get_all_response_counts()
+        survey_service.get_response_counts(['s1'])
+        survey_service.get_response_counts(['s1'])
         self.assertEqual(fetch.call_count, 2)
+
+  def test_response_counts_fetches_only_missing_ids(self):
+    def fake_fetch(ids):
+      return pandas.DataFrame({
+          'ID': list(ids),
+          'Segmentation': ['seg'] * len(ids),
+          'max_date': ['2026-11-18'] * len(ids),
+          'days_since_response': [1] * len(ids),
+          'response_count': [2] * len(ids),
+      })
+
+    with mock.patch.dict(os.environ, {'STATS_CACHE_SECONDS': '90'}):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          side_effect=fake_fetch) as fetch:
+        survey_service.get_response_counts(['s1', 's2'])
+        survey_service.get_response_counts(['s2', 's3'])
+    self.assertEqual(fetch.call_count, 2)
+    self.assertEqual(fetch.call_args_list[0].args[0], ['s1', 's2'])
+    self.assertEqual(fetch.call_args_list[1].args[0], ['s3'])
 
   def test_created_year_unknown_when_missing(self):
     self.assertIsNone(survey_service.created_year({}))
@@ -889,6 +941,30 @@ class TestSurveyService(unittest.TestCase):
         [d.id for d in survey_service.apply_homepage_filters(
             docs, client='Acme', q='gamma')],
         ['c'])
+    sized = [
+        self._survey_doc('wide', {
+            'surveyname': 'Wide',
+            'creativesizes': ['300x250', '970x250'],
+        }),
+        self._survey_doc('legacy', {
+            'surveyname': 'Legacy',
+            'creativesize': '160x600',
+        }),
+        self._survey_doc('plain', {'surveyname': 'Plain'}),
+    ]
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(
+            sized, size='970x250')],
+        ['wide'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(
+            sized, size='160x600')],
+        ['legacy'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(
+            sized, size='300x250')],
+        ['wide', 'plain'])
+    self.assertEqual(survey_service.survey_size_keys(sized[2]), ['300x250'])
     self.assertEqual(
         survey_service.survey_identity_line(docs[0]), 'Acme · OMD')
     options = survey_service.homepage_filter_options(docs)

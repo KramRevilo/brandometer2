@@ -6,7 +6,7 @@
         {% if show_archived %}
         <input type="hidden" name="archived" value="1">
         {% endif %}
-        <div class="col-md-4">
+        <div class="col-md-3">
             <label class="form-label" for="filter-q">Search</label>
             <input class="form-control" type="search" id="filter-q" name="q" value="{{ filters.q }}" placeholder="Name or display name">
         </div>
@@ -28,7 +28,7 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-md-2">
+        <div class="col-6 col-md-1">
             <label class="form-label" for="filter-year">Year</label>
             <select class="form-select" id="filter-year" name="year">
                 <option value="">All years</option>
@@ -38,6 +38,15 @@
                 {% if filter_options.has_unknown_year %}
                 <option value="unknown"{% if filters.year == 'unknown' %} selected{% endif %}>Unknown</option>
                 {% endif %}
+            </select>
+        </div>
+        <div class="col-6 col-md-2">
+            <label class="form-label" for="filter-size">Size</label>
+            <select class="form-select" id="filter-size" name="size">
+                <option value="">All sizes</option>
+                {% for value, label in size_choices %}
+                <option value="{{ value }}"{% if filters.size == value %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
             </select>
         </div>
         <div class="col-md-2 d-flex gap-2">
@@ -66,7 +75,7 @@
     {% if stats_ids %}
     <div id="stats-poller"
          hx-get="{{ url_for('index_stats_partial', ids=stats_ids) }}"
-         hx-trigger="every {{ stats_poll_seconds }}s [!document.hidden]"
+         hx-trigger="load, every {{ stats_poll_seconds }}s [!document.hidden]"
          hx-swap="none"></div>
     {% endif %}
     <div class="table-responsive">
@@ -76,6 +85,7 @@
                     <th scope="col" class="table_header" style="width:250px;">Survey Name</th>
                     <th scope="col" class="table_header" style="width:150px;">Survey ID</th>
                     <th scope="col" class="table_header">Survey Questions</th>
+                    <th scope="col" class="table_header" style="width:90px;">Sizes</th>
                     <th scope="col" class="table_header" style="width:50px;">View</th>
                     <th scope="col" class="table_header" style="width:50px;">Response Count (segment:count)</th>
                     <th scope="col" class="table_header" style="width:75px;">Last Response (days)</th>
@@ -87,7 +97,7 @@
         <tbody>
         {% if not all_surveys %}
         <tr>
-            <td colspan="9" class="text-center py-4">
+            <td colspan="10" class="text-center py-4">
                 {% if unfiltered_count %}
                     No surveys match these filters.
                     <a href="{{ url_for('index', archived=1) if show_archived else url_for('index') }}">Clear filters</a>
@@ -117,21 +127,40 @@
                     {% endfor %}
             </td>
             <td class="text-center">
-                    <a class="btn btn-sm btn-info" href="{{ url_for('preview', survey_id=survey.id) }}" title="View Survey">
-                        <i class="bi bi-eye"></i>
-                    </a>
+                {% set sizes = survey | survey_size_keys %}
+                {% for key in sizes %}
+                <span class="badge text-bg-light border fw-normal">{{ key.replace('x', '×') }}</span>
+                {% endfor %}
+            </td>
+            <td class="text-center">
+                    {% set sizes = survey | survey_size_keys %}
+                    <div class="btn-group">
+                      <a class="btn btn-sm btn-info" href="{{ url_for('preview', survey_id=survey.id, size=sizes[0]) if sizes|length > 1 else url_for('preview', survey_id=survey.id) }}" title="View Survey">
+                          <i class="bi bi-eye"></i>
+                      </a>
+                      {% if sizes|length > 1 %}
+                      <button type="button" class="btn btn-sm btn-info dropdown-toggle dropdown-toggle-split" data-bs-toggle="dropdown" aria-expanded="false" title="View size">
+                        <span class="visually-hidden">View size</span>
+                      </button>
+                      <ul class="dropdown-menu">
+                        {% for key in sizes %}
+                        <li><a class="dropdown-item" href="{{ url_for('preview', survey_id=survey.id, size=key) }}">{{ key.replace('x', '×') }}</a></li>
+                        {% endfor %}
+                      </ul>
+                      {% endif %}
+                    </div>
                     <a class="btn btn-sm btn-warning" href="{{ url_for('reporting', survey_id=survey.id) }}" title="{{ 'View Brand Lift Stats' if survey|is_brand_lift else 'View survey stats' }}">
                         <i class="bi bi-bar-chart"></i>
                     </a>
             </td>
             <td class="text-center small">
-                <div id="count-{{ survey.id }}">{{ count_content(stats_by_id.get(survey.id)) }}</div>
+                <div id="count-{{ survey.id }}">{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ count_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
             <td class="text-center small">
-                <div id="last-{{ survey.id }}">{{ last_content(stats_by_id.get(survey.id)) }}</div>
+                <div id="last-{{ survey.id }}">{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ last_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
             <td class="text-center">
-                <div id="status-{{ survey.id }}">{{ status_content(stats_by_id.get(survey.id)) }}</div>
+                <div id="status-{{ survey.id }}">{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ status_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
             <td class="text-center">
                     <a class="btn btn-sm btn-success" href="{{ url_for('download_zip', survey_id=survey.id) }}" title="Download Creative Zip">

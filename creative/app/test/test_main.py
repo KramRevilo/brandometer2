@@ -14,6 +14,7 @@
 
 import datetime
 import os
+import time
 import unittest
 from unittest import mock
 
@@ -52,7 +53,7 @@ class MainRoutesTest(unittest.TestCase):
     doc.exists = True
     return doc
 
-  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_index_lists_surveys_once(self, list_mock, counts_mock):
     list_mock.return_value = []
@@ -65,7 +66,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'Show archived', response.data)
     self.assertIn(b'No surveys yet', response.data)
 
-  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_index_show_archived(self, list_mock, counts_mock):
     list_mock.return_value = []
@@ -77,7 +78,7 @@ class MainRoutesTest(unittest.TestCase):
     list_mock.assert_called_once_with(include_archived=True)
     self.assertIn(b'Hide archived', response.data)
 
-  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_index_status_chip_and_stats_for_track(
       self, list_mock, counts_mock):
@@ -93,15 +94,19 @@ class MainRoutesTest(unittest.TestCase):
     response = self.client.get('/index')
 
     self.assertEqual(response.status_code, 200)
-    self.assertIn(b'No data', response.data)
-    self.assertIn(b'text-bg-secondary', response.data)
+    self.assertIn(b'Loading', response.data)
+    self.assertNotIn(b'No data', response.data)
     self.assertIn(b'View survey stats', response.data)
+    self.assertIn(b'Sizes', response.data)
+    self.assertIn(b'300', response.data)
+    self.assertIn(b'filter-size', response.data)
+    counts_mock.assert_not_called()
     self.assertNotIn(b'View Brand Lift Stats', response.data)
     self.assertIn(b'Copy Survey', response.data)
     self.assertIn(b'Archive Survey', response.data)
     self.assertIn(b'each BomID as one respondent', response.data)
 
-  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_index_shows_stats_for_brand_lift(self, list_mock, counts_mock):
     list_mock.return_value = [
@@ -123,14 +128,16 @@ class MainRoutesTest(unittest.TestCase):
 
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'View Brand Lift Stats', response.data)
-    self.assertIn(b'Active', response.data)
-    self.assertIn(b'text-bg-success', response.data)
+    self.assertIn(b'Loading', response.data)
+    self.assertNotIn(b'text-bg-success', response.data)
     self.assertIn(b'htmx.org', response.data)
     self.assertIn(b'every 30s', response.data)
     self.assertIn(b'document.hidden', response.data)
+    self.assertIn(b'hx-trigger="load, every', response.data)
     self.assertIn(b'/index/stats-partial', response.data)
+    counts_mock.assert_not_called()
 
-  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_index_pagination_preserves_archived(
       self, list_mock, counts_mock):
@@ -157,7 +164,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'Previous', response.data)
     self.assertIn(b'Next', response.data)
 
-  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_index_filters_by_client_search_and_year(self, list_mock, counts_mock):
     list_mock.return_value = [
@@ -205,7 +212,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertNotIn(b's2', by_year.data)
     self.assertIn(b'Unknown', by_year.data)
 
-  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_index_pagination_preserves_filters_and_archive(
       self, list_mock, counts_mock):
@@ -244,7 +251,7 @@ class MainRoutesTest(unittest.TestCase):
     with mock.patch.dict(os.environ, {'PORT': 'nope'}):
       self.assertEqual(main.flask_port(), 8080)
 
-  @mock.patch.object(survey_service, 'get_all_response_counts')
+  @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_stats_partial_returns_oob_cells(self, list_mock, counts_mock):
     counts_mock.return_value = pandas.DataFrame({
@@ -282,6 +289,121 @@ class MainRoutesTest(unittest.TestCase):
       self.client.get('/index/stats-partial?ids=s1')
     self.assertEqual(fetch_mock.call_count, 1)
     list_mock.assert_not_called()
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_filters_by_size_and_shows_chips_and_split_view(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('wide', {
+            'surveyname': 'Wide pack',
+            'creativesizes': ['300x250', '970x250'],
+            'question1': 'Q',
+        }),
+        self._survey('tall', {
+            'surveyname': 'Tall only',
+            'creativesize': '160x600',
+            'question1': 'Q',
+        }),
+        self._survey('legacy', {
+            'surveyname': 'Legacy default',
+            'question1': 'Q',
+        }),
+    ]
+    counts_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
+
+    home = self.client.get('/index')
+    self.assertEqual(home.status_code, 200)
+    self.assertIn(b'filter-size', home.data)
+    self.assertIn('300×250'.encode('utf-8'), home.data)
+    self.assertIn('970×250'.encode('utf-8'), home.data)
+    self.assertIn('160×600'.encode('utf-8'), home.data)
+    self.assertIn(b'dropdown-toggle-split', home.data)
+    self.assertIn(b'/survey/preview/wide?size=970x250', home.data)
+    self.assertIn(b'/survey/preview/tall', home.data)
+    self.assertNotIn(b'/survey/preview/tall?size=', home.data)
+    counts_mock.assert_not_called()
+
+    by_size = self.client.get('/index?size=970x250')
+    self.assertIn(b'Wide pack', by_size.data)
+    self.assertNotIn(b'Tall only', by_size.data)
+    self.assertNotIn(b'Legacy default', by_size.data)
+    self.assertIn(b'size=970x250', by_size.data)
+
+    default_size = self.client.get('/index?size=300x250')
+    self.assertIn(b'Wide pack', default_size.data)
+    self.assertIn(b'Legacy default', default_size.data)
+    self.assertNotIn(b'Tall only', default_size.data)
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_pagination_preserves_size_filter(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('s%s' % i, {
+            'surveyname': 'Billboard %s' % i,
+            'creativesizes': ['970x250'],
+            'question1': 'Q',
+            'archived': True,
+        }) for i in range(5)
+    ]
+    counts_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
+
+    with mock.patch.object(survey_service, 'HOMEPAGE_PAGE_SIZE', 2):
+      response = self.client.get(
+          '/index?archived=1&size=970x250&page=2')
+
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'Billboard 2', response.data)
+    self.assertNotIn(b'Billboard 0', response.data)
+    self.assertIn(b'size=970x250', response.data)
+    self.assertIn(b'archived=1', response.data)
+    self.assertIn(b'page=1', response.data)
+    self.assertIn(b'page=3', response.data)
+    counts_mock.assert_not_called()
+
+  @mock.patch.object(survey_service, '_fetch_all_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_renders_before_slow_bq_and_logs_timing(
+      self, list_mock, fetch_mock):
+    list_mock.return_value = [
+        self._survey('s1', {'surveyname': 'Timed', 'question1': 'Q'})
+    ]
+
+    def slow_fetch(survey_ids=None):
+      time.sleep(0.35)
+      return pandas.DataFrame(columns=_COUNTS_COLUMNS)
+
+    fetch_mock.side_effect = slow_fetch
+    started = time.perf_counter()
+    with self.assertLogs('main', level='DEBUG') as captured:
+      response = self.client.get('/index')
+    index_ms = (time.perf_counter() - started) * 1000
+    self.assertEqual(response.status_code, 200)
+    self.assertLess(index_ms, 250)
+    fetch_mock.assert_not_called()
+    joined = '\n'.join(captured.output)
+    self.assertIn('index.firestore_list_ms=', joined)
+    self.assertIn('index.filter_ms=', joined)
+    self.assertIn('index.render_ms=', joined)
+    self.assertIn('index.request_ms=', joined)
+    self.assertIn('bq=deferred', joined)
+    self.assertIn(b'hx-trigger="load, every', response.data)
+    self.assertIn(b'Loading', response.data)
+
+    started = time.perf_counter()
+    stats = self.client.get('/index/stats-partial?ids=s1')
+    stats_ms = (time.perf_counter() - started) * 1000
+    self.assertEqual(stats.status_code, 200)
+    self.assertGreaterEqual(stats_ms, 300)
+    fetch_mock.assert_called_once_with(['s1'])
+
+  @mock.patch.object(survey_service, '_fetch_all_response_counts')
+  def test_stats_partial_queries_only_requested_ids(self, fetch_mock):
+    fetch_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
+    with mock.patch.dict(os.environ, {'STATS_CACHE_SECONDS': '0'}):
+      self.client.get('/index/stats-partial?ids=page-a,page-b')
+    fetch_mock.assert_called_once_with(['page-a', 'page-b'])
 
   def test_create_page_uses_iframe_preview_and_bootstrap5(self):
     response = self.client.get('/survey/create')
@@ -485,3 +607,29 @@ class MainRoutesTest(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertNotIn(b'?type=survey', response.data)
     self.assertNotIn(b'AW-968433116', response.data)
+    self.assertNotIn(b'>Size:</span>', response.data)
+
+  @mock.patch.object(survey_service, 'get_question_json', return_value=[])
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_preview_size_query_and_switcher(self, doc_mock, _json_mock):
+    doc_mock.return_value = self._survey('abc', {
+        'surveyname': 'Multi',
+        'question1': 'Q1',
+        'creativesizes': ['300x250', '970x250'],
+        'responsetype': 'Submit Responses at End of Survey',
+    })
+
+    default = self.client.get('/survey/preview/abc')
+    self.assertEqual(default.status_code, 200)
+    self.assertIn(b'width=300,height=250', default.data)
+    self.assertIn(b'>300', default.data)
+    self.assertIn(b'/survey/preview/abc?size=970x250', default.data)
+
+    requested = self.client.get('/survey/preview/abc?size=970x250')
+    self.assertEqual(requested.status_code, 200)
+    self.assertIn(b'width=970,height=250', requested.data)
+    self.assertIn(b'/survey/preview/abc?size=300x250', requested.data)
+
+    unknown = self.client.get('/survey/preview/abc?size=160x600')
+    self.assertEqual(unknown.status_code, 200)
+    self.assertIn(b'width=300,height=250', unknown.data)

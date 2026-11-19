@@ -51,6 +51,17 @@ class SizeCatalogTest(unittest.TestCase):
     self.assertEqual(payload['creativesize'], '336x280')
     self.assertEqual(payload['creativesizes'], ['336x280'])
 
+  def test_resolve_preview_uses_requested_or_first_configured_size(self):
+    survey = {'creativesizes': ['160x600', '970x250']}
+    self.assertEqual(creative_size.resolve_preview(survey)['key'], '160x600')
+    self.assertEqual(
+        creative_size.resolve_preview(survey, '970x250')['key'], '970x250')
+    self.assertEqual(
+        creative_size.resolve_preview(survey, '300x250')['key'], '160x600')
+    self.assertEqual(
+        creative_size.resolve_preview({'creativesize': '336x280'}, None)['key'],
+        '336x280')
+
   def test_max_answers_tall_only_when_all_sizes_are_tall(self):
     self.assertEqual(creative_size.max_answers(['160x600']), 8)
     self.assertEqual(creative_size.max_answers(['160x600', '300x600']), 8)

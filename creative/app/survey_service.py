@@ -15,6 +15,7 @@
 """Various imports to be used for survey functionalites."""
 import datetime
 import io
+import logging
 import math
 import os
 import re
@@ -48,10 +49,12 @@ STATUS_STALE_DAYS = 7
 HOMEPAGE_PAGE_SIZE = 50
 STATS_POLL_SECONDS = 30
 _DEFAULT_STATS_CACHE_SECONDS = 90
+_DEFAULT_STATS_LOOKBACK_DAYS = 400
 _MRC_INIT = 999999999
 
+_log = logging.getLogger(__name__)
 _stats_lock = threading.Lock()
-_stats_cache = {'df': None, 'expires_at': 0.0}
+_stats_cache = {'by_id': {}, 'expires_at': 0.0}
 
 _bq_client = None
 _bqstorage_client = None
@@ -186,12 +189,18 @@ def homepage_filter_options(surveys):
   }
 
 
-def apply_homepage_filters(surveys, q='', client='', agency='', year=''):
+def survey_size_keys(survey):
+  """Configured creative sizes for a survey doc or dict. Legacy docs get 300x250."""
+  return creative_size.selected_keys(_survey_data(survey))
+
+
+def apply_homepage_filters(surveys, q='', client='', agency='', year='', size=''):
   """Filter in Python so Firestore stays a single select() of list fields."""
   q = (q or '').strip().lower()
   client = (client or '').strip()
   agency = (agency or '').strip()
   year = (year or '').strip()
+  size = (size or '').strip()
   matched = []
   for survey in surveys:
     data = _survey_data(survey)
@@ -206,6 +215,8 @@ def apply_homepage_filters(surveys, q='', client='', agency='', year=''):
           continue
       elif survey_year != year:
         continue
+    if size and size not in survey_size_keys(data):
+      continue
     if q:
       name = (data.get('surveyname') or '')
       display = (data.get('displayname') or '')
@@ -289,7 +300,7 @@ def paginate_surveys(surveys, page=1, page_size=HOMEPAGE_PAGE_SIZE):
 def build_stat_array(survey_ids, counts_df=None):
   """Per-survey count / last-response / status from the (cached) BQ summary."""
   if counts_df is None:
-    counts_df = get_all_response_counts()
+    counts_df = get_response_counts(survey_ids)
   stat_array = []
   for survey_id in survey_ids:
     df = counts_df.loc[counts_df['ID'] == survey_id]
@@ -639,20 +650,42 @@ def stats_cache_seconds():
     return _DEFAULT_STATS_CACHE_SECONDS
 
 
+def stats_lookback_days():
+  """CreatedAt partition window for homepage counts. 0 disables the filter."""
+  raw = os.environ.get('STATS_LOOKBACK_DAYS', str(_DEFAULT_STATS_LOOKBACK_DAYS))
+  try:
+    return max(0, int(raw))
+  except (TypeError, ValueError):
+    return _DEFAULT_STATS_LOOKBACK_DAYS
+
+
 def clear_stats_cache():
   with _stats_lock:
-    _stats_cache['df'] = None
+    _stats_cache['by_id'] = {}
     _stats_cache['expires_at'] = 0.0
 
 
-def _fetch_all_response_counts():
+def _empty_counts_frame():
+  return _empty_frame(_EMPTY_COUNTS_COLUMNS)
+
+
+def _fetch_all_response_counts(survey_ids=None):
   """Homepage counts: one respondent per BomID (latest/most complete row).
 
-  Surveys that submit after each question used to be counted once per
-  question. Those homepage numbers will drop after this consolidation.
-  Blank BomID rows (submit-at-end) stay as individual respondents.
+  Restricted to the given survey IDs (current homepage page) and, when
+  STATS_LOOKBACK_DAYS > 0, a CreatedAt partition window so BigQuery can prune.
   """
+  ids = [sid for sid in (survey_ids or []) if sid]
+  if not ids:
+    _log.debug('stats.bq_ms=0.0 cache=skip n_ids=0')
+    return _empty_counts_frame()
   table_id = os.environ.get('TABLE_ID')
+  lookback = stats_lookback_days()
+  partition = ''
+  if lookback > 0:
+    partition = (
+        'AND CreatedAt >= DATETIME_SUB(CURRENT_DATETIME(), '
+        'INTERVAL @lookback_days DAY)')
   query = f"""
     WITH numbered AS (
       SELECT
@@ -664,7 +697,8 @@ def _fetch_all_response_counts():
         ARRAY_LENGTH(REGEXP_EXTRACT_ALL(IFNULL(Response, ''), r'[1-5]:[^|]+')) AS n_answers,
         ROW_NUMBER() OVER () AS row_id
       FROM `{table_id}`
-      WHERE ID IS NOT NULL
+      WHERE ID IN UNNEST(@survey_ids)
+        {partition}
     ),
     keyed AS (
       SELECT
@@ -694,28 +728,64 @@ def _fetch_all_response_counts():
     GROUP BY 1, 2
     ORDER BY 1, 2
     """
-  return _query_to_dataframe(
-      query, empty_columns=_EMPTY_COUNTS_COLUMNS)
+  params = [
+      bigquery.ArrayQueryParameter('survey_ids', 'STRING', ids),
+  ]
+  if lookback > 0:
+    params.append(
+        bigquery.ScalarQueryParameter('lookback_days', 'INT64', lookback))
+  job_config = bigquery.QueryJobConfig(query_parameters=params)
+  started = time.perf_counter()
+  df = _query_to_dataframe(
+      query, job_config=job_config, empty_columns=_EMPTY_COUNTS_COLUMNS)
+  _log.debug(
+      'stats.bq_ms=%.1f cache=miss n_ids=%d lookback_days=%d',
+      (time.perf_counter() - started) * 1000, len(ids), lookback)
+  return df
 
 
-def get_all_response_counts():
-  """Return the homepage BQ summary, cached in-process.
+def get_response_counts(survey_ids=None):
+  """Homepage BQ summary for the given survey IDs, cached in-process per ID.
 
-  Each App Engine instance has its own cache. Stale values up to
+  Does not scan the whole responses table. Stale values up to
   STATS_CACHE_SECONDS (default 90) are acceptable; set 0 to disable.
   """
+  ids = []
+  for sid in survey_ids or []:
+    if sid and sid not in ids:
+      ids.append(sid)
+  if not ids:
+    return _empty_counts_frame()
   ttl = stats_cache_seconds()
   if ttl <= 0:
-    return _fetch_all_response_counts()
+    return _fetch_all_response_counts(ids)
   now = time.monotonic()
   with _stats_lock:
-    cached = _stats_cache['df']
-    if cached is not None and now < _stats_cache['expires_at']:
-      return cached
-    df = _fetch_all_response_counts()
-    _stats_cache['df'] = df
-    _stats_cache['expires_at'] = time.monotonic() + ttl
-    return df
+    if now >= _stats_cache['expires_at']:
+      _stats_cache['by_id'] = {}
+    by_id = _stats_cache['by_id']
+    missing = [sid for sid in ids if sid not in by_id]
+    if missing:
+      fetched = _fetch_all_response_counts(missing)
+      empty = _empty_counts_frame()
+      for sid in missing:
+        if fetched is None or fetched.empty or 'ID' not in fetched.columns:
+          by_id[sid] = empty
+        else:
+          slice_df = fetched.loc[fetched['ID'] == sid]
+          by_id[sid] = slice_df if not slice_df.empty else empty
+      _stats_cache['expires_at'] = time.monotonic() + ttl
+    else:
+      _log.debug('stats.bq_ms=0.0 cache=hit n_ids=%d', len(ids))
+    frames = [by_id[sid] for sid in ids if sid in by_id]
+  if not frames:
+    return _empty_counts_frame()
+  return pd.concat(frames, ignore_index=True)
+
+
+def get_all_response_counts(survey_ids=None):
+  """Back-compat wrapper. Pass survey IDs; an empty list does not scan BigQuery."""
+  return get_response_counts(survey_ids)
 
 
 def _segmentation_csv_column(surveyid):

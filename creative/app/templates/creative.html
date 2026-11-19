@@ -745,7 +745,19 @@
         </button>
     </div>
     {% if show_back_button %}
-    <p><a href="/index">Back</a></p>
+    <p style="font-family: Arial, sans-serif; font-size: 14px; margin: 12px 8px;">
+      <a href="/index">Back</a>
+      {% if preview_sizes and preview_sizes|length > 1 %}
+      <span style="margin-left: 12px;">Size:</span>
+      {% for key in preview_sizes %}
+        {% if key == size_key %}
+        <strong style="margin-left: 8px;">{{ key.replace('x', '×') }}</strong>
+        {% else %}
+        <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=key) }}">{{ key.replace('x', '×') }}</a>
+        {% endif %}
+      {% endfor %}
+      {% endif %}
+    </p>
     {% endif %}
     <script>
         runFSM();

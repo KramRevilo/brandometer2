@@ -123,6 +123,15 @@ def selected_keys(value=None):
   return keys or [DEFAULT_SIZE]
 
 
+def resolve_preview(survey, requested=None):
+  """Size for the View Survey page. Unknown ?size= falls back to the first key."""
+  keys = selected_keys(survey)
+  req = str(requested or '').strip()
+  if req in keys:
+    return resolve(req)
+  return resolve(keys[0])
+
+
 def persist_sizes(data):
   """Write both creativesizes (list) and creativesize (compat string/list)."""
   payload = dict(data or {})
