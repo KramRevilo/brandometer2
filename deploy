@@ -3,6 +3,37 @@
 # Fail on any error
 set -e
 
+APP_ONLY=0
+SKIP_OAUTH_PROMPTS=0
+POSITIONAL=""
+for arg in "$@"; do
+    case "$arg" in
+        --app-only) APP_ONLY=1 ;;
+        --skip-oauth-prompts) SKIP_OAUTH_PROMPTS=1 ;;
+        --help|-h)
+            echo "Usage: ./deploy project-id zone app_region [--app-only] [--skip-oauth-prompts]"
+            echo "Example: ./deploy my-project-id us-central1 us-central"
+            echo "App Engine only (receiver already deployed):"
+            echo "  ./deploy my-project-id us-central1 us-central --app-only"
+            echo "Non-interactive OAuth (env vars; Enter is not needed):"
+            echo "  OAUTH_CLIENT_ID=... OAUTH_CLIENT_SECRET=... BOOTSTRAP_ADMIN_EMAIL=... \\"
+            echo "    ./deploy my-project-id us-central1 us-central --app-only --skip-oauth-prompts"
+            echo "Existing OAuth secrets: omit the env vars and pass --skip-oauth-prompts to keep them."
+            exit 0
+            ;;
+        --*)
+            echo "Unknown flag: $arg" >&2
+            echo "Usage: ./deploy project-id zone app_region [--app-only] [--skip-oauth-prompts]" >&2
+            exit 1
+            ;;
+        *)
+            POSITIONAL="$POSITIONAL $arg"
+            ;;
+    esac
+done
+# shellcheck disable=SC2086
+set -- $POSITIONAL
+
 PROJECT_ID=$1
 LOCATION=$2
 REGION=$3
@@ -11,17 +42,20 @@ if [ -z "$PROJECT_ID" ] || [ -z "$LOCATION" ] || [ -z "$REGION" ]; then
     # To list possible values for:
     #   LOCATION: $ gcloud functions regions list
     #   REGION: $  gcloud app regions list
-    echo "Usage: ./deploy project-id zone app_region"
+    echo "Usage: ./deploy project-id zone app_region [--app-only] [--skip-oauth-prompts]"
     echo "Example: ./deploy my-project-id us-central1 us-central"
+    echo "App Engine only: ./deploy my-project-id us-central1 us-central --app-only"
     exit 1
 fi
+
+DEPLOY_ROOT=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$DEPLOY_ROOT"
 
 # IAM can lag a newly created service account ("does not exist") for a bit.
 # Override in tests. Production waits up to ~2 minutes with exponential backoff.
 RETRY_MAX_SECONDS="${DEPLOY_RETRY_MAX_SECONDS:-120}"
 RETRY_START_SECONDS="${DEPLOY_RETRY_START_SECONDS:-2}"
 RETRY_MAX_DELAY_SECONDS="${DEPLOY_RETRY_MAX_DELAY_SECONDS:-16}"
-BQ_ADD_IAM_SUPPORTED=""
 
 # Retry SA-lag / concurrent policy errors only. Never retry usage errors.
 retry_is_transient() {
@@ -97,33 +131,21 @@ grant_project_role() {
         --condition=None >/dev/null
 }
 
-bq_supports_add_iam() {
-    if [ "$BQ_ADD_IAM_SUPPORTED" = "yes" ]; then
-        return 0
-    fi
-    if [ "$BQ_ADD_IAM_SUPPORTED" = "no" ]; then
-        return 1
-    fi
-    help=$(bq add-iam-policy-binding --help 2>&1) || true
-    case "$help" in
-        *'Unknown command'*|*'Invalid choice'*|*'FATAL Flags parsing error'*)
-            BQ_ADD_IAM_SUPPORTED=no
-            return 1
-            ;;
-    esac
-    BQ_ADD_IAM_SUPPORTED=yes
-    return 0
-}
-
-# Legacy access[].userByEmail when `bq add-iam-policy-binding` is missing.
-grant_dataset_editor_via_update() {
-    member="$1"
-    email="$member"
+dataset_member_email() {
+    email="$1"
     case "$email" in
         serviceAccount:*) email="${email#serviceAccount:}" ;;
         user:*) email="${email#user:}" ;;
         group:*) email="${email#group:}" ;;
     esac
+    printf '%s' "$email"
+}
+
+# Dataset IAM via the legacy access[] resource. The IAM-binding bq subcommand
+# requires allowlisting and is not used.
+grant_dataset_editor_via_update() {
+    member="$1"
+    email=$(dataset_member_email "$member")
     tmp=$(mktemp)
     if ! bq show --format=prettyjson "$PROJECT_ID:responses" >"$tmp"; then
         rm -f "$tmp"
@@ -145,7 +167,7 @@ for entry in access:
     role = entry.get('role') or ''
     if 'dataEditor' in role or 'dataOwner' in role or role in ('WRITER', 'OWNER'):
         sys.exit(0)
-access.append({'role': 'roles/bigquery.dataEditor', 'userByEmail': email})
+access.append({'role': 'WRITER', 'userByEmail': email})
 with open(path, 'w', encoding='utf-8') as fh:
     json.dump(data, fh, indent=2)
 sys.exit(2)
@@ -166,19 +188,40 @@ PY
     return 1
 }
 
+verify_dataset_editor() {
+    member="$1"
+    email=$(dataset_member_email "$member")
+    dataset="$PROJECT_ID:responses"
+    role=$(bq show --format=prettyjson "$dataset" | python3 - "$email" <<'PY'
+import json
+import sys
+
+email = sys.argv[1]
+data = json.load(sys.stdin)
+for entry in data.get('access') or []:
+    if entry.get('userByEmail') != email and entry.get('iamMember') not in (
+            'serviceAccount:' + email, 'user:' + email, email):
+        continue
+    role = entry.get('role') or ''
+    if 'dataEditor' in role or 'dataOwner' in role or role in ('WRITER', 'OWNER'):
+        print(role)
+        sys.exit(0)
+sys.exit(1)
+PY
+) || true
+    if [ -n "$role" ]; then
+        echo "Dataset IAM confirmed: $email has $role on $dataset"
+        return 0
+    fi
+    echo "ERROR: $email is not a dataEditor/WRITER on $dataset" >&2
+    return 1
+}
+
 grant_dataset_editor() {
     member="$1"
     dataset="$PROJECT_ID:responses"
-    if bq_supports_add_iam; then
-        if retry_gcloud bq add-iam-policy-binding \
-                --member="$member" \
-                --role="roles/bigquery.dataEditor" \
-                "$dataset"; then
-            return 0
-        fi
-    fi
-    echo "Using bq update --source for dataset IAM on $dataset"
-    if grant_dataset_editor_via_update "$member"; then
+    echo "Granting dataset dataEditor on $dataset to $member via bq update --source"
+    if grant_dataset_editor_via_update "$member" && verify_dataset_editor "$member"; then
         return 0
     fi
     echo "Dataset IAM unavailable; granting project roles/bigquery.dataEditor to $member"
@@ -194,102 +237,175 @@ grant_sa_user() {
         --condition=None >/dev/null
 }
 
+secret_exists() {
+    gcloud secrets describe "$1" >/dev/null 2>&1
+}
+
+bootstrap_from_yaml() {
+    yaml="creative/app/${PROJECT_ID}.yaml"
+    if [ ! -f "$yaml" ]; then
+        return 1
+    fi
+    python3 - "$yaml" <<'PY'
+import re
+import sys
+
+text = open(sys.argv[1], encoding='utf-8').read()
+match = re.search(r'^  BOOTSTRAP_ADMIN_EMAIL:\s*(.*)$', text, re.M)
+if not match:
+    sys.exit(1)
+print(match.group(1).strip().strip('"').strip("'"))
+PY
+}
+
+# Prints the value on stdout when a new value should be stored; prints nothing
+# when the existing Secret Manager value should be kept.
+prompt_secret_input() {
+    name="$1"
+    prompt="$2"
+    silent="$3"
+    env_value="$4"
+    exists=0
+    if secret_exists "$name"; then
+        exists=1
+    fi
+    value="$env_value"
+    if [ "$SKIP_OAUTH_PROMPTS" = 1 ]; then
+        if [ -n "$value" ]; then
+            echo "Using $name from environment" >&2
+        elif [ "$exists" = 1 ]; then
+            echo "Keeping existing secret $name (--skip-oauth-prompts)" >&2
+            return 0
+        else
+            echo "ERROR: $name does not exist; set the env var or omit --skip-oauth-prompts" >&2
+            return 1
+        fi
+    elif [ -z "$value" ]; then
+        extra=""
+        if [ "$exists" = 1 ]; then
+            extra=" [press Enter to keep existing]"
+        fi
+        if [ "$silent" = 1 ]; then
+            # read -p/-s is what Cloud Shell bash provides (existing deploy).
+            read -sp "${prompt}${extra}: " value
+            echo >&2
+        else
+            read -p "${prompt}${extra}: " value
+        fi
+    else
+        echo "Using $name from environment" >&2
+    fi
+    if [ -z "$value" ]; then
+        if [ "$exists" = 1 ]; then
+            echo "Keeping existing secret $name" >&2
+            return 0
+        fi
+        echo "ERROR: $prompt is required" >&2
+        return 1
+    fi
+    printf '%s' "$value"
+}
+
 # Set gcloud to project id
 echo -e "\n-- Deploying to $PROJECT_ID"
+if [ "$APP_ONLY" = 1 ]; then
+    echo "Mode: --app-only (skip receiver / dataset / functions)"
+fi
 gcloud config set project $PROJECT_ID
-
-echo -e "\n-- Enable required APIs"
-gcloud services enable cloudbuild.googleapis.com
-gcloud services enable firestore.googleapis.com
-gcloud services enable appengine.googleapis.com
-gcloud services enable cloudfunctions.googleapis.com
-gcloud services enable bigquery.googleapis.com
-gcloud services enable run.googleapis.com
-gcloud services enable artifactregistry.googleapis.com
-gcloud services enable secretmanager.googleapis.com
-gcloud services enable iam.googleapis.com
-
-# Create Firestore Native before App Engine. `gcloud app create` otherwise
-# provisions (default) in Datastore mode, which the Firestore client cannot use.
-echo -e "\n-- Create Firestore Native (default) database"
-DB_TYPE=$(gcloud firestore databases describe --database='(default)' --format='value(type)' 2>/dev/null || true)
-if [ -z "$DB_TYPE" ]; then
-    gcloud firestore databases create \
-        --location="$LOCATION" \
-        --type=firestore-native \
-        --database='(default)'
-elif echo "$DB_TYPE" | grep -qi 'FIRESTORE_NATIVE'; then
-    echo "Firestore Native database (default) already exists"
-elif echo "$DB_TYPE" | grep -qi 'DATASTORE'; then
-    echo "ERROR: Cloud Firestore API is not available because (default) is in Datastore mode ($DB_TYPE)."
-    echo "Sonar needs Firestore Native. If that database is empty, switch it with:"
-    echo "  gcloud firestore databases delete --database='(default)'"
-    echo "  gcloud firestore databases create --location=$LOCATION --type=firestore-native --database='(default)'"
-    echo "See DEVELOPERS.md (Firestore Datastore mode)."
-    exit 1
-else
-    echo "ERROR: unexpected type for Firestore database (default): $DB_TYPE"
-    echo "Sonar needs --type=firestore-native."
-    exit 1
-fi
-
-# Deploy receiver endpoint.
-cd receiver
-echo -e "\n-- Create BigQuery dataset"
-# `bq mk --dataset --force` does not drop an existing dataset (it only ignores
-# ALREADY_EXISTS) but it still prints "successfully created". Skip if present
-# so a re-run never looks like a recreate and never changes location/tables.
-if bq show --format=none "$PROJECT_ID:responses" >/dev/null 2>&1; then
-    echo "Dataset $PROJECT_ID:responses already exists (not modified)"
-else
-    bq --location=$LOCATION mk \
-        --dataset \
-        --description "Main response data set for Brandometer" \
-        $PROJECT_ID:responses
-fi
-
-echo -e "\n-- Create BigQuery responses table"
-if bq show --format=none "$PROJECT_ID:responses.responses" >/dev/null 2>&1; then
-    echo "Table $PROJECT_ID:responses.responses already exists"
-else
-    # Partition by CreatedAt and cluster by ID for new tables only.
-    # Do not alter an existing responses table.
-    bq mk --table \
-        --schema responses.schema.json \
-        --time_partitioning_field CreatedAt \
-        --time_partitioning_type DAY \
-        --clustering_fields ID \
-        --description "Survey response rows for Brandometer" \
-        "$PROJECT_ID:responses.responses"
-fi
 
 GAE_SA="$PROJECT_ID@appspot.gserviceaccount.com"
 RECEIVER_SA="brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com"
-PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
 
-echo -e "\n-- Receiver service account (least privilege)"
-ensure_receiver_sa
+if [ "$APP_ONLY" != 1 ]; then
+    echo -e "\n-- Enable required APIs"
+    gcloud services enable cloudbuild.googleapis.com
+    gcloud services enable firestore.googleapis.com
+    gcloud services enable appengine.googleapis.com
+    gcloud services enable cloudfunctions.googleapis.com
+    gcloud services enable bigquery.googleapis.com
+    gcloud services enable run.googleapis.com
+    gcloud services enable artifactregistry.googleapis.com
+    gcloud services enable secretmanager.googleapis.com
+    gcloud services enable iam.googleapis.com
 
-grant_project_role "serviceAccount:$RECEIVER_SA" "roles/datastore.viewer"
-grant_project_role "serviceAccount:$RECEIVER_SA" "roles/logging.logWriter"
-grant_dataset_editor "serviceAccount:$RECEIVER_SA"
-
-# Deployer + Cloud Functions/Run agents must be able to attach the runtime SA.
-DEPLOYER=$(gcloud config get-value account 2>/dev/null || true)
-if [ -n "$DEPLOYER" ]; then
-    case "$DEPLOYER" in
-        *.gserviceaccount.com) DEPLOYER_MEMBER="serviceAccount:$DEPLOYER" ;;
-        *) DEPLOYER_MEMBER="user:$DEPLOYER" ;;
-    esac
-    if ! grant_sa_user "$RECEIVER_SA" "$DEPLOYER_MEMBER"; then
-        echo "WARNING: could not grant roles/iam.serviceAccountUser on $RECEIVER_SA to $DEPLOYER_MEMBER"
+    # Create Firestore Native before App Engine. `gcloud app create` otherwise
+    # provisions (default) in Datastore mode, which the Firestore client cannot use.
+    echo -e "\n-- Create Firestore Native (default) database"
+    DB_TYPE=$(gcloud firestore databases describe --database='(default)' --format='value(type)' 2>/dev/null || true)
+    if [ -z "$DB_TYPE" ]; then
+        gcloud firestore databases create \
+            --location="$LOCATION" \
+            --type=firestore-native \
+            --database='(default)'
+    elif echo "$DB_TYPE" | grep -qi 'FIRESTORE_NATIVE'; then
+        echo "Firestore Native database (default) already exists"
+    elif echo "$DB_TYPE" | grep -qi 'DATASTORE'; then
+        echo "ERROR: Cloud Firestore API is not available because (default) is in Datastore mode ($DB_TYPE)."
+        echo "Sonar needs Firestore Native. If that database is empty, switch it with:"
+        echo "  gcloud firestore databases delete --database='(default)'"
+        echo "  gcloud firestore databases create --location=$LOCATION --type=firestore-native --database='(default)'"
+        echo "See DEVELOPERS.md (Firestore Datastore mode)."
+        exit 1
+    else
+        echo "ERROR: unexpected type for Firestore database (default): $DB_TYPE"
+        echo "Sonar needs --type=firestore-native."
+        exit 1
     fi
-fi
-if [ -n "$PROJECT_NUMBER" ]; then
-    grant_sa_user "$RECEIVER_SA" \
-        "serviceAccount:service-${PROJECT_NUMBER}@gcf-admin-robot.iam.gserviceaccount.com"
-    grant_sa_user "$RECEIVER_SA" \
-        "serviceAccount:service-${PROJECT_NUMBER}@serverless-robot-prod.iam.gserviceaccount.com"
+
+    echo -e "\n-- Create BigQuery dataset"
+    # `bq mk --dataset --force` does not drop an existing dataset (it only ignores
+    # ALREADY_EXISTS) but it still prints "successfully created". Skip if present
+    # so a re-run never looks like a recreate and never changes location/tables.
+    if bq show --format=none "$PROJECT_ID:responses" >/dev/null 2>&1; then
+        echo "Dataset $PROJECT_ID:responses already exists (not modified)"
+    else
+        bq --location=$LOCATION mk \
+            --dataset \
+            --description "Main response data set for Brandometer" \
+            $PROJECT_ID:responses
+    fi
+
+    echo -e "\n-- Create BigQuery responses table"
+    if bq show --format=none "$PROJECT_ID:responses.responses" >/dev/null 2>&1; then
+        echo "Table $PROJECT_ID:responses.responses already exists"
+    else
+        # Partition by CreatedAt and cluster by ID for new tables only.
+        # Do not alter an existing responses table.
+        bq mk --table \
+            --schema receiver/responses.schema.json \
+            --time_partitioning_field CreatedAt \
+            --time_partitioning_type DAY \
+            --clustering_fields ID \
+            --description "Survey response rows for Brandometer" \
+            "$PROJECT_ID:responses.responses"
+    fi
+
+    PROJECT_NUMBER=$(gcloud projects describe "$PROJECT_ID" --format='value(projectNumber)')
+
+    echo -e "\n-- Receiver service account (least privilege)"
+    ensure_receiver_sa
+
+    grant_project_role "serviceAccount:$RECEIVER_SA" "roles/datastore.viewer"
+    grant_project_role "serviceAccount:$RECEIVER_SA" "roles/logging.logWriter"
+    grant_dataset_editor "serviceAccount:$RECEIVER_SA"
+
+    # Deployer + Cloud Functions/Run agents must be able to attach the runtime SA.
+    DEPLOYER=$(gcloud config get-value account 2>/dev/null || true)
+    if [ -n "$DEPLOYER" ]; then
+        case "$DEPLOYER" in
+            *.gserviceaccount.com) DEPLOYER_MEMBER="serviceAccount:$DEPLOYER" ;;
+            *) DEPLOYER_MEMBER="user:$DEPLOYER" ;;
+        esac
+        if ! grant_sa_user "$RECEIVER_SA" "$DEPLOYER_MEMBER"; then
+            echo "WARNING: could not grant roles/iam.serviceAccountUser on $RECEIVER_SA to $DEPLOYER_MEMBER"
+        fi
+    fi
+    if [ -n "$PROJECT_NUMBER" ]; then
+        grant_sa_user "$RECEIVER_SA" \
+            "serviceAccount:service-${PROJECT_NUMBER}@gcf-admin-robot.iam.gserviceaccount.com"
+        grant_sa_user "$RECEIVER_SA" \
+            "serviceAccount:service-${PROJECT_NUMBER}@serverless-robot-prod.iam.gserviceaccount.com"
+    fi
 fi
 
 echo -e "\n-- HMAC secrets (receiver tokens + daily IP hashes)"
@@ -316,6 +432,7 @@ ensure_generated_secret() {
         printf '%s' "$value" | gcloud secrets create "$name" \
             --data-file=- \
             --replication-policy=automatic >/dev/null
+        echo "stored ${#value} chars ($name)"
     fi
     bind_secret_member "$name" "$extra_member"
 }
@@ -324,6 +441,12 @@ upsert_secret() {
     name="$1"
     value="$2"
     extra_member="$3"
+    if [ -z "$value" ]; then
+        echo "Keeping existing secret $name"
+        bind_secret_member "$name" "serviceAccount:$GAE_SA"
+        bind_secret_member "$name" "$extra_member"
+        return 0
+    fi
     if gcloud secrets describe "$name" >/dev/null 2>&1; then
         printf '%s' "$value" | gcloud secrets versions add "$name" --data-file=- >/dev/null
     else
@@ -331,6 +454,7 @@ upsert_secret() {
             --data-file=- \
             --replication-policy=automatic >/dev/null
     fi
+    echo "stored ${#value} chars ($name)"
     bind_secret_member "$name" "serviceAccount:$GAE_SA"
     bind_secret_member "$name" "$extra_member"
 }
@@ -338,20 +462,23 @@ upsert_secret() {
 ensure_generated_secret brandometer-receiver-hmac "serviceAccount:$RECEIVER_SA"
 ensure_generated_secret brandometer-ip-hmac "serviceAccount:$RECEIVER_SA"
 
-echo -e "\n-- Deploy Cloud Function for receiver (2nd gen)"
-gcloud functions deploy receiver \
-    --gen2 \
-    --trigger-http \
-    --allow-unauthenticated \
-    --runtime python312 \
-    --entry-point=receiver \
-    --region=$LOCATION \
-    --service-account="$RECEIVER_SA" \
-    --max-instances=20 \
-    --timeout=60s \
-    --memory=256MB \
-    --set-env-vars TABLE_ID=$PROJECT_ID.responses.responses \
-    --set-secrets RECEIVER_HMAC_SECRET=brandometer-receiver-hmac:latest,IP_HMAC_SECRET=brandometer-ip-hmac:latest
+if [ "$APP_ONLY" != 1 ]; then
+    echo -e "\n-- Deploy Cloud Function for receiver (2nd gen)"
+    gcloud functions deploy receiver \
+        --gen2 \
+        --trigger-http \
+        --allow-unauthenticated \
+        --runtime python312 \
+        --entry-point=receiver \
+        --region=$LOCATION \
+        --source=receiver \
+        --service-account="$RECEIVER_SA" \
+        --max-instances=20 \
+        --timeout=60s \
+        --memory=256MB \
+        --set-env-vars TABLE_ID=$PROJECT_ID.responses.responses \
+        --set-secrets RECEIVER_HMAC_SECRET=brandometer-receiver-hmac:latest,IP_HMAC_SECRET=brandometer-ip-hmac:latest
+fi
 
 echo -e "\n-- Read deployed receiver URL"
 RECEIVER_URL=$(gcloud functions describe receiver \
@@ -370,8 +497,6 @@ if [ -z "$RECEIVER_URL" ]; then
 fi
 echo "Receiver URL: $RECEIVER_URL"
 
-# Exit receiver dir.
-cd ..
 echo -e "\nSet up App Engine (if none exists)"
 if gcloud app services list; then
     echo "App Engine already configured. Continuing..."
@@ -410,24 +535,53 @@ echo "Web Preview, add that origin + /auth/callback, for example:"
 echo "  https://8080-<session>.cs-<region>.cloudshell.dev/auth/callback"
 echo "  https://8080-dot-<vm>-dot-devshell.appspot.com/auth/callback"
 echo "Or skip OAuth in Shell and set DISABLE_BASIC_AUTH=1 (refused on App Engine)."
-read -p 'OAuth client ID: ' GOOGLE_OAUTH_CLIENT_ID
-read -sp 'OAuth client secret: ' GOOGLE_OAUTH_CLIENT_SECRET
-echo
-read -p 'Bootstrap admin email: ' BOOTSTRAP_ADMIN_EMAIL
-if [ -z "$GOOGLE_OAUTH_CLIENT_ID" ] || [ -z "$GOOGLE_OAUTH_CLIENT_SECRET" ]; then
-    echo "ERROR: Google OAuth client ID and secret are required"
-    exit 1
+echo "Env vars: OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, BOOTSTRAP_ADMIN_EMAIL."
+echo "Flag: --skip-oauth-prompts keeps existing secrets when those env vars are empty."
+
+OAUTH_ID_VALUE=$(prompt_secret_input \
+    brandometer-oauth-client-id \
+    "OAuth client ID" \
+    0 \
+    "${OAUTH_CLIENT_ID:-}")
+OAUTH_SECRET_VALUE=$(prompt_secret_input \
+    brandometer-oauth-client-secret \
+    "OAuth client secret" \
+    1 \
+    "${OAUTH_CLIENT_SECRET:-}")
+
+BOOTSTRAP_ADMIN_EMAIL="${BOOTSTRAP_ADMIN_EMAIL:-}"
+if [ "$SKIP_OAUTH_PROMPTS" = 1 ]; then
+    if [ -z "$BOOTSTRAP_ADMIN_EMAIL" ]; then
+        BOOTSTRAP_ADMIN_EMAIL=$(bootstrap_from_yaml || true)
+    fi
+    if [ -z "$BOOTSTRAP_ADMIN_EMAIL" ]; then
+        echo "ERROR: BOOTSTRAP_ADMIN_EMAIL is required (env or existing yaml) with --skip-oauth-prompts" >&2
+        exit 1
+    fi
+    echo "Using bootstrap admin $BOOTSTRAP_ADMIN_EMAIL"
+elif [ -n "$BOOTSTRAP_ADMIN_EMAIL" ]; then
+    echo "Using BOOTSTRAP_ADMIN_EMAIL from environment"
+else
+    existing_bootstrap=$(bootstrap_from_yaml || true)
+    extra=""
+    if [ -n "$existing_bootstrap" ]; then
+        extra=" [press Enter to keep existing]"
+    fi
+    read -p "Bootstrap admin email${extra}: " BOOTSTRAP_ADMIN_EMAIL
+    if [ -z "$BOOTSTRAP_ADMIN_EMAIL" ]; then
+        BOOTSTRAP_ADMIN_EMAIL="$existing_bootstrap"
+    fi
 fi
 if [ -z "$BOOTSTRAP_ADMIN_EMAIL" ]; then
     echo "ERROR: bootstrap admin email is required"
     exit 1
 fi
-echo "-- OAuth client stored (secret not printed). Bootstrap admin: $BOOTSTRAP_ADMIN_EMAIL"
+echo "-- Bootstrap admin: $BOOTSTRAP_ADMIN_EMAIL"
 
 ensure_generated_secret brandometer-secret-key
 bind_secret_member brandometer-secret-key "serviceAccount:$GAE_SA"
-upsert_secret brandometer-oauth-client-id "$GOOGLE_OAUTH_CLIENT_ID"
-upsert_secret brandometer-oauth-client-secret "$GOOGLE_OAUTH_CLIENT_SECRET"
+upsert_secret brandometer-oauth-client-id "$OAUTH_ID_VALUE"
+upsert_secret brandometer-oauth-client-secret "$OAUTH_SECRET_VALUE"
 # Optional Google tag (gtag.js) ID for creatives. Empty disables the loader.
 GTAG_ID="${GTAG_ID:-}"
 
@@ -438,11 +592,14 @@ sed \
     -e "s|{{GTAG_ID}}|$GTAG_ID|" \
     -e "s|{{BOOTSTRAP_ADMIN_EMAIL}}|$BOOTSTRAP_ADMIN_EMAIL|" \
     creative/app/app.yaml.template >./creative/app/$PROJECT_ID.yaml
+python3 creative/app/app_yaml_check.py "./creative/app/$PROJECT_ID.yaml"
 echo -e "\n-- Deploy app engine"
 
 cd creative/app
 if ! gcloud app deploy ./$PROJECT_ID.yaml --quiet; then
     echo -e "\n-- ERROR: App Engine deployment failed. This is usually caused by a delay in project config rollout."
     echo -e "Please wait 1-2 minutes and run:"
-    echo -e "\tcd creative/app && gcloud app deploy ./$PROJECT_ID.yaml --quiet"
+    echo -e "\t./deploy $PROJECT_ID $LOCATION $REGION --app-only"
+    echo -e "Or: cd creative/app && gcloud app deploy ./$PROJECT_ID.yaml --quiet"
+    exit 1
 fi

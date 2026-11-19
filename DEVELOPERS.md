@@ -26,6 +26,21 @@ Either create everything with the deploy script (App Engine, Firestore, BigQuery
 ./deploy "$PROJECT_ID" us-central1 us-central
 ```
 
+App Engine only (receiver already deployed; rotate OAuth / yaml without touching the function):
+
+```shell
+./deploy "$PROJECT_ID" us-central1 us-central --app-only
+```
+
+Non-interactive OAuth (keeps existing Secret Manager values when an env var is omitted):
+
+```shell
+OAUTH_CLIENT_ID='....apps.googleusercontent.com' \
+OAUTH_CLIENT_SECRET='...' \
+BOOTSTRAP_ADMIN_EMAIL='you@google.com' \
+  ./deploy "$PROJECT_ID" us-central1 us-central --app-only --skip-oauth-prompts
+```
+
 `us-central1` is the Functions / BigQuery / Firestore location; `us-central` is the App Engine region. List others with `gcloud functions regions list` and `gcloud app regions list`.
 
 Or create the pieces yourself:
@@ -71,10 +86,10 @@ gcloud projects add-iam-policy-binding "$PROJECT_ID" \
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="serviceAccount:brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
   --role="roles/logging.logWriter"
-bq add-iam-policy-binding \
-  --member="serviceAccount:brandometer-receiver@$PROJECT_ID.iam.gserviceaccount.com" \
-  --role="roles/bigquery.dataEditor" \
-  "$PROJECT_ID:responses"
+# Dataset IAM: `bq add-iam-policy-binding` needs allowlisting. Use access[].
+bq show --format=prettyjson "$PROJECT_ID:responses" > /tmp/responses-ds.json
+# merge userByEmail for the receiver SA with role WRITER, then:
+bq update --source /tmp/responses-ds.json "$PROJECT_ID:responses"
 # HMAC secrets: create once (./deploy does this). Then:
 gcloud functions deploy receiver \
   --gen2 \
@@ -104,14 +119,14 @@ The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), da
 
 **Secrets.** Shared Basic Auth is retired in production. `./deploy` stores:
 
-* `brandometer-oauth-client-id` / `brandometer-oauth-client-secret` — Google OAuth Web client (prompted each deploy; secret is never echoed)
+* `brandometer-oauth-client-id` / `brandometer-oauth-client-secret` — Google OAuth Web client (prompted; Enter keeps an existing secret; after a write the script prints `stored N chars` and never echoes the value)
 * `brandometer-secret-key` — Flask session signing (created once; not rotated on redeploy)
 * `brandometer-receiver-hmac` — per-survey creative token HMAC (created once; rotating it invalidates live zips)
 * `brandometer-ip-hmac` — daily IP-hash master (created once)
 
-`app.yaml.template` injects OAuth id/secret, `SECRET_KEY`, `RECEIVER_HMAC_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL`. The receiver gets `RECEIVER_HMAC_SECRET` and `IP_HMAC_SECRET` via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
+`app.yaml.template` is App Engine **standard** python312: only non-secret `env_variables` (`PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`). Standard `app.yaml` does **not** support `secret_environment_variables`. The App Engine app loads OAuth id/secret, `SECRET_KEY`, and `RECEIVER_HMAC_SECRET` from Secret Manager at startup (module-level cache, App Engine SA `secretAccessor`) and refuses to start if a required secret is missing. The receiver still gets HMAC secrets via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
 
-**Re-running `./deploy`.** Safe end to end. Firestore Native, the `responses` dataset, the `responses.responses` table, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not modified or recreated. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret are updated from the prompts. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries **transient** IAM errors only (SA “does not exist” / NOT_FOUND / INVALID_ARGUMENT, 409 concurrent policy). Usage errors (`Invalid choice`, `PERMISSION_DENIED`) fail immediately. Dataset IAM uses `bq add-iam-policy-binding` (not `gcloud bigquery`, which Cloud Shell gcloud does not have), with `bq show` + `bq update --source` as fallback. `--condition=None` avoids the conditional-binding prompt. The same wait/retry applies to the App Engine default SA. If a previous run died on IAM lag or the old `gcloud bigquery` command, run `./deploy` again from the top with the same project/region.
+**Re-running `./deploy`.** Safe end to end, or App Engine only with `--app-only`. Firestore Native, the `responses` dataset, the `responses.responses` table, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not modified or recreated. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret: paste to rotate, or press Enter / pass `--skip-oauth-prompts` to keep existing; `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL` skip the prompts when set. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries **transient** IAM errors only (SA “does not exist” / NOT_FOUND / INVALID_ARGUMENT, 409 concurrent policy). Usage errors (`Invalid choice`, `PERMISSION_DENIED`) fail immediately. Dataset IAM uses `bq show` + `bq update --source` (not `gcloud bigquery`, which Cloud Shell gcloud does not have, and not `bq add-iam-policy-binding`, which requires allowlisting). A success line confirms each SA’s access entry via `bq show`. `--condition=None` avoids the conditional-binding prompt. The same wait/retry applies to the App Engine default SA. If a previous run died on IAM lag, the old `gcloud bigquery` command, or `secret_environment_variables`, run `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
 
 The App Engine service is only required for hosting, not for running Flask on your laptop.
 
@@ -499,11 +514,17 @@ Do this once per GCP project (or when the OAuth client / bootstrap admin changes
 ./deploy "$PROJECT_ID" us-central1 us-central
 ```
 
-5. When prompted:
-   1. **OAuth client ID** — paste the Web client ID.
-   2. **OAuth client secret** — paste the secret (not printed).
+To redeploy **only App Engine** after a failed `gcloud app deploy` (or to rotate the OAuth client secret):
+
+```shell
+./deploy "$PROJECT_ID" us-central1 us-central --app-only
+```
+
+5. When prompted (`[press Enter to keep existing]` if the secret already exists):
+   1. **OAuth client ID** — paste the Web client ID, or Enter to keep.
+   2. **OAuth client secret** — paste the secret (not echoed). After a write you should see `stored N chars (brandometer-oauth-client-secret)`.
    3. **Bootstrap admin email** — your Google account, e.g. `mark@google.com`. This identity becomes the first **admin** and is upserted into `AccessUsers` on first sign-in.
-6. `./deploy` writes Secret Manager (`brandometer-oauth-client-id`, `brandometer-oauth-client-secret`, `brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`), deploys the receiver with HMAC secrets and `--max-instances=20`, and deploys App Engine with `BOOTSTRAP_ADMIN_EMAIL`.
+6. `./deploy` writes Secret Manager (`brandometer-oauth-client-id`, `brandometer-oauth-client-secret`, `brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`), deploys the receiver with HMAC secrets and `--max-instances=20` (skipped with `--app-only`), and deploys App Engine with `BOOTSTRAP_ADMIN_EMAIL`. The generated yaml is checked for App Engine standard keys before `gcloud app deploy`.
 7. Open `https://PROJECT_ID.appspot.com`, **Sign in with Google** as the bootstrap email, confirm the navbar shows your address and **Sign out**, then open **Admin**. Add other users (`email` + `admin`/`editor`) and extra allowed domains if needed. `@google.com` accounts can sign in as editors without being listed.
 8. Download a survey zip, unzip an inner `index.html`, and confirm `response_server` contains `&token=`. Preview in the app still has an empty `response_server` (unsigned, does not post).
 9. `curl` the receiver without `token` → **403**. With the HMAC token from [Generate test responses](#generate-test-responses) against an active survey → **204**.

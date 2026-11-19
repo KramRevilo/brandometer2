@@ -12,11 +12,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import json
 import os
 import subprocess
+import sys
 import tempfile
 import textwrap
 import unittest
+
+import app_yaml_check
 
 
 _APP_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
@@ -82,9 +86,12 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('--memory=256MB', script)
     self.assertIn('upsert_secret', script)
     self.assertIn('ensure_generated_secret', script)
-    self.assertIn("read -p 'OAuth client ID: '", script)
-    self.assertIn("read -sp 'OAuth client secret: '", script)
-    self.assertIn("read -p 'Bootstrap admin email: '", script)
+    self.assertIn('--app-only', script)
+    self.assertIn('--skip-oauth-prompts', script)
+    self.assertIn('OAUTH_CLIENT_ID', script)
+    self.assertIn('OAUTH_CLIENT_SECRET', script)
+    self.assertIn('[press Enter to keep existing]', script)
+    self.assertIn('stored ${#value} chars', script)
     self.assertIn('brandometer-oauth-client-id', script)
     self.assertIn('brandometer-receiver-hmac', script)
     self.assertIn('brandometer-ip-hmac', script)
@@ -97,12 +104,14 @@ class DeployIamTest(unittest.TestCase):
     self.assertNotIn('--role="roles/editor"', script.split('remove-iam-policy-binding')[0])
     yaml_path = os.path.join(_APP_DIR, 'app.yaml.template')
     yaml_text = open(yaml_path, encoding='utf-8').read()
-    self.assertIn('secret_environment_variables', yaml_text)
+    self.assertNotIn('secret_environment_variables', yaml_text)
     self.assertIn('secure: always', yaml_text)
-    self.assertIn('brandometer-secret-key', yaml_text)
-    self.assertIn('brandometer-oauth-client-id', yaml_text)
-    self.assertIn('brandometer-receiver-hmac', yaml_text)
     self.assertIn('BOOTSTRAP_ADMIN_EMAIL', yaml_text)
+    self.assertIn('PROJECT_ID', yaml_text)
+    self.assertIn('RECEIVER_URL', yaml_text)
+    self.assertNotIn('GOOGLE_OAUTH_CLIENT_SECRET', yaml_text)
+    self.assertNotIn('SECRET_KEY', yaml_text)
+    self.assertNotIn('RECEIVER_HMAC_SECRET', yaml_text)
     self.assertNotIn('AUTH_USERNAME', yaml_text)
     self.assertNotIn('AUTH_PASSWORD', yaml_text)
 
@@ -137,8 +146,9 @@ class DeployIamTest(unittest.TestCase):
         'bq show --format=none "$PROJECT_ID:responses"', script)
     self.assertIn(
         'bq show --format=none "$PROJECT_ID:responses.responses"', script)
-    self.assertIn('bq add-iam-policy-binding', script)
+    self.assertNotIn('bq add-iam-policy-binding', script)
     self.assertIn('bq update --source', script)
+    self.assertIn('Dataset IAM confirmed:', script)
     self.assertNotIn('gcloud bigquery', script)
 
   def test_deploy_rejects_known_invalid_command_forms(self):
@@ -152,11 +162,14 @@ class DeployIamTest(unittest.TestCase):
         'gcloud secrets get-iam-policy-binding',
         'gcloud iam add-iam-policy-binding',
         'bq mk --force',
+        'secret_environment_variables',
+        'bq add-iam-policy-binding',
     )
     for form in invalid:
       self.assertNotIn(form, script, form)
     self.assertNotRegex(script, r'(^|[^_])gcloud bq\b')
-    self.assertIn('bq add-iam-policy-binding', script)
+    self.assertNotIn('bq add-iam-policy-binding', script)
+    self.assertIn('bq update --source', script)
     self.assertIn('gcloud secrets add-iam-policy-binding', script)
     self.assertIn('gcloud functions deploy', script)
     self.assertIn('--gen2', script)
@@ -211,6 +224,62 @@ class DeployIamTest(unittest.TestCase):
     between_invalid_and_notfound = out.split(
         "Invalid choice: 'bigquery'", 1)[1].split('NOT_FOUND', 1)[0]
     self.assertNotIn('Retrying in', between_invalid_and_notfound)
+
+  def test_rendered_app_yaml_only_allows_standard_keys(self):
+    template = open(
+        os.path.join(_APP_DIR, 'app.yaml.template'), encoding='utf-8').read()
+    rendered = (
+        template
+        .replace('{{RECEIVER_URL}}', 'https://receiver.example/run')
+        .replace('{{PROJECT_ID}}', 'brandometer2')
+        .replace('{{GTAG_ID}}', '')
+        .replace('{{BOOTSTRAP_ADMIN_EMAIL}}', 'mark@google.com'))
+    self.assertEqual(app_yaml_check.validate_app_yaml(rendered), [])
+    keys = set(app_yaml_check.top_level_keys(rendered))
+    self.assertTrue(keys <= app_yaml_check.ALLOWED_TOP_LEVEL, keys)
+    self.assertEqual(
+        set(app_yaml_check.env_var_keys(rendered)),
+        app_yaml_check.ALLOWED_ENV)
+    self.assertNotIn('secret_environment_variables', rendered)
+    bad = rendered + '\nsecret_environment_variables:\n- name: SECRET_KEY\n'
+    errors = app_yaml_check.validate_app_yaml(bad)
+    self.assertTrue(any('secret_environment_variables' in item for item in errors))
+    checker = os.path.join(_APP_DIR, 'app_yaml_check.py')
+    with tempfile.TemporaryDirectory() as tmp:
+      path = os.path.join(tmp, 'app.yaml')
+      open(path, 'w', encoding='utf-8').write(rendered)
+      subprocess.check_call([sys.executable, checker, path])
+      open(path, 'w', encoding='utf-8').write(bad)
+      result = subprocess.run(
+          [sys.executable, checker, path], capture_output=True, text=True)
+      self.assertNotEqual(result.returncode, 0)
+
+  def test_dataset_iam_merge_adds_writer_once(self):
+    script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
+    start = script.index("path, email = sys.argv[1], sys.argv[2]")
+    end = script.index("sys.exit(2)", start) + len("sys.exit(2)")
+    merge = (
+        'import json, sys\n'
+        + script[script.rindex('import json', 0, start):end]
+        + '\n')
+    with tempfile.TemporaryDirectory() as tmp:
+      path = os.path.join(tmp, 'ds.json')
+      open(path, 'w', encoding='utf-8').write(json.dumps({
+          'access': [
+              {'role': 'OWNER', 'specialGroup': 'projectOwners'},
+          ],
+      }))
+      first = subprocess.run(
+          [sys.executable, '-', path, 'sa@project.iam.gserviceaccount.com'],
+          input=merge, text=True)
+      self.assertEqual(first.returncode, 2)
+      data = json.loads(open(path, encoding='utf-8').read())
+      emails = [row.get('userByEmail') for row in data['access']]
+      self.assertIn('sa@project.iam.gserviceaccount.com', emails)
+      second = subprocess.run(
+          [sys.executable, '-', path, 'sa@project.iam.gserviceaccount.com'],
+          input=merge, text=True)
+      self.assertEqual(second.returncode, 0)
 
   def test_dev_requirements_include_pip_audit(self):
     text = open(

@@ -9,21 +9,6 @@ env_variables:
   GTAG_ID: "{{GTAG_ID}}"
   BOOTSTRAP_ADMIN_EMAIL: "{{BOOTSTRAP_ADMIN_EMAIL}}"
 
-# Injected from Secret Manager at runtime. Do not put OAuth secrets here as plaintext.
-secret_environment_variables:
-- name: GOOGLE_OAUTH_CLIENT_ID
-  secret: brandometer-oauth-client-id
-  version: latest
-- name: GOOGLE_OAUTH_CLIENT_SECRET
-  secret: brandometer-oauth-client-secret
-  version: latest
-- name: SECRET_KEY
-  secret: brandometer-secret-key
-  version: latest
-- name: RECEIVER_HMAC_SECRET
-  secret: brandometer-receiver-hmac
-  version: latest
-
 handlers:
 - url: /favicon\.ico
   static_files: favicon.ico

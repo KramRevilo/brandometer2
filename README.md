@@ -38,7 +38,13 @@ Run command: `gcloud auth login`. It will pop up a new login page to authorize y
 ./deploy [project-id] [bigquery-location] [compute-region]
 ```
 
-The script prompts for the OAuth client id/secret and the bootstrap admin email. Production uses Google Sign-In (not IAP, not shared Basic Auth).
+The script prompts for the OAuth client id/secret and the bootstrap admin email (Enter keeps an existing secret). Production uses Google Sign-In (not IAP, not shared Basic Auth).
+
+To redeploy **only App Engine** (receiver already up), from the repo root:
+
+```shell
+./deploy [project-id] [bigquery-location] [compute-region] --app-only
+```
 
 Use these commands to find possible values for:
 

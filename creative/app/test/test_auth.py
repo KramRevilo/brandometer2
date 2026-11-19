@@ -150,6 +150,50 @@ class AuthAndRedirectTest(unittest.TestCase):
         environ={'GOOGLE_OAUTH_CLIENT_ID': 'from-env', 'PROJECT_ID': 'p'})
     self.assertEqual(value, 'from-env')
 
+  def test_secret_manager_loader_caches_and_fails_fast(self):
+    app_security._secret_cache.clear()
+    payload = mock.Mock()
+    payload.payload.data = b'oauth-id-value'
+    client = mock.Mock()
+    client.access_secret_version.return_value = payload
+    with mock.patch(
+        'google.cloud.secretmanager.SecretManagerServiceClient',
+        return_value=client):
+      first = app_security.load_secret(
+          'GOOGLE_OAUTH_CLIENT_ID', app_security.SECRET_OAUTH_CLIENT_ID,
+          environ={'PROJECT_ID': 'brandometer2'})
+      second = app_security.load_secret(
+          'GOOGLE_OAUTH_CLIENT_ID', app_security.SECRET_OAUTH_CLIENT_ID,
+          environ={'PROJECT_ID': 'brandometer2'})
+    self.assertEqual(first, 'oauth-id-value')
+    self.assertEqual(second, 'oauth-id-value')
+    client.access_secret_version.assert_called_once_with(
+        name='projects/brandometer2/secrets/brandometer-oauth-client-id/versions/latest')
+    app_security._secret_cache.clear()
+    client.access_secret_version.side_effect = Exception('404 Secret not found')
+    with mock.patch(
+        'google.cloud.secretmanager.SecretManagerServiceClient',
+        return_value=client):
+      with self.assertLogs('app_security', level='ERROR') as logs:
+        with self.assertRaises(RuntimeError) as raised:
+          app_security.load_secret(
+              'GOOGLE_OAUTH_CLIENT_SECRET',
+              app_security.SECRET_OAUTH_CLIENT_SECRET,
+              environ={'PROJECT_ID': 'brandometer2'},
+              required=True)
+    self.assertIn('brandometer-oauth-client-secret', str(raised.exception))
+    self.assertTrue(any('Failed to load secret' in line for line in logs.output))
+    app_security._secret_cache.clear()
+    with mock.patch.object(
+        app_security, '_from_secret_manager', return_value='from-sm'):
+      app = Flask('sm-startup')
+      app_security.configure_app(app, environ={
+          'GAE_ENV': 'standard',
+          'PROJECT_ID': 'brandometer2',
+      })
+    self.assertEqual(app.config['SECRET_KEY'], 'from-sm')
+    self.assertEqual(app.config['GOOGLE_OAUTH_CLIENT_ID'], 'from-sm')
+
   def test_session_cookie_secure_only_on_app_engine(self):
     app = Flask('cookie-test')
     with mock.patch.object(app_security, 'load_secret', side_effect=lambda *a, **k: {
