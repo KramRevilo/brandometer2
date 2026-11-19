@@ -128,7 +128,7 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('already exists (not modified)', script)
     self.assertIn('service-accounts describe', script)
     self.assertIn('--condition=None', script)
-    self.assertGreaterEqual(script.count('--condition=None'), 3)
+    self.assertGreaterEqual(script.count('--condition=None'), 4)
     self.assertIn('Keeping existing secret', script)
     self.assertIn('DEPLOY_RETRY_MAX_SECONDS', script)
     self.assertNotIn('mk --force', script)
@@ -137,10 +137,38 @@ class DeployIamTest(unittest.TestCase):
         'bq show --format=none "$PROJECT_ID:responses"', script)
     self.assertIn(
         'bq show --format=none "$PROJECT_ID:responses.responses"', script)
+    self.assertIn('bq add-iam-policy-binding', script)
+    self.assertIn('bq update --source', script)
+    self.assertNotIn('gcloud bigquery', script)
+
+  def test_deploy_rejects_known_invalid_command_forms(self):
+    script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
+    invalid = (
+        'gcloud bigquery',
+        'gcloud alpha bigquery',
+        'gcloud beta bigquery',
+        'gcloud datasets',
+        'gcloud functions deploy --v2',
+        'gcloud secrets get-iam-policy-binding',
+        'gcloud iam add-iam-policy-binding',
+        'bq mk --force',
+    )
+    for form in invalid:
+      self.assertNotIn(form, script, form)
+    self.assertNotRegex(script, r'(^|[^_])gcloud bq\b')
+    self.assertIn('bq add-iam-policy-binding', script)
+    self.assertIn('gcloud secrets add-iam-policy-binding', script)
+    self.assertIn('gcloud functions deploy', script)
+    self.assertIn('--gen2', script)
+    self.assertIn('gcloud app deploy', script)
+    self.assertIn('gcloud iam service-accounts create', script)
+    self.assertIn('gcloud iam service-accounts describe', script)
+    self.assertIn('gcloud secrets create', script)
+    self.assertIn('gcloud secrets versions add', script)
 
   def test_retry_gcloud_succeeds_after_failures_and_times_out(self):
     script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
-    start = script.index('retry_gcloud() {')
+    start = script.index('retry_is_transient() {')
     end = script.index('\nwait_for_service_account()')
     retry_fn = script[start:end]
     with tempfile.TemporaryDirectory() as tmp:
@@ -154,9 +182,21 @@ class DeployIamTest(unittest.TestCase):
           sleep() { :; }
       ''') + retry_fn + textwrap.dedent('''\
           n=0
-          flaky() { n=$((n+1)); [ "$n" -ge 3 ]; }
+          flaky() {
+            n=$((n+1))
+            echo "INVALID_ARGUMENT: Service account x does not exist" >&2
+            [ "$n" -ge 3 ]
+          }
           retry_gcloud flaky
-          always_fail() { return 1; }
+          invalid() {
+            echo "ERROR: (gcloud) Invalid choice: 'bigquery'" >&2
+            return 1
+          }
+          if retry_gcloud invalid; then
+            echo unexpectedly_ok
+            exit 1
+          fi
+          always_fail() { echo "NOT_FOUND" >&2; return 1; }
           if retry_gcloud always_fail; then
             echo unexpectedly_ok
             exit 1
@@ -166,6 +206,11 @@ class DeployIamTest(unittest.TestCase):
       out = subprocess.check_output(['sh', helper], stderr=subprocess.STDOUT, text=True)
     self.assertIn('ok', out.splitlines()[-1])
     self.assertIn('Retrying in', out)
+    self.assertIn('not retrying (non-transient)', out)
+    self.assertGreaterEqual(out.count('Invalid choice'), 1)
+    between_invalid_and_notfound = out.split(
+        "Invalid choice: 'bigquery'", 1)[1].split('NOT_FOUND', 1)[0]
+    self.assertNotIn('Retrying in', between_invalid_and_notfound)
 
   def test_dev_requirements_include_pip_audit(self):
     text = open(

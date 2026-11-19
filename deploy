@@ -21,13 +21,41 @@ fi
 RETRY_MAX_SECONDS="${DEPLOY_RETRY_MAX_SECONDS:-120}"
 RETRY_START_SECONDS="${DEPLOY_RETRY_START_SECONDS:-2}"
 RETRY_MAX_DELAY_SECONDS="${DEPLOY_RETRY_MAX_DELAY_SECONDS:-16}"
+BQ_ADD_IAM_SUPPORTED=""
+
+# Retry SA-lag / concurrent policy errors only. Never retry usage errors.
+retry_is_transient() {
+    msg=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+    case "$msg" in
+        *'invalid choice'*|*'unknown command'*|*'unrecognized arguments'*|*'unrecognized flag'*|*'too few arguments'*|*'too many arguments'*|*permission_denied*|*'permission denied'*|*'access denied'*|*'httperror 403'*|*'status: 403'*)
+            return 1
+            ;;
+    esac
+    case "$msg" in
+        *'does not exist'*|*not_found*|*notfound*|*invalid_argument*|*'http 409'*|*'status: 409'*|*aborted*|*concurrent*|*etag*|*resource_exhausted*|*unavailable*|*'rate limit'*|*'429'*|*backenderror*)
+            return 0
+            ;;
+    esac
+    return 1
+}
 
 retry_gcloud() {
     delay="$RETRY_START_SECONDS"
     elapsed=0
     while true; do
-        if "$@"; then
+        errfile=$(mktemp)
+        status=0
+        "$@" >"$errfile" 2>&1 || status=$?
+        if [ "$status" -eq 0 ]; then
+            rm -f "$errfile"
             return 0
+        fi
+        out=$(cat "$errfile")
+        cat "$errfile" >&2
+        rm -f "$errfile"
+        if ! retry_is_transient "$out"; then
+            echo "ERROR: not retrying (non-transient): $*" >&2
+            return "$status"
         fi
         if [ "$elapsed" -ge "$RETRY_MAX_SECONDS" ]; then
             echo "ERROR: still failing after ${RETRY_MAX_SECONDS}s: $*" >&2
@@ -69,12 +97,88 @@ grant_project_role() {
         --condition=None >/dev/null
 }
 
+bq_supports_add_iam() {
+    if [ "$BQ_ADD_IAM_SUPPORTED" = "yes" ]; then
+        return 0
+    fi
+    if [ "$BQ_ADD_IAM_SUPPORTED" = "no" ]; then
+        return 1
+    fi
+    help=$(bq add-iam-policy-binding --help 2>&1) || true
+    case "$help" in
+        *'Unknown command'*|*'Invalid choice'*|*'FATAL Flags parsing error'*)
+            BQ_ADD_IAM_SUPPORTED=no
+            return 1
+            ;;
+    esac
+    BQ_ADD_IAM_SUPPORTED=yes
+    return 0
+}
+
+# Legacy access[].userByEmail when `bq add-iam-policy-binding` is missing.
+grant_dataset_editor_via_update() {
+    member="$1"
+    email="$member"
+    case "$email" in
+        serviceAccount:*) email="${email#serviceAccount:}" ;;
+        user:*) email="${email#user:}" ;;
+        group:*) email="${email#group:}" ;;
+    esac
+    tmp=$(mktemp)
+    if ! bq show --format=prettyjson "$PROJECT_ID:responses" >"$tmp"; then
+        rm -f "$tmp"
+        return 1
+    fi
+    py_status=0
+    python3 - "$tmp" "$email" <<'PY' || py_status=$?
+import json
+import sys
+
+path, email = sys.argv[1], sys.argv[2]
+with open(path, encoding='utf-8') as fh:
+    data = json.load(fh)
+access = data.setdefault('access', [])
+for entry in access:
+    if entry.get('userByEmail') != email and entry.get('iamMember') not in (
+            'serviceAccount:' + email, 'user:' + email, email):
+        continue
+    role = entry.get('role') or ''
+    if 'dataEditor' in role or 'dataOwner' in role or role in ('WRITER', 'OWNER'):
+        sys.exit(0)
+access.append({'role': 'roles/bigquery.dataEditor', 'userByEmail': email})
+with open(path, 'w', encoding='utf-8') as fh:
+    json.dump(data, fh, indent=2)
+sys.exit(2)
+PY
+    if [ "$py_status" -eq 0 ]; then
+        rm -f "$tmp"
+        return 0
+    fi
+    if [ "$py_status" -ne 2 ]; then
+        rm -f "$tmp"
+        return 1
+    fi
+    if retry_gcloud bq update --source "$tmp" "$PROJECT_ID:responses"; then
+        rm -f "$tmp"
+        return 0
+    fi
+    rm -f "$tmp"
+    return 1
+}
+
 grant_dataset_editor() {
     member="$1"
-    if retry_gcloud gcloud bigquery datasets add-iam-policy-binding \
-            "$PROJECT_ID:responses" \
-            --member="$member" \
-            --role="roles/bigquery.dataEditor"; then
+    dataset="$PROJECT_ID:responses"
+    if bq_supports_add_iam; then
+        if retry_gcloud bq add-iam-policy-binding \
+                --member="$member" \
+                --role="roles/bigquery.dataEditor" \
+                "$dataset"; then
+            return 0
+        fi
+    fi
+    echo "Using bq update --source for dataset IAM on $dataset"
+    if grant_dataset_editor_via_update "$member"; then
         return 0
     fi
     echo "Dataset IAM unavailable; granting project roles/bigquery.dataEditor to $member"
@@ -197,7 +301,8 @@ bind_secret_member() {
     fi
     retry_gcloud gcloud secrets add-iam-policy-binding "$name" \
         --member="$member" \
-        --role="roles/secretmanager.secretAccessor" >/dev/null
+        --role="roles/secretmanager.secretAccessor" \
+        --condition=None >/dev/null
 }
 
 # Generated secrets: create once. Rotating them would invalidate live zips / sessions.
