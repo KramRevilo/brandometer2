@@ -80,6 +80,9 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('roles/secretmanager.secretAccessor', script)
     self.assertIn('roles/bigquery.dataEditor', script)
     self.assertIn('roles/datastore.viewer', script)
+    self.assertIn('roles/cloudbuild.builds.builder', script)
+    self.assertIn('roles/artifactregistry.createOnPushWriter', script)
+    self.assertIn('roles/storage.objectAdmin', script)
     self.assertIn('brandometer-receiver', script)
     self.assertIn('--max-instances=20', script)
     self.assertIn('--timeout=60s', script)
@@ -178,6 +181,26 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('gcloud iam service-accounts describe', script)
     self.assertIn('gcloud secrets create', script)
     self.assertIn('gcloud secrets versions add', script)
+    self.assertIn('gcloud storage buckets add-iam-policy-binding', script)
+
+  def test_deploy_grants_gae_cloud_build_roles_on_app_only(self):
+    script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()
+    self.assertIn('grant_gae_build_roles()', script)
+    self.assertIn('grant_bucket_object_admin()', script)
+    self.assertIn('roles/cloudbuild.builds.builder', script)
+    self.assertIn('roles/artifactregistry.createOnPushWriter', script)
+    self.assertIn('roles/storage.objectAdmin', script)
+    self.assertIn('gcloud storage buckets describe', script)
+    self.assertIn('gcloud storage buckets add-iam-policy-binding', script)
+    self.assertIn('gs://staging.${PROJECT_ID}.appspot.com', script)
+    self.assertIn('gs://${PROJECT_ID}.appspot.com', script)
+    self.assertIn('does not exist (skipping IAM)', script)
+    self.assertIn('retry_gcloud gcloud storage buckets add-iam-policy-binding', script)
+    call_at = script.rindex('\ngrant_gae_build_roles\n')
+    self.assertGreater(call_at, script.index('Set up App Engine'))
+    self.assertGreater(
+        script.index('Set up App Engine'),
+        script.index('-- Deploy Cloud Function'))
 
   def test_retry_gcloud_succeeds_after_failures_and_times_out(self):
     script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()

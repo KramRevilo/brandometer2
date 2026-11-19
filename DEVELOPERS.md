@@ -107,13 +107,23 @@ gcloud functions deploy receiver \
   --set-secrets RECEIVER_HMAC_SECRET=brandometer-receiver-hmac:latest,IP_HMAC_SECRET=brandometer-ip-hmac:latest
 ```
 
-**App Engine service account IAM.** `./deploy` grants the default App Engine SA (`$PROJECT_ID@appspot.gserviceaccount.com`) least privilege and **removes** `roles/editor` if it was bound:
+**App Engine service account IAM.** `./deploy` grants the default App Engine SA (`$PROJECT_ID@appspot.gserviceaccount.com`) least privilege and **removes** `roles/editor` if it was bound. The same grants run on `--app-only`.
+
+Runtime:
 
 * `roles/datastore.user` (Firestore reads/writes)
 * `roles/bigquery.jobUser` (run queries)
 * `roles/bigquery.dataEditor` on the `responses` dataset (falls back to the project role if dataset IAM is unavailable)
 * `roles/logging.logWriter`
 * `roles/secretmanager.secretAccessor` (plus per-secret accessor bindings)
+
+`gcloud app deploy` Cloud Build (the default GAE SA is the build identity after Editor is removed):
+
+* `roles/cloudbuild.builds.builder` (project)
+* `roles/artifactregistry.createOnPushWriter` (project; first push can create the `gcr.io` Artifact Registry repo)
+* `roles/storage.objectAdmin` on `gs://staging.$PROJECT_ID.appspot.com` and `gs://$PROJECT_ID.appspot.com` if those buckets exist (skipped if not). This is the tight form of the [App Engine deploy troubleshooting](https://cloud.google.com/appengine/docs/standard/troubleshooter/deployment) “invalid bucket staging.….appspot.com; service account … does not have access” fix (that page suggests project-level `roles/storage.admin`; we scope objectAdmin to the App Engine buckets instead).
+
+`--condition=None` on every IAM binding. If a previous run removed Editor before these build roles existed, rerun `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
 
 The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), dataset `roles/bigquery.dataEditor`, and `roles/logging.logWriter`. It does **not** create BigQuery tables at runtime.
 

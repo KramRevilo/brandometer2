@@ -131,6 +131,33 @@ grant_project_role() {
         --condition=None >/dev/null
 }
 
+# Bucket-level objectAdmin for App Engine Cloud Build staging. Skip if the
+# bucket has not been created yet (first deploy may create it).
+grant_bucket_object_admin() {
+    bucket="$1"
+    member="$2"
+    if gcloud storage buckets describe "$bucket" >/dev/null 2>&1; then
+        echo "Granting roles/storage.objectAdmin on $bucket to $member"
+        retry_gcloud gcloud storage buckets add-iam-policy-binding "$bucket" \
+            --member="$member" \
+            --role="roles/storage.objectAdmin" \
+            --condition=None >/dev/null
+    else
+        echo "Bucket $bucket does not exist (skipping IAM)"
+    fi
+}
+
+# App Engine standard Cloud Build runs as the default GAE SA. These replace
+# roles/editor for gcloud app deploy (staging bucket + Artifact Registry).
+grant_gae_build_roles() {
+    member="serviceAccount:$GAE_SA"
+    echo "Granting App Engine Cloud Build roles to $GAE_SA"
+    grant_project_role "$member" "roles/cloudbuild.builds.builder"
+    grant_project_role "$member" "roles/artifactregistry.createOnPushWriter"
+    grant_bucket_object_admin "gs://staging.${PROJECT_ID}.appspot.com" "$member"
+    grant_bucket_object_admin "gs://${PROJECT_ID}.appspot.com" "$member"
+}
+
 dataset_member_email() {
     email="$1"
     case "$email" in
@@ -510,6 +537,7 @@ grant_project_role "serviceAccount:$GAE_SA" "roles/datastore.user"
 grant_project_role "serviceAccount:$GAE_SA" "roles/bigquery.jobUser"
 grant_project_role "serviceAccount:$GAE_SA" "roles/logging.logWriter"
 grant_project_role "serviceAccount:$GAE_SA" "roles/secretmanager.secretAccessor"
+grant_gae_build_roles
 grant_dataset_editor "serviceAccount:$GAE_SA"
 # HMAC secrets were created before App Engine existed; bind GAE now.
 bind_secret_member brandometer-receiver-hmac "serviceAccount:$GAE_SA"
