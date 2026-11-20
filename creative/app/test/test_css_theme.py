@@ -76,8 +76,22 @@ class CssThemeTest(unittest.TestCase):
     block = css_theme.generate_theme_block({
         'bg_image': 'javascript:alert(1)'
     })
-    self.assertIn('--sonar-bg-image: none;', block)
+    self.assertIn('--bv2-bg-image: none;', block)
     self.assertNotIn('javascript:', block)
+
+  def test_generated_theme_uses_bv2_variables_and_sentinels(self):
+    block = css_theme.generate_theme_block(css_theme.DEFAULT_THEME)
+    self.assertTrue(block.startswith(css_theme.THEME_START))
+    self.assertIn('/* BV2_THEME_START */', block)
+    self.assertIn('/* BV2_THEME_END */', block)
+    for name in (
+        '--bv2-bg:', '--bv2-question-color:', '--bv2-answer-bg:',
+        '--bv2-answer-color:', '--bv2-font-family:', '--bv2-font-size:',
+        '--bv2-bg-image:', '--bv2-bg-pattern:', '--bv2-bg-pattern-size:',
+        '--bv2-panel:', '--bv2-accent:',
+        'var(--bv2-bg)', 'var(--bv2-accent)',
+    ):
+      self.assertIn(name, block)
 
   def test_normalize_named_and_rgb_colors(self):
     self.assertEqual(css_theme.normalize_color('white'), '#ffffff')
@@ -105,3 +119,6 @@ class CssThemeTest(unittest.TestCase):
     self.assertIn("['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h']", source)
     self.assertIn('syncNextTargets', source)
     self.assertIn('End survey', source)
+    self.assertIn('/* BV2_THEME_START */', source)
+    self.assertIn('--bv2-bg:', source)
+    self.assertIn('var(--bv2-accent)', source)

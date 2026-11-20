@@ -25,6 +25,7 @@ from wsgiref.simple_server import make_server
 
 from flask import render_template as flask_render_template
 
+import css_theme
 import main
 import survey_service
 
@@ -206,6 +207,125 @@ class ThankyouBrowserTest(unittest.TestCase):
               'Content-Security-Policy', '')
           self.assertIn("script-src 'self' 'unsafe-inline'", csp)
           self._click_through(page, 1)
+          browser.close()
+    finally:
+      server.shutdown()
+      main.app.config['AUTH_BYPASS'] = False
+      main.app.config['WTF_CSRF_ENABLED'] = True
+
+  def test_themed_preview_and_zip_use_bv2_colours_then_thank_you(self):
+    sync_playwright = _playwright_or_skip()
+    theme = dict(css_theme.DEFAULT_THEME)
+    theme.update({
+        'bg': '#1122aa',
+        'answer_bg': '#ffcc00',
+        'question_color': '#ffffff',
+        'answer_color': '#111111',
+        'accent': '#ffcc00',
+        'panel': 'rgba(0, 0, 0, 0.35)',
+    })
+    survey = _survey(extra={'custom_css': css_theme.combine_css(theme, '')})
+    zip_html = _html(survey, receiver_url='')
+    self.assertIn('--bv2-bg: #1122aa', zip_html)
+    self.assertIn('BV2_THEME_START', zip_html)
+    self.assertIn('var(--bv2-bg)', zip_html)
+
+    class Doc(object):
+      id = 'sid'
+      exists = True
+      def to_dict(self):
+        return survey
+      def get(self, key, default=None):
+        return survey.get(key, default)
+
+    main.app.config['AUTH_BYPASS'] = True
+    main.app.config['WTF_CSRF_ENABLED'] = False
+    server = make_server('127.0.0.1', 0, main.app)
+    port = server.server_port
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    artifacts = '/opt/cursor/artifacts'
+    os.makedirs(artifacts, exist_ok=True)
+    try:
+      with tempfile.TemporaryDirectory() as tmp:
+        zip_path = os.path.join(tmp, 'themed-zip.html')
+        with open(zip_path, 'w', encoding='utf-8') as handle:
+          handle.write(zip_html)
+        with mock.patch.object(
+            survey_service, 'get_doc_by_id', return_value=Doc()):
+          with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto('http://127.0.0.1:%s/survey/preview/sid' % port)
+            rgb = page.evaluate(
+                "getComputedStyle(document.getElementById('master_container'))"
+                ".backgroundColor")
+            self.assertEqual(rgb, 'rgb(17, 34, 170)')
+            answer = page.evaluate(
+                "getComputedStyle(document.querySelector('.Abox'))"
+                ".backgroundColor")
+            self.assertEqual(answer, 'rgb(255, 204, 0)')
+            token = page.evaluate(
+                "getComputedStyle(document.documentElement)"
+                ".getPropertyValue('--bv2-bg').trim()")
+            self.assertEqual(token, '#1122aa')
+            page.screenshot(path=os.path.join(
+                artifacts, 'theme-preview-bv2-colours.png'))
+            self._click_through(page, 1)
+            page.close()
+
+            zip_page = browser.new_page()
+            zip_page.goto('file://' + zip_path)
+            zip_rgb = zip_page.evaluate(
+                "getComputedStyle(document.getElementById('master_container'))"
+                ".backgroundColor")
+            self.assertEqual(zip_rgb, 'rgb(17, 34, 170)')
+            png = self._click_through(zip_page, 1)
+            with open(os.path.join(
+                artifacts, 'theme-zip-thank-you.png'), 'wb') as handle:
+              handle.write(png)
+            zip_page.close()
+            browser.close()
+    finally:
+      server.shutdown()
+      main.app.config['AUTH_BYPASS'] = False
+      main.app.config['WTF_CSRF_ENABLED'] = True
+
+  def test_editor_live_preview_applies_bv2_theme(self):
+    sync_playwright = _playwright_or_skip()
+    main.app.config['AUTH_BYPASS'] = True
+    main.app.config['WTF_CSRF_ENABLED'] = False
+    server = make_server('127.0.0.1', 0, main.app)
+    port = server.server_port
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    artifacts = '/opt/cursor/artifacts'
+    os.makedirs(artifacts, exist_ok=True)
+    try:
+      with mock.patch.object(
+          survey_service, 'identity_suggestions',
+          return_value={'clients': [], 'agencies': []}):
+        with sync_playwright() as playwright:
+          browser = playwright.chromium.launch(headless=True)
+          page = browser.new_page()
+          page.goto('http://127.0.0.1:%s/survey/create' % port)
+          page.wait_for_selector('iframe.preview-frame')
+          page.wait_for_timeout(400)
+          rgb = page.evaluate("""() => {
+            const iframe = document.querySelector('iframe.preview-frame');
+            const doc = iframe && iframe.contentDocument;
+            const el = doc && doc.getElementById('master_container');
+            return el ? getComputedStyle(el).backgroundColor : '';
+          }""")
+          self.assertEqual(rgb, 'rgb(0, 128, 0)')
+          srcdoc = page.evaluate(
+              "document.querySelector('iframe.preview-frame').srcdoc || ''")
+          self.assertIn('--bv2-bg', srcdoc)
+          self.assertIn('BV2_THEME_START', srcdoc)
+          frame = page.locator('iframe.preview-frame')
+          frame.scroll_into_view_if_needed()
+          frame.screenshot(path=os.path.join(
+              artifacts, 'theme-editor-live-preview.png'))
           browser.close()
     finally:
       server.shutdown()

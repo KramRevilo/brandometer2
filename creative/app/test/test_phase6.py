@@ -79,7 +79,8 @@ class SizeCatalogTest(unittest.TestCase):
   def test_layout_fix_overrides_fixed_atext_height(self):
     css = creative_size.apply_overlay(
         '.AText { height: 27px; line-height: 27px; }', '300x250')
-    self.assertIn('SONAR_LAYOUT_START', css)
+    self.assertIn('BV2_LAYOUT_START', css)
+    self.assertIn('var(--bv2-panel', css)
     self.assertGreater(css.rfind('height: auto !important'), css.find('height: 27px'))
     self.assertIn('overflow-wrap: anywhere', css)
     self.assertIn('word-break: break-word', css)
@@ -122,7 +123,9 @@ class ZipAndHtmlTest(unittest.TestCase):
       self.assertIn('brand-badge', html)
       self.assertIn('Survey Type Brandometer2 Ad - powered by Google', html)
       self.assertIn('option_container_7', html)
-      self.assertIn('SONAR_LAYOUT_START', html)
+      self.assertIn('BV2_LAYOUT_START', html)
+      self.assertIn('BV2_SIZE_START', html)
+      self.assertIn('var(--bv2-panel', html)
       self.assertLess(len(inner_bytes), 5 * 1024 * 1024)
 
   def test_html_includes_badge_and_eight_slots(self):
@@ -185,8 +188,8 @@ class PresetAndBrandTest(unittest.TestCase):
         'font_family': 'Arial, sans-serif',
         'font_size': '13px',
     })
-    self.assertIn('--sonar-bg-pattern:', block)
-    self.assertIn('--sonar-panel:', block)
+    self.assertIn('--bv2-bg-pattern:', block)
+    self.assertIn('--bv2-panel:', block)
     self.assertNotIn('url(', hazard['bg_pattern'])
 
   def test_brand_name_env_and_badge_letter(self):

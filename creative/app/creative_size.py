@@ -15,10 +15,10 @@
 import re
 
 DEFAULT_SIZE = '300x250'
-SIZE_START = '/* SONAR_SIZE_START */'
-SIZE_END = '/* SONAR_SIZE_END */'
-LAYOUT_START = '/* SONAR_LAYOUT_START */'
-LAYOUT_END = '/* SONAR_LAYOUT_END */'
+SIZE_START = '/* BV2_SIZE_START */'
+SIZE_END = '/* BV2_SIZE_END */'
+LAYOUT_START = '/* BV2_LAYOUT_START */'
+LAYOUT_END = '/* BV2_LAYOUT_END */'
 INNER_ZIP_NAME_MAX = 50
 MAX_ANSWERS_DEFAULT = 5
 MAX_ANSWERS_TALL = 8
@@ -255,7 +255,7 @@ def layout_fix_css():
       '  max-width: 100%;',
       '  height: auto;',
       '  min-height: 36px;',
-      '  background-color: var(--sonar-panel, rgba(0, 0, 0, 0.35));',
+      '  background-color: var(--bv2-panel, rgba(0, 0, 0, 0.35));',
       '}',
       '.answers-grid {',
       '  width: 100%;',

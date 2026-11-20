@@ -14,8 +14,8 @@
 """Parse and generate the theme block stored in custom_css."""
 import re
 
-THEME_START = '/* SONAR_THEME_START */'
-THEME_END = '/* SONAR_THEME_END */'
+THEME_START = '/* BV2_THEME_START */'
+THEME_END = '/* BV2_THEME_END */'
 
 FONT_CHOICES = [
     ("'Open Sans', sans-serif", 'Open Sans'),
@@ -247,42 +247,42 @@ def generate_theme_block(theme):
   return '\n'.join([
       THEME_START,
       ':root {',
-      '  --sonar-bg: %s;' % t['bg'],
-      '  --sonar-question-color: %s;' % t['question_color'],
-      '  --sonar-answer-bg: %s;' % t['answer_bg'],
-      '  --sonar-answer-color: %s;' % t['answer_color'],
-      '  --sonar-font-family: %s;' % t['font_family'],
-      '  --sonar-font-size: %s;' % t['font_size'],
-      '  --sonar-bg-image: %s;' % image_value,
-      '  --sonar-bg-pattern: %s;' % pattern_value,
-      '  --sonar-bg-pattern-size: %s;' % pattern_size,
-      '  --sonar-panel: %s;' % panel,
-      '  --sonar-accent: %s;' % accent,
+      '  --bv2-bg: %s;' % t['bg'],
+      '  --bv2-question-color: %s;' % t['question_color'],
+      '  --bv2-answer-bg: %s;' % t['answer_bg'],
+      '  --bv2-answer-color: %s;' % t['answer_color'],
+      '  --bv2-font-family: %s;' % t['font_family'],
+      '  --bv2-font-size: %s;' % t['font_size'],
+      '  --bv2-bg-image: %s;' % image_value,
+      '  --bv2-bg-pattern: %s;' % pattern_value,
+      '  --bv2-bg-pattern-size: %s;' % pattern_size,
+      '  --bv2-panel: %s;' % panel,
+      '  --bv2-accent: %s;' % accent,
       '}',
       '#master_container {',
-      '  background-color: var(--sonar-bg);',
-      '  background-image: var(--sonar-bg-image), var(--sonar-bg-pattern);',
-      '  background-size: cover, var(--sonar-bg-pattern-size);',
+      '  background-color: var(--bv2-bg);',
+      '  background-image: var(--bv2-bg-image), var(--bv2-bg-pattern);',
+      '  background-size: cover, var(--bv2-bg-pattern-size);',
       '  background-position: center, 0 0;',
       '}',
       '.Qbox {',
-      '  color: var(--sonar-question-color);',
-      '  font-family: var(--sonar-font-family);',
-      '  font-size: var(--sonar-font-size);',
-      '  background-color: var(--sonar-panel);',
+      '  color: var(--bv2-question-color);',
+      '  font-family: var(--bv2-font-family);',
+      '  font-size: var(--bv2-font-size);',
+      '  background-color: var(--bv2-panel);',
       '}',
       '.Abox {',
-      '  background-color: var(--sonar-answer-bg);',
+      '  background-color: var(--bv2-answer-bg);',
       '}',
       '.AText, #next_button {',
-      '  color: var(--sonar-answer-color);',
-      '  font-family: var(--sonar-font-family);',
+      '  color: var(--bv2-answer-color);',
+      '  font-family: var(--bv2-font-family);',
       '}',
       '.AText {',
-      '  font-size: var(--sonar-font-size);',
+      '  font-size: var(--bv2-font-size);',
       '}',
       '#next_button {',
-      '  background-color: var(--sonar-accent);',
+      '  background-color: var(--bv2-accent);',
       '}',
       THEME_END,
   ])
@@ -298,7 +298,7 @@ def combine_css(theme, extra_css):
 
 def _var(block, name):
   match = re.search(
-      r'--sonar-' + re.escape(name) + r'\s*:\s*([^;]+);', block)
+      r'--bv2-' + re.escape(name) + r'\s*:\s*([^;]+);', block)
   if not match:
     return None
   return match.group(1).strip()

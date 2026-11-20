@@ -2,8 +2,8 @@
 (function (window) {
   'use strict';
 
-  var THEME_START = '/* SONAR_THEME_START */';
-  var THEME_END = '/* SONAR_THEME_END */';
+  var THEME_START = '/* BV2_THEME_START */';
+  var THEME_END = '/* BV2_THEME_END */';
 
   function escapeHtml(value) {
     return String(value == null ? '' : value)
@@ -77,42 +77,42 @@
     return [
       THEME_START,
       ':root {',
-      '  --sonar-bg: ' + theme.bg + ';',
-      '  --sonar-question-color: ' + theme.questionColor + ';',
-      '  --sonar-answer-bg: ' + theme.answerBg + ';',
-      '  --sonar-answer-color: ' + theme.answerColor + ';',
-      '  --sonar-font-family: ' + theme.fontFamily + ';',
-      '  --sonar-font-size: ' + theme.fontSize + ';',
-      '  --sonar-bg-image: ' + imageValue + ';',
-      '  --sonar-bg-pattern: ' + pattern + ';',
-      '  --sonar-bg-pattern-size: ' + patternSize + ';',
-      '  --sonar-panel: ' + panel + ';',
-      '  --sonar-accent: ' + accent + ';',
+      '  --bv2-bg: ' + theme.bg + ';',
+      '  --bv2-question-color: ' + theme.questionColor + ';',
+      '  --bv2-answer-bg: ' + theme.answerBg + ';',
+      '  --bv2-answer-color: ' + theme.answerColor + ';',
+      '  --bv2-font-family: ' + theme.fontFamily + ';',
+      '  --bv2-font-size: ' + theme.fontSize + ';',
+      '  --bv2-bg-image: ' + imageValue + ';',
+      '  --bv2-bg-pattern: ' + pattern + ';',
+      '  --bv2-bg-pattern-size: ' + patternSize + ';',
+      '  --bv2-panel: ' + panel + ';',
+      '  --bv2-accent: ' + accent + ';',
       '}',
       '#master_container {',
-      '  background-color: var(--sonar-bg);',
-      '  background-image: var(--sonar-bg-image), var(--sonar-bg-pattern);',
-      '  background-size: cover, var(--sonar-bg-pattern-size);',
+      '  background-color: var(--bv2-bg);',
+      '  background-image: var(--bv2-bg-image), var(--bv2-bg-pattern);',
+      '  background-size: cover, var(--bv2-bg-pattern-size);',
       '  background-position: center, 0 0;',
       '}',
       '.Qbox {',
-      '  color: var(--sonar-question-color);',
-      '  font-family: var(--sonar-font-family);',
-      '  font-size: var(--sonar-font-size);',
-      '  background-color: var(--sonar-panel);',
+      '  color: var(--bv2-question-color);',
+      '  font-family: var(--bv2-font-family);',
+      '  font-size: var(--bv2-font-size);',
+      '  background-color: var(--bv2-panel);',
       '}',
       '.Abox {',
-      '  background-color: var(--sonar-answer-bg);',
+      '  background-color: var(--bv2-answer-bg);',
       '}',
       '.AText, #next_button {',
-      '  color: var(--sonar-answer-color);',
-      '  font-family: var(--sonar-font-family);',
+      '  color: var(--bv2-answer-color);',
+      '  font-family: var(--bv2-font-family);',
       '}',
       '.AText {',
-      '  font-size: var(--sonar-font-size);',
+      '  font-size: var(--bv2-font-size);',
       '}',
       '#next_button {',
-      '  background-color: var(--sonar-accent);',
+      '  background-color: var(--bv2-accent);',
       '}',
       THEME_END
     ].join('\n');
