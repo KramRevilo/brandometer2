@@ -213,7 +213,7 @@ Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Pr
 
 Homepage **Copy / Archive / Delete** are POST forms with Flask-WTF CSRF (confirm still runs on delete). Stats cells stay GET `/index/stats-partial` (no CSRF). htmx non-GET requests send `X-CSRFToken` from the page meta tag. Saving a survey that someone else already saved returns **409** with “Someone else saved this survey, reload” (Firestore `last_update_time` precondition). Version numbers are assigned transactionally via `Surveys/{id}/versions/_seq`.
 
-Homepage: archived surveys are hidden unless you click **Show archived**. Copy opens the new survey in the editor. The stats button and `/survey/reporting/...` work for **Brand Lift and Brand Track**, including size/placement/creative/version/date/segment breakouts and a breakouts CSV. Preview does not write to BigQuery (empty `receiver_url`); generate test rows with curl against the receiver as in [Generate test responses](#generate-test-responses).
+Homepage: archived surveys are hidden unless you click **Show archived**. Copy opens the new survey in the editor. The stats button and `/survey/reporting/...` work for **Brand Lift and Brand Track**, including size/placement/site/creative/version/date/segment breakouts and a breakouts CSV. Preview does not write to BigQuery (empty `receiver_url`); generate test rows with curl against the receiver as in [Generate test responses](#generate-test-responses).
 
 **Counts treat each COALESCE(RespondentID, BomID) as one respondent** (latest, most complete cumulative `Response`). Surveys set to submit after each question used to be counted once per question; those homepage and report numbers will drop. Submit-at-end rows with a blank BomID and no RespondentID stay as individual respondents.
 
@@ -225,7 +225,7 @@ Reporting (parameterized `WHERE ID = @survey_id`):
 * Empty states when there is no data, no control, or no exposed segment
 * CSV downloads stream in chunks after the same consolidation (not one in-memory string)
 
-Segment roles come from the stored `seg` value (`control` / `expos` in the string). Creatives still zip as `default_control` / `default_expose` for Brand Lift.
+Segment roles come from the stored `seg` value (`control` / `expos` in the string). Brand Lift zips two copies of the **same** survey per size (`default_control` / `default_expose`); the app does not generate a PSA or house ad. Extra placements or DV360 line items are only for placement/site breakouts or a later cost join — not required to compute overall lift.
 
 Status chips: **Active** up to 3 days since last response, **Stale** up to 7 days, **Timed out** after 7. (Previously Stale ran through 14 days.) Thresholds are `STATUS_ACTIVE_DAYS` / `STATUS_STALE_DAYS` in `creative/app/survey_service.py`.
 
@@ -466,7 +466,7 @@ Existing 300×250 four-answer surveys should look the same until you change them
 
 2. **Sheet / CSV upload.** Columns such as date, campaign_id or placement_id, impressions, cost. Parse in Flask and store in BigQuery or a Firestore subcollection, same join. Faster to prototype, manual, no daily refresh, easy to get IDs wrong.
 
-Join: each BOM cut is usually one CM placement (and one DV360 line item). **Placement ID** is the precise key; **campaign ID** is enough only when a survey maps 1:1 to a campaign. Both optional fields are on Identity, shown on the report/tag sheet, sent on the pixel when macros do not expand, and stored on the response row when the ad server expands them. A cost/impressions dashboard is still not built.
+Join key if you add a cost dashboard later: **Placement ID** is the precise join; **campaign ID** is enough only when a survey maps 1:1 to a campaign. Extra placements or DV360 line items are **not** required for Brand Lift control vs expose (that is the baked `seg` on two copies of the survey). Use extra placements when you want placement- or site-level breakouts or a cost join. Both optional Identity fields show on the report/tag sheet, go on the pixel when macros do not expand, and are stored on the row when the ad server expands them. A cost/impressions dashboard is still not built.
 
 Effort: the dashboard (join quality, unmatched IDs, currency, a cost table next to Brand Lift) is a later phase of its own. A sheet upload is the smaller stopgap. The Data Transfer path is larger but is what you want if this will be used weekly. Redeploy is not required for the placeholder ID fields until you want them in production editor.
 
@@ -489,7 +489,7 @@ Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --p
 4. Download zip with two sizes: outer zip contains two inner zips; each inner has only `index.html`, `ad.size` matching that size, a **B** badge bottom-left. Hover/tap the badge for the tooltip. Inner filenames ≤ 50 chars.
 5. **Disclosure badge.** Create survey: Icon picker shows B / B2 / Ad / Dentsu. Default B looks like the current bevelled letter. Pick **Dentsu** and 160×600 — the wordmark is a small pill, not overlapping answers. Change popup text; preview updates immediately. **Use default** restores the `Survey Type Brandometer2 Ad - powered by Google` string. Leave text blank and save — creative still uses that default. Copy the survey; badge choices come along.
 6. Homepage speed: the survey table should appear immediately with **Loading…** in count/last/status; those cells fill in after `/index/stats-partial` (check Network: `/index` returns before the stats request). Flask debug log lines `index.request_ms` (bq=deferred) and `stats.bq_ms`.
-7. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips, one placement per size. Assign Brand Lift control/expose creatives to the matching audience ads. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
+7. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips. Brand Lift is two copies of the same survey per size (`default_control` / `default_expose`) — assign those to Control vs Expose **audiences**, not a PSA. One placement per size with two ads is enough for overall lift. Extra placements/line items are only for breakouts or a cost join. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
 
 # CM360 batch upload (Phase 6)
 
@@ -497,7 +497,7 @@ Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --p
 2. Unzip the **outer** archive on your machine. You should see one `.zip` per size (Brand Lift: two per size, `default_control` and `default_expose`).
 3. In Campaign Manager 360 → Creatives → **New** → **Display** → upload each **inner** zip as HTML5. The `ad.size` meta inside `index.html` must match the placement.
 4. Do not put a zip inside a zip when uploading; each inner file is already a legal HTML5 creative (`index.html` only).
-5. Brand Lift: assign `…_default_control.zip` to the Control ad and `…_default_expose.zip` to the Expose ad, same as before.
+5. Brand Lift: assign `…_default_control.zip` to the Control audience ad and `…_default_expose.zip` to the Expose audience ad. Both files are the same survey labelled by `seg`. The app does not ship a PSA/house ad.
 
 Redeploy **App Engine** for Phase 6. Receiver redeploy is not required for sizes/answers (`Response` already stores `1:H`). Optional env: `APP_BRAND_NAME`, `APP_BRAND_BADGE_LETTER`, `APP_BRAND_BADGE_TOOLTIP`.
 
@@ -586,6 +586,7 @@ The report page **Breakouts** section (and `/survey/download_breakouts/<id>`) re
 
 * **Size** (`CreativeSize`)
 * **Placement** (`PlacementID`)
+* **Site** (`SiteID` — expanded ad-server site macro)
 * **Creative ID** (`AdCreativeID` — the expanded ad-server creative macro)
 * **Creative version** (`CreativeVersion` — zip snapshot number stamped as `ver=`)
 * **Date** (`CreatedAt` UTC day)

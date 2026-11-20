@@ -989,7 +989,7 @@ def download_responses_with_context(surveyid):
 
 
 def download_breakouts(surveyid, client=None):
-  """CSV of overall + per-slice lift / CIs (size, placement, creative, date, segment)."""
+  """CSV of overall + per-slice lift / CIs (size, placement, site, creative, date, segment)."""
   report = get_report(surveyid, client=client)
   return reporting.breakouts_to_csv(report)
 

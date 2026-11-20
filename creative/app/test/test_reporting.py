@@ -175,6 +175,7 @@ class BuildReportTest(unittest.TestCase):
         'BomID': ['c1', 'e1', 'c2', 'e2'],
         'CreativeSize': ['300x250', '300x250', '160x600', '160x600'],
         'PlacementID': ['p1', 'p1', 'p2', 'p2'],
+        'SiteID': ['site-a', 'site-a', 'site-b', 'site-b'],
         'AdCreativeID': ['cr-a', 'cr-a', 'cr-b', 'cr-b'],
     })
     survey = {
@@ -186,7 +187,10 @@ class BuildReportTest(unittest.TestCase):
     report = reporting.build_report(df, survey, is_lift=True)
     keys = [dim['key'] for dim in report['breakouts']]
     self.assertEqual(
-        keys, ['size', 'placement', 'creative', 'date', 'segment'])
+        keys, ['size', 'placement', 'site', 'creative', 'date', 'segment'])
+    site = [dim for dim in report['breakouts'] if dim['key'] == 'site'][0]
+    self.assertEqual(
+        [sl['value'] for sl in site['slices']], ['site-a', 'site-b'])
     size = [dim for dim in report['breakouts'] if dim['key'] == 'size'][0]
     self.assertEqual([sl['value'] for sl in size['slices']], ['160x600', '300x250'])
     by_size = {sl['value']: sl for sl in size['slices']}
@@ -211,6 +215,7 @@ class BuildReportTest(unittest.TestCase):
         'BomID': ['c1', 'e1'],
         'CreativeSize': ['300x250', '300x250'],
         'PlacementID': ['', ''],
+        'SiteID': ['', ''],
         'AdCreativeID': [None, ''],
     })
     report = reporting.build_report(
@@ -219,6 +224,7 @@ class BuildReportTest(unittest.TestCase):
     self.assertIn('size', keys)
     self.assertIn('date', keys)
     self.assertNotIn('placement', keys)
+    self.assertNotIn('site', keys)
     self.assertNotIn('creative', keys)
 
   def test_breakouts_creative_version_unknown_label(self):

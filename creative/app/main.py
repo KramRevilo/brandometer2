@@ -450,7 +450,7 @@ def download_responses_context(survey_id):
 
 @app.route('/survey/download_breakouts/<string:survey_id>', methods=['GET'])
 def download_breakouts(survey_id):
-  """Download size/placement/creative/date/segment lift breakouts as CSV."""
+  """Download size/placement/site/creative/date/segment lift breakouts as CSV."""
   return Response(
       survey_service.download_breakouts(survey_id),
       mimetype='text/csv',

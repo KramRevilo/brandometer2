@@ -113,7 +113,7 @@ The stats button works for **Brand Lift and Brand Track**.
 * Counts, reports, and CSV treat each **respondent** as one person: `COALESCE(RespondentID, BomID)` (latest, most complete `Response`). New creatives send a durable `rid` (hashed ad-server user macro when the ad server expands it, otherwise `localStorage` / `sessionStorage` for this survey, otherwise a per-impression UUID). Existing rows without `RespondentID` still collapse by BomID. Surveys that submit after each question show fewer people than raw BigQuery row counts.
 * Brand Lift: control vs exposed, Wilson 95% CIs, two-proportion z-test, warning when an arm has fewer than 30 respondents. Segments come from the stored `seg` value (`control` / `expos` in the string).
 * Brand Track: answer distributions and responses per day.
-* **Breakouts:** the report page slices the same lift / Wilson CIs / z-test by **size**, **placement**, **ad-server creative ID**, **zip snapshot version**, **date**, and **segment**. Dimensions that are blank on every row are omitted. Rows without `ver=` show as **Unknown / pre-version**. Download **Breakouts CSV** from the report or the homepage. Response CSV includes Size and Creative version.
+* **Breakouts:** the report page slices the same lift / Wilson CIs / z-test by **size**, **placement**, **site**, **ad-server creative ID**, **zip snapshot version**, **date**, and **segment**. Dimensions that are blank on every row are omitted. Rows without `ver=` show as **Unknown / pre-version**. Download **Breakouts CSV** from the report or the homepage. Response CSV includes Size and Creative version.
 * Three response CSVs: responses, responses with question text (both stream), and breakouts (one table of overall + slices).
 * **Looker Studio / BigQuery analysts:** `./deploy` creates dataset `brandometer_reporting` with authorized views `deduped_responses` (one row per respondent) and `survey_summaries`. Grant `READER` on that dataset only — not on `responses`. The report page has **Open in Looker Studio** (Looker Studio Linking API; each click starts a new report on the deduped view). Granting a user or group is documented in DEVELOPERS.md.
 
@@ -139,13 +139,12 @@ Preview **does not** post to BigQuery. To generate test rows, curl the receiver 
 
 ### Trafficking (CM360 / DV360)
 
-Still the way live studies run:
+Brand Lift **control and expose are two copies of the same survey creative** (same questions, size, and style). The only difference is a baked `seg` (`default_control` vs `default_expose`) sent on the pixel. Serve the control zip to a **Control** audience (people **not** exposed to the campaign) and the expose zip to an **Expose** audience (people who **were** exposed). Reporting classifies rows from that stored `seg` (`control` / `expos` in the string), not from placement ID. The app does **not** generate or require a PSA, house ad, pre-survey, master, or brand-neutral fallback creative.
 
-1. Match each CM/DV360 placement to a selected survey size.
-2. Brand Lift: Control and Expose audience segments, control creative on Control, expose survey on Expose, plus default / pre-survey / master ads as in a normal BOM cut.
-3. Brand Track: one creative (no control/expose split).
-4. Default ads should be brand-neutral (no brand names or logos).
-5. Assign CM creatives to DV360 line items; each BOM cut is its own placement / line item.
+1. Download the outer ZIP, unzip it, and upload each **inner** HTML5 zip in CM360 (not the outer file). Match each placement’s dimensions to a selected survey size.
+2. Brand Lift: **two inner zips per size**. Assign `…_default_control.zip` to the Control ad/audience and `…_default_expose.zip` to the Expose ad/audience. One placement per size with those two ads is enough for overall lift.
+3. Brand Track: **one inner zip per size** (no control/expose split).
+4. Extra CM360 placements or DV360 line items are only needed if you want **placement- or site-level breakouts** or a later **cost/impressions join**. Expanded macros (`plc`, `site`, `crid`, `camp`) are stored on the response when the ad server fills them.
 
 ## Security and access
 

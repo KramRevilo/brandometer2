@@ -116,6 +116,7 @@ def lift_ratio(p_expose, p_control):
 BREAKOUT_DIMS = (
     ('size', 'CreativeSize', 'Size'),
     ('placement', 'PlacementID', 'Placement'),
+    ('site', 'SiteID', 'Site'),
     ('creative', 'AdCreativeID', 'Creative ID'),
     ('version', 'CreativeVersion', 'Creative version'),
     ('date', '_date', 'Date'),

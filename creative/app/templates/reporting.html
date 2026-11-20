@@ -187,7 +187,7 @@
         <h2 class="h5">Breakouts</h2>
         <p class="small text-muted">
           Same answer rates{% if is_lift %} plus Wilson 95% CIs and two-proportion z-test{% endif %}
-          sliced by size, placement, ad-server creative ID, zip snapshot version, date, and segment.
+          sliced by size, placement, site, ad-server creative ID, zip snapshot version, date, and segment.
           Old rows without <code>ver=</code> show as Unknown / pre-version. Creative ID is still the trafficked ad-server creative.
           {% if is_lift %}Slices with only one lift arm omit lift. Small-n warnings use the same threshold (n &lt; {{ report.min_n }}).{% endif %}
         </p>

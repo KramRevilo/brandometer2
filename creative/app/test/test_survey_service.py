@@ -562,6 +562,7 @@ class TestSurveyService(unittest.TestCase):
         'BomID': ['c1', 'e1'],
         'CreativeSize': ['300x250', '300x250'],
         'PlacementID': ['p1', 'p1'],
+        'SiteID': ['pub-1', 'pub-1'],
         'AdCreativeID': ['cr1', 'cr1'],
     })
     raw_csv = survey_service.download_breakouts('sid-1')
@@ -571,6 +572,9 @@ class TestSurveyService(unittest.TestCase):
     size_rows = [row for row in rows if row['dimension'] == 'Size']
     self.assertTrue(size_rows)
     self.assertEqual(size_rows[0]['slice'], '300x250')
+    site_rows = [row for row in rows if row['dimension'] == 'Site']
+    self.assertTrue(site_rows)
+    self.assertEqual(site_rows[0]['slice'], 'pub-1')
     self.assertEqual(size_rows[0]['answer_id'], 'A')
     self.assertEqual(size_rows[0]['k_control'], '1')
     self.assertEqual(size_rows[0]['k_expose'], '1')
