@@ -124,7 +124,7 @@
   }
 
   window.surveyEditor = function surveyEditor() {
-    var boot = window.SONAR_EDITOR || { theme: {}, extra: '' };
+    var boot = window.BV2_EDITOR || { theme: {}, extra: '' };
     var theme = boot.theme || {};
     var bgParsed = namedOrHex(theme.bg) || { hex: '#008000', opacity: 1 };
     var answerParsed = namedOrHex(theme.answer_bg) || { hex: '#ffffff', opacity: 0.149 };

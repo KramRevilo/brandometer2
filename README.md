@@ -8,7 +8,7 @@ It is a fork of [Google Brandometer](https://github.com/google/brandometer) (Apa
 
 Screenshots below use **seeded sample surveys** (Acme, Northwind, Contoso) and generic example emails. They are not production data. Regenerate them with `python3 tools/capture_screenshots.py` (see [Screenshots](#screenshots)).
 
-**Docs stay in the same commit.** Every change in this repo must update this README in that same commit. Update [DEVELOPERS.md](DEVELOPERS.md) too when the change is operator- or developer-facing. See [AGENTS.md](AGENTS.md).
+**Docs stay in the same commit.** Every change in this repo must update this README in that same commit. Update [DEVELOPERS.md](DEVELOPERS.md) too when the change is operator- or developer-facing. See [AGENTS.md](AGENTS.md). Use only the Brandometer2 name; do not reference the previous fork's name in docs or UI.
 
 ## What’s new vs upstream
 
@@ -151,7 +151,7 @@ Still the way live studies run:
 
 Production is **Google Sign-In** (OIDC via Authlib). Identity-Aware Proxy is not used. Shared Basic Auth is retired. There is **no tenancy**: every allowed user sees every survey.
 
-The table is what changed versus upstream Brandometer / the old Sonar tree. Detail follows.
+The table is what changed versus upstream Brandometer. Detail follows.
 
 | Risk (old) | Fix (this version) | Where it is enforced |
 | --- | --- | --- |

@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""Parse and generate the Sonar theme block stored in custom_css."""
+"""Parse and generate the theme block stored in custom_css."""
 import re
 
 THEME_START = '/* SONAR_THEME_START */'
@@ -231,7 +231,7 @@ def _pattern_value(value):
 
 
 def generate_theme_block(theme):
-  """Return the SONAR_THEME block for picker values."""
+  """Return the theme block for picker values."""
   t = dict(DEFAULT_THEME)
   t.update(theme or {})
   image_value = _css_image_value(t.get('bg_image') or '')
@@ -417,7 +417,7 @@ def parse_legacy_theme(css):
 def parse_theme_css(css):
   """Split custom_css into picker theme values and leftover extra CSS.
 
-  Known SONAR_THEME values fill the pickers. Everything else, including
+  Known theme-block values fill the pickers. Everything else, including
   old free-form rules, is returned as extra so it is not dropped.
   """
   css = css or ''

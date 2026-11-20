@@ -479,14 +479,14 @@ if [ "$APP_ONLY" != 1 ]; then
         echo "Firestore Native database (default) already exists"
     elif echo "$DB_TYPE" | grep -qi 'DATASTORE'; then
         echo "ERROR: Cloud Firestore API is not available because (default) is in Datastore mode ($DB_TYPE)."
-        echo "Sonar needs Firestore Native. If that database is empty, switch it with:"
+        echo "Brandometer2 needs Firestore Native. If that database is empty, switch it with:"
         echo "  gcloud firestore databases delete --database='(default)'"
         echo "  gcloud firestore databases create --location=$LOCATION --type=firestore-native --database='(default)'"
         echo "See DEVELOPERS.md (Firestore Datastore mode)."
         exit 1
     else
         echo "ERROR: unexpected type for Firestore database (default): $DB_TYPE"
-        echo "Sonar needs --type=firestore-native."
+        echo "Brandometer2 needs --type=firestore-native."
         exit 1
     fi
 

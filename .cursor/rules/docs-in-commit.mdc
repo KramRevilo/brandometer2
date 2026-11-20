@@ -4,3 +4,5 @@ alwaysApply: true
 ---
 
 Every change in this repository must update README.md in the same commit so the docs stay current. Update DEVELOPERS.md in that commit too when the change is operator- or developer-facing (deploy, IAM, local run, tests, secrets, architecture). Do not ship product changes with stale docs.
+
+Use only the Brandometer2 name; do not reference the previous fork's name in docs or UI. Do not rename historical CSS comment sentinels or `--sonar-*` variables in stored `custom_css`.

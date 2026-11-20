@@ -210,7 +210,6 @@ class PresetAndBrandTest(unittest.TestCase):
         return_value={'clients': [], 'agencies': []}):
       response = client.get('/survey/create')
     self.assertIn(b'Brandometer', response.data)
-    self.assertNotIn(b'>Sonar</a>', response.data)
     self.assertIn(b'Sign out', response.data)
     self.assertIn(b'local-dev', response.data)
     self.assertIn(b'Admin', response.data)

@@ -162,6 +162,7 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('bq --format=prettyjson --quiet show --dataset', script)
     self.assertIn('bq --quiet update --source', script)
     self.assertIn('bq_dataset_iam.py', script)
+    self.assertIn('Brandometer2 needs Firestore Native', script)
     self.assertIn('ensure_respondent_columns()', script)
     self.assertIn('ensure_reporting_dataset()', script)
     self.assertIn('authorize_reporting_views()', script)
