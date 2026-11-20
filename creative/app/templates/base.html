@@ -11,6 +11,31 @@
   <style>
     body { background: #f4f6f8; }
     .navbar-brand { font-weight: 600; }
+    .navbar-nav { align-items: center; }
+    .navbar-nav .nav-link {
+      display: flex;
+      align-items: center;
+      padding-top: 0.4rem;
+      padding-bottom: 0.4rem;
+    }
+    .navbar-avatar,
+    .navbar-avatar-fallback {
+      width: 32px;
+      height: 32px;
+    }
+    .navbar-avatar { object-fit: cover; }
+    .navbar-avatar-fallback {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 50%;
+      background: #6c757d;
+      color: #fff;
+      font-weight: 600;
+      font-size: 0.875rem;
+      line-height: 1;
+      text-transform: uppercase;
+    }
     .table_header { vertical-align: middle; font-size: 0.8rem; text-align: center; }
   </style>
   {% block styles %}{% endblock %}
@@ -23,15 +48,28 @@
       <span class="navbar-toggler-icon"></span>
     </button>
     <div class="collapse navbar-collapse" id="navbarMain">
-      <ul class="navbar-nav ms-auto">
+      <ul class="navbar-nav ms-auto d-flex align-items-center">
         <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('create') }}">Create survey</a></li>
         {% if is_admin %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('admin') }}">Admin</a></li>
         {% endif %}
         {% if current_user %}
-        <li class="nav-item"><span class="navbar-text text-white-50 ms-lg-3">{{ current_user.email }}</span></li>
-        <li class="nav-item"><a class="nav-link" href="{{ url_for('logout') }}">Sign out</a></li>
+        <li class="nav-item dropdown ms-lg-2">
+          <a class="nav-link dropdown-toggle d-flex align-items-center py-1" href="#" id="userMenu" role="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="{{ current_user.label }}" title="{{ current_user.label }}">
+            {% if current_user.picture %}
+            <img src="{{ current_user.picture }}" alt="" width="32" height="32" class="navbar-avatar rounded-circle" referrerpolicy="no-referrer">
+            <span class="navbar-avatar-fallback d-none" aria-hidden="true">{{ current_user.initial }}</span>
+            {% else %}
+            <span class="navbar-avatar-fallback" aria-hidden="true">{{ current_user.initial }}</span>
+            {% endif %}
+          </a>
+          <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
+            <li><span class="dropdown-item-text text-muted">{{ current_user.email }}</span></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><a class="dropdown-item" href="{{ url_for('logout') }}">Sign out</a></li>
+          </ul>
+        </li>
         {% endif %}
       </ul>
     </div>
@@ -53,6 +91,7 @@
 {% block content %}{% endblock %}
 <script src="{{ url_for('static', filename='vendor/bootstrap.bundle.min.js') }}"></script>
 <script src="{{ url_for('static', filename='vendor/htmx.min.js') }}"></script>
+<script src="{{ url_for('static', filename='navbar-avatar.js') }}"></script>
 <script>
   document.body.addEventListener('htmx:configRequest', function (evt) {
     var verb = (evt.detail.verb || 'get').toUpperCase();

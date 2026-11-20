@@ -39,6 +39,36 @@ PUBLIC_ENDPOINTS = frozenset({
 })
 
 
+def picture_url(value):
+  """HTTPS photo URL from Google userinfo, or empty. Existing sessions omit it."""
+  url = (value or '').strip()
+  if url.startswith('https://'):
+    return url
+  return ''
+
+
+def avatar_initial(user):
+  """First letter of name, else email, else '?'."""
+  if not user:
+    return '?'
+  for source in (user.get('name'), user.get('email')):
+    text = (source or '').strip()
+    if text:
+      return text[0].upper()
+  return '?'
+
+
+def avatar_label(user):
+  """Accessible name for the navbar avatar control."""
+  if not user:
+    return ''
+  email = (user.get('email') or '').strip()
+  name = (user.get('name') or '').strip()
+  if name and email and name != email:
+    return '%s (%s)' % (name, email)
+  return name or email
+
+
 def current_user():
   """Signed-in user dict, a local-dev admin when AUTH_BYPASS, or None."""
   try:
@@ -48,24 +78,34 @@ def current_user():
   if bypass:
     name = 'Local dev'
     role = 'admin'
+    picture = ''
     if has_request_context():
       name = session.get('user_name') or name
       role = session.get('user_role') or role
-    return {
+      picture = picture_url(session.get('user_picture'))
+    user = {
         'email': access.actor_email(),
         'name': name,
         'role': role,
+        'picture': picture,
     }
+    user['initial'] = avatar_initial(user)
+    user['label'] = avatar_label(user)
+    return user
   if not has_request_context():
     return None
   email = session.get('user_email')
   if not email:
     return None
-  return {
+  user = {
       'email': email,
       'name': session.get('user_name') or email,
       'role': session.get('user_role') or 'editor',
+      'picture': picture_url(session.get('user_picture')),
   }
+  user['initial'] = avatar_initial(user)
+  user['label'] = avatar_label(user)
+  return user
 
 
 def is_admin():
@@ -95,6 +135,7 @@ def accept_google_identity(userinfo, environ=None):
       'name': (info.get('name') or email).strip(),
       'role': role,
       'hd': hd or '',
+      'picture': picture_url(info.get('picture')),
   }, None
 
 
@@ -102,6 +143,11 @@ def _store_user(user):
   session['user_email'] = user['email']
   session['user_name'] = user.get('name') or user['email']
   session['user_role'] = user['role']
+  picture = picture_url(user.get('picture'))
+  if picture:
+    session['user_picture'] = picture
+  else:
+    session.pop('user_picture', None)
   session.permanent = True
 
 
@@ -109,6 +155,7 @@ def _clear_user():
   session.pop('user_email', None)
   session.pop('user_name', None)
   session.pop('user_role', None)
+  session.pop('user_picture', None)
   session.pop('next', None)
 
 

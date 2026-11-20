@@ -70,11 +70,13 @@ class AuthAndRedirectTest(unittest.TestCase):
       sess['user_email'] = 'editor@example.com'
       sess['user_role'] = 'editor'
       sess['user_name'] = 'Ed'
+      sess['user_picture'] = 'https://lh3.googleusercontent.com/a/old'
     response = client.get('/logout', follow_redirects=False)
     self.assertEqual(response.status_code, 302)
     self.assertTrue(response.headers['Location'].endswith('/login'))
     with client.session_transaction() as sess:
       self.assertNotIn('user_email', sess)
+      self.assertNotIn('user_picture', sess)
 
   def test_signed_in_editor_cannot_open_admin(self):
     main.app.config['AUTH_BYPASS'] = False
@@ -110,6 +112,7 @@ class AuthAndRedirectTest(unittest.TestCase):
             'email_verified': True,
             'hd': 'google.com',
             'name': 'Mark',
+            'picture': 'https://lh3.googleusercontent.com/a/test-photo',
         }
     }
     with mock.patch.object(google_auth, '_oauth', oauth):
@@ -119,6 +122,11 @@ class AuthAndRedirectTest(unittest.TestCase):
         with client.session_transaction() as sess:
           sess['next'] = 'https://evil.example/phish'
         response = client.get('/auth/callback', follow_redirects=False)
+        with client.session_transaction() as sess:
+          self.assertEqual(
+              sess.get('user_picture'),
+              'https://lh3.googleusercontent.com/a/test-photo')
+          self.assertEqual(sess.get('user_email'), 'mark@google.com')
     self.assertEqual(response.status_code, 302)
     self.assertTrue(response.headers['Location'].endswith('/index'))
 
@@ -226,14 +234,12 @@ class AuthAndRedirectTest(unittest.TestCase):
     self.assertIsNone(user)
     self.assertIn('verify', error)
 
-  def test_navbar_shows_signed_in_user(self):
+  def _navbar_index(self, sess_fields):
     main.app.config['AUTH_BYPASS'] = False
     main.app.config['WTF_CSRF_ENABLED'] = False
     client = main.app.test_client()
     with client.session_transaction() as sess:
-      sess['user_email'] = 'editor@agency.example'
-      sess['user_role'] = 'editor'
-      sess['user_name'] = 'Ed'
+      sess.update(sess_fields)
     with mock.patch.object(
         survey_service, 'identity_suggestions',
         return_value={'clients': [], 'agencies': []}):
@@ -244,11 +250,62 @@ class AuthAndRedirectTest(unittest.TestCase):
                 'clients': [], 'agencies': [], 'years': [],
                 'has_unknown_year': False}):
           response = client.get('/index')
+    main.app.config['WTF_CSRF_ENABLED'] = True
+    return response
+
+  def test_navbar_shows_signed_in_user(self):
+    response = self._navbar_index({
+        'user_email': 'editor@agency.example',
+        'user_role': 'editor',
+        'user_name': 'Ed',
+    })
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'editor@agency.example', response.data)
     self.assertIn(b'Sign out', response.data)
     self.assertNotIn(b'>Admin</a>', response.data)
-    main.app.config['WTF_CSRF_ENABLED'] = True
+    self.assertNotIn(b'navbar-text', response.data)
+    self.assertIn(b'navbar-avatar-fallback', response.data)
+    self.assertIn(b'>E</span>', response.data)
+    self.assertNotIn(b'class="navbar-avatar rounded-circle"', response.data)
+    self.assertIn(b'navbar-avatar.js', response.data)
+    self.assertIn(b'd-flex align-items-center', response.data)
+
+  def test_navbar_renders_google_picture_when_present(self):
+    photo = 'https://lh3.googleusercontent.com/a/mark-photo'
+    response = self._navbar_index({
+        'user_email': 'mdoliver@gmail.com',
+        'user_role': 'editor',
+        'user_name': 'Mark',
+        'user_picture': photo,
+    })
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(photo.encode(), response.data)
+    self.assertIn(b'class="navbar-avatar rounded-circle"', response.data)
+    self.assertIn(b'referrerpolicy="no-referrer"', response.data)
+    self.assertIn(b'navbar-avatar-fallback d-none', response.data)
+    self.assertIn(b'mdoliver@gmail.com', response.data)
+    self.assertIn(b'Sign out', response.data)
+
+  def test_accept_google_identity_stores_https_picture_only(self):
+    user, error = google_auth.accept_google_identity({
+        'email': 'mark@google.com',
+        'email_verified': True,
+        'hd': 'google.com',
+        'name': 'Mark',
+        'picture': 'https://lh3.googleusercontent.com/a/ok',
+    })
+    self.assertIsNone(error)
+    self.assertEqual(user['picture'], 'https://lh3.googleusercontent.com/a/ok')
+    user, error = google_auth.accept_google_identity({
+        'email': 'mark@google.com',
+        'email_verified': True,
+        'hd': 'google.com',
+        'name': 'Mark',
+        'picture': 'javascript:alert(1)',
+    })
+    self.assertIsNone(error)
+    self.assertEqual(user['picture'], '')
+    self.assertEqual(google_auth.avatar_initial(user), 'M')
 
 
 class AccessControlTest(unittest.TestCase):
