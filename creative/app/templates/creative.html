@@ -28,7 +28,7 @@
     <script>
         var fullConfiguration = {
             "survey_config": {
-                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&rid={rid}&rsrc={rsrc}&camp={camp}&plc={plc}&site={site}&crid={crid}&cb={cb}&times={time_measurement}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
+                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&rid={rid}&rsrc={rsrc}&camp={camp}&plc={plc}&site={site}&crid={crid}&cb={cb}&times={time_measurement}{% if creative_version %}&ver={{ creative_version }}{% endif %}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
                 "receiver_token": "{% if receiver_token %}{{receiver_token}}{% endif %}",
                 "ad_user_id_candidates": {{ (ad_user_id_candidates or ['%u', '${USER_ID}', '%%USER_ID%%'])|tojson }},
                 "overwrite_click_tag": {{ 'true' if overwrite_click_tag else 'false' }},

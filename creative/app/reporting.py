@@ -113,15 +113,15 @@ def lift_ratio(p_expose, p_control):
   return (p_expose - p_control) / p_control
 
 
-# In-app zip snapshot version is not on the pixel. Ad-server creative ID is
-# the trafficked creative identity we can break out without a schema change.
 BREAKOUT_DIMS = (
     ('size', 'CreativeSize', 'Size'),
     ('placement', 'PlacementID', 'Placement'),
     ('creative', 'AdCreativeID', 'Creative ID'),
+    ('version', 'CreativeVersion', 'Creative version'),
     ('date', '_date', 'Date'),
     ('segment', 'Segmentation', 'Segment'),
 )
+UNKNOWN_VERSION_LABEL = 'Unknown / pre-version'
 
 BREAKOUT_CSV_HEADERS = (
     'dimension', 'slice', 'question_index', 'question', 'answer_id', 'answer',
@@ -133,18 +133,24 @@ BREAKOUT_CSV_HEADERS = (
 
 
 def _cell_text(value):
-  if value is None:
+  if value is None or isinstance(value, bool):
     return ''
   if isinstance(value, float) and math.isnan(value):
     return ''
+  if isinstance(value, float) and value.is_integer():
+    return str(int(value))
+  if isinstance(value, int):
+    return str(value)
   text = str(value).strip()
-  if text.lower() == 'nan':
+  if text.lower() in ('nan', 'none', '<na>'):
     return ''
+  if text.endswith('.0') and text[:-2].lstrip('-').isdigit():
+    return text[:-2]
   return text
 
 
-def _display_slice(value):
-  return value if value else '(blank)'
+def _display_slice(value, blank='(blank)'):
+  return value if value else blank
 
 
 def question_stats(work, survey_info):
@@ -243,12 +249,12 @@ def question_stats(work, survey_info):
   return questions
 
 
-def _slice_summary(work, survey_info, value):
+def _slice_summary(work, survey_info, value, blank='(blank)'):
   roles = work['role'] if 'role' in work.columns else pd.Series(dtype=str)
   control_n = int((roles == 'control').sum())
   expose_n = int((roles == 'expose').sum())
   return {
-      'value': _display_slice(value),
+      'value': _display_slice(value, blank=blank),
       'n': int(len(work)),
       'control_n': control_n,
       'expose_n': expose_n,
@@ -279,7 +285,9 @@ def build_breakouts(work, survey_info, is_lift=False):
       slice_df = work.loc[blanked == value]
       if slice_df.empty:
         continue
-      slices.append(_slice_summary(slice_df, survey_info, value))
+      slices.append(_slice_summary(
+          slice_df, survey_info, value,
+          blank=UNKNOWN_VERSION_LABEL if key == 'version' else '(blank)'))
     if slices:
       breakouts.append({
           'key': key,

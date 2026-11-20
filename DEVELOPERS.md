@@ -213,7 +213,7 @@ Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Pr
 
 Homepage **Copy / Archive / Delete** are POST forms with Flask-WTF CSRF (confirm still runs on delete). Stats cells stay GET `/index/stats-partial` (no CSRF). htmx non-GET requests send `X-CSRFToken` from the page meta tag. Saving a survey that someone else already saved returns **409** with “Someone else saved this survey, reload” (Firestore `last_update_time` precondition). Version numbers are assigned transactionally via `Surveys/{id}/versions/_seq`.
 
-Homepage: archived surveys are hidden unless you click **Show archived**. Copy opens the new survey in the editor. The stats button and `/survey/reporting/...` work for **Brand Lift and Brand Track**, including size/placement/creative/date/segment breakouts and a breakouts CSV. Preview does not write to BigQuery (empty `receiver_url`); generate test rows with curl against the receiver as in [Generate test responses](#generate-test-responses).
+Homepage: archived surveys are hidden unless you click **Show archived**. Copy opens the new survey in the editor. The stats button and `/survey/reporting/...` work for **Brand Lift and Brand Track**, including size/placement/creative/version/date/segment breakouts and a breakouts CSV. Preview does not write to BigQuery (empty `receiver_url`); generate test rows with curl against the receiver as in [Generate test responses](#generate-test-responses).
 
 **Counts treat each COALESCE(RespondentID, BomID) as one respondent** (latest, most complete cumulative `Response`). Surveys set to submit after each question used to be counted once per question; those homepage and report numbers will drop. Submit-at-end rows with a blank BomID and no RespondentID stay as individual respondents.
 
@@ -371,7 +371,12 @@ export RECEIVER_URL="$(gcloud functions describe receiver --gen2 --region=us-cen
 export RECEIVER_HMAC_SECRET="$(gcloud secrets versions access latest --secret=brandometer-receiver-hmac)"
 # Firestore document id from the homepage Survey ID column
 export SURVEY_ID="paste-survey-id"
+# Unversioned token (old zips / curl without ver=). Live zips after the
+# CreativeVersion change use HMAC(secret, survey_id + newline + version).
 TOKEN="$(python3 -c 'import hmac,hashlib,os; print(hmac.new(os.environ["RECEIVER_HMAC_SECRET"].encode(), os.environ["SURVEY_ID"].encode(), hashlib.sha256).hexdigest())')"
+# Versioned live zip (example ver=1):
+# TOKEN="$(python3 -c 'import hmac,hashlib,os; print(hmac.new(os.environ["RECEIVER_HMAC_SECRET"].encode(), (os.environ["SURVEY_ID"]+"\n1").encode(), hashlib.sha256).hexdigest())')"
+# and add: --data-urlencode "ver=1"
 
 post() {
   # $1=seg  $2=response  $3=bomid
@@ -582,18 +587,29 @@ The report page **Breakouts** section (and `/survey/download_breakouts/<id>`) re
 * **Size** (`CreativeSize`)
 * **Placement** (`PlacementID`)
 * **Creative ID** (`AdCreativeID` — the expanded ad-server creative macro)
+* **Creative version** (`CreativeVersion` — zip snapshot number stamped as `ver=`)
 * **Date** (`CreatedAt` UTC day)
 * **Segment** (`Segmentation`)
 
-A dimension is omitted when every row is blank. Slices with only one lift arm show counts/CIs for that arm and em-dash for lift. Small-n uses the same `MIN_N = 30` threshold as the overall table.
+A dimension is omitted when every row is blank. Mixed NULL / numbered versions show **Unknown / pre-version** for old rows. Slices with only one lift arm show counts/CIs for that arm and em-dash for lift. Small-n uses the same `MIN_N = 30` threshold as the overall table.
 
 CSV columns: `dimension,slice,question_index,question,answer_id,answer,n_answered,k,p,ci_lo,ci_hi,n_control,…,lift,pvalue,warning_n_small`. Proportions are 0–1. `overall,all` is the un-sliced table.
 
-`fetch_survey_response_rows` now SELECTs `CreativeSize` as well as the trafficking IDs. Response CSV includes a **Size** column.
+`fetch_survey_response_rows` SELECTs `CreativeSize` and `CreativeVersion` as well as the trafficking IDs. Response CSV includes **Size** and **Creative version**.
 
-**Zip snapshot version is not stored on the pixel.** In-app version history is a Firestore snapshot of the survey at ZIP download time; live impressions do not send `ver=`. Trafficked creative identity is `AdCreativeID`. Adding a zip version column would need a schema ALTER, receiver write, and zip re-download — a product choice, not shipped.
+# Phase 7c / 61b (zip snapshot version on the pixel)
 
-**`--app-only` is enough** (App Engine SELECT + report UI). No receiver deploy.
+Each ZIP download records the Firestore snapshot **first**, then bakes that number into the creative as `ver=` and HMAC-SHA256(`RECEIVER_HMAC_SECRET`, `survey_id + newline + version`). Re-downloading a stored version uses that snapshot’s number. Preview stays unsigned and does not send `ver=`.
+
+The receiver accepts `ver` as an integer 1…1 000 000. Missing `ver` (old zips) still validates HMAC(survey id) only and stores `CreativeVersion` NULL. A `ver` with the unversioned token is **403**. Invalid `ver` is **400**.
+
+**Full `./deploy`** (not `--app-only`): receiver writes `CreativeVersion`; `ensure_respondent_columns` ALTERs `CreativeVersion INT64` on `--app-only` too so App Engine SELECT does not 500. Re-download every live zip after App Engine is up.
+
+Tag sheet column `creative_version` is the **next** snapshot number (what the following ZIP download will stamp). Re-download the sheet when you re-download zips.
+
+Authorized view `deduped_responses` includes `CreativeVersion`. `survey_summaries` adds `first_creative_version` / `last_creative_version`.
+
+Cloud Shell: unzip a new inner `index.html` and confirm `response_server` contains `&ver=` and a token that is **not** HMAC(survey id) alone. Curl without `ver=` still 204 (NULL version). Curl `ver=1` with the unversioned token → 403.
 
 Cloud Shell: open a Brand Lift report with mixed sizes (or curl two sizes into BQ) and confirm Breakouts lists each size with lift/CIs; download CSV and confirm `Size,` rows.
 
@@ -601,8 +617,8 @@ Cloud Shell: open a Brand Lift report with mixed sizes (or curl two sizes into B
 
 `./deploy` (including **`--app-only`**) creates dataset `$PROJECT_ID:brandometer_reporting` in the same location as the rest of the project, then:
 
-1. `CREATE OR REPLACE VIEW …deduped_responses` — one row per survey + respondent (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`). Columns include campaign/placement/site/creative ids and `CreativeSize`. Does **not** expose `RandomTimeStamp` / IP hashes.
-2. `CREATE OR REPLACE VIEW …survey_summaries` — `survey_id`, `Segmentation`, respondent count, first/last `CreatedAt`.
+1. `CREATE OR REPLACE VIEW …deduped_responses` — one row per survey + respondent (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`). Columns include campaign/placement/site/creative ids, `CreativeSize`, and `CreativeVersion`. Does **not** expose `RandomTimeStamp` / IP hashes.
+2. `CREATE OR REPLACE VIEW …survey_summaries` — `survey_id`, `Segmentation`, respondent count, first/last `CreatedAt`, min/max `CreativeVersion`.
 3. Authorizes the **reporting dataset** (`targetTypes: VIEWS`) on `responses` via `bq show` + `bq_dataset_iam.py authorize-dataset` + `bq update --source`. Analysts with `READER` on `brandometer_reporting` can query the views without access to the raw table.
 
 The report page **Open in Looker Studio** uses the [Looker Studio Linking API](https://developers.google.com/looker-studio/integrate/linking-api) against `deduped_responses`. Each click starts a **new** untitled report. Save and share that report in Looker Studio if you want a stable dashboard URL.

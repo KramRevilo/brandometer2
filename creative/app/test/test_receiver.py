@@ -54,8 +54,8 @@ class FakeSnap(object):
     return self._data
 
 
-def _token(survey_id):
-  return receiver.survey_token(survey_id, HMAC)
+def _token(survey_id, version=None):
+  return receiver.survey_token(survey_id, HMAC, version=version)
 
 
 def _args(survey_id='abc', token=None, **extra):
@@ -260,3 +260,45 @@ class ReceiverTest(unittest.TestCase):
     fields, error = receiver.validate_params(_args(rsrc='cookie'))
     self.assertIsNone(fields)
     self.assertEqual(error, 'invalid rsrc')
+
+  def test_invalid_ver_is_400(self):
+    fields, error = receiver.validate_params(_args(ver='nope'))
+    self.assertEqual(error, 'invalid ver')
+    fields, error = receiver.validate_params(_args(ver='0'))
+    self.assertEqual(error, 'invalid ver')
+    fields, error = receiver.validate_params(_args(ver='1000001'))
+    self.assertEqual(error, 'invalid ver')
+
+  def test_spoofed_ver_with_unversioned_token_is_403(self):
+    request = FakeRequest(_args(ver='2'))
+    with mock.patch.object(receiver, 'survey_is_active', return_value=True):
+      with mock.patch.dict(os.environ, _secrets()):
+        body, status, _headers = receiver.receiver(request)
+    self.assertEqual(status, 403)
+    self.assertEqual(body.get('reason'), 'invalid_token')
+
+  def test_creative_version_is_stored_when_signed(self):
+    request = FakeRequest(_args(ver='4', token=_token('abc', version=4)))
+    bq = mock.Mock()
+    bq.get_table.return_value = mock.Mock()
+    bq.insert_rows_json.return_value = []
+    with mock.patch.object(receiver, 'survey_is_active', return_value=True):
+      with mock.patch.object(receiver, '_bq', return_value=bq):
+        with mock.patch.dict(os.environ, _secrets()):
+          body, status, _headers = receiver.receiver(request)
+    self.assertEqual(status, 204)
+    row = bq.insert_rows_json.call_args[0][1][0]
+    self.assertEqual(row['CreativeVersion'], 4)
+
+  def test_missing_ver_stores_null_version(self):
+    request = FakeRequest(_args())
+    bq = mock.Mock()
+    bq.get_table.return_value = mock.Mock()
+    bq.insert_rows_json.return_value = []
+    with mock.patch.object(receiver, 'survey_is_active', return_value=True):
+      with mock.patch.object(receiver, '_bq', return_value=bq):
+        with mock.patch.dict(os.environ, _secrets()):
+          body, status, _headers = receiver.receiver(request)
+    self.assertEqual(status, 204)
+    row = bq.insert_rows_json.call_args[0][1][0]
+    self.assertIsNone(row['CreativeVersion'])

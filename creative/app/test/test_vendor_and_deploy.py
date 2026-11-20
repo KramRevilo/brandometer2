@@ -172,6 +172,7 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('ADD COLUMN IF NOT EXISTS RespondentIDSource STRING', script)
     self.assertIn('ADD COLUMN IF NOT EXISTS PlacementID STRING', script)
     self.assertIn('ADD COLUMN IF NOT EXISTS AdCreativeID STRING', script)
+    self.assertIn('ADD COLUMN IF NOT EXISTS CreativeVersion INT64', script)
     self.assertIn(
         'Removing project roles/bigquery.dataEditor from $member', script)
     self.assertIn('MAX_INSTANCES', script)

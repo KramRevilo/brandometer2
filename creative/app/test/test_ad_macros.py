@@ -73,6 +73,16 @@ class TagSheetTest(unittest.TestCase):
     self.assertTrue(all(row['campaign_id'] == 'camp-1' for row in rows))
     self.assertIn('%c', rows[0]['click_tag'])
 
+  def test_tag_sheet_includes_next_creative_version(self):
+    rows = ad_macros.tag_sheet_rows('sid', {
+        'surveyname': 'track',
+        'surveytype': 'brand_track',
+        'creativesizes': ['300x250'],
+        'ad_server': 'cm360',
+    }, when=datetime.datetime(2026, 11, 20), creative_version=5)
+    self.assertEqual(rows[0]['creative_version'], '5')
+    self.assertIn('ver=5', rows[0]['trafficking_notes'])
+
   def test_csv_and_xlsx_round_trip(self):
     headers, rows = ad_macros.tag_sheet_matrix('sid', {
         'surveyname': 'track',

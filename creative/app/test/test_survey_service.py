@@ -121,10 +121,12 @@ class TestSurveyService(unittest.TestCase):
         'question1': 'q1 text',
     }
 
+    version_mock.return_value = {'version': 2}
     filename, _ = survey_service.zip_file(survey_id, survey_dict)
     self.assertRegex(filename, '.*_test-survey_300x250.zip$')
     version_mock.assert_called_once_with(
         survey_id, survey_dict, actor=mock.ANY)
+    self.assertEqual(_html_mock.call_args.kwargs.get('creative_version'), 2)
 
   @mock.patch.object(survey_collection, 'add_version')
   @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
@@ -332,6 +334,7 @@ class TestSurveyService(unittest.TestCase):
     self.assertIn('RespondentID', sql)
     self.assertIn('PlacementID', sql)
     self.assertIn('CreativeSize', sql)
+    self.assertIn('CreativeVersion', sql)
     self.assertNotIn('STARTS_WITH', sql)
     self.assertEqual(survey_param.name, 'survey_id')
     self.assertEqual(survey_param.value, 'sid-1')
@@ -415,7 +418,7 @@ class TestSurveyService(unittest.TestCase):
         ['CreatedAt', 'Segmentation', 'Response', 'BomID',
          'RespondentID', 'RespondentIDSource',
          'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID',
-         'CreativeSize'])
+         'CreativeSize', 'CreativeVersion'])
 
   @mock.patch.object(survey_service, '_get_bq_client')
   def test_get_all_response_counts_missing_table_returns_empty_frame(

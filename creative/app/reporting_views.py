@@ -58,6 +58,7 @@ WITH numbered AS (
     SiteID,
     AdCreativeID,
     CreativeSize,
+    CreativeVersion,
     ARRAY_LENGTH(REGEXP_EXTRACT_ALL(IFNULL(Response, ''), r'[1-5]:[^|]+')) AS n_answers,
     ROW_NUMBER() OVER () AS row_id
   FROM %s
@@ -81,7 +82,8 @@ SELECT
   PlacementID,
   SiteID,
   AdCreativeID,
-  CreativeSize
+  CreativeSize,
+  CreativeVersion
 FROM (
   SELECT
     *,
@@ -105,7 +107,9 @@ SELECT
   Segmentation,
   COUNT(*) AS respondents,
   MIN(CreatedAt) AS first_response,
-  MAX(CreatedAt) AS last_response
+  MAX(CreatedAt) AS last_response,
+  MIN(CreativeVersion) AS first_creative_version,
+  MAX(CreativeVersion) AS last_creative_version
 FROM %s
 GROUP BY survey_id, Segmentation
 """ % (view, deduped)

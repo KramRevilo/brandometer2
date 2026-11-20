@@ -53,6 +53,8 @@ _BOM_RE = re.compile(r'^[A-Za-z0-9._-]{0,128}$')
 _RSRC_RE = re.compile(r'^(macro|storage|impression|bomid)$')
 _TRAFFIC_RE = re.compile(r'^[A-Za-z0-9._:-]{0,128}$')
 _TOKEN_RE = re.compile(r'^[A-Fa-f0-9]{64}$')
+_VER_RE = re.compile(r'^[1-9][0-9]{0,6}$')
+MAX_CREATIVE_VERSION = 1000000
 
 
 def _reset_for_tests():
@@ -141,15 +143,42 @@ def _as_bytes(value):
   return str(value).encode('utf-8')
 
 
-def survey_token(survey_id, secret):
+def parse_creative_version(value):
+  if value is None or isinstance(value, bool):
+    return None
+  if isinstance(value, int):
+    n = value
+  else:
+    text = str(value).strip()
+    if not text:
+      return None
+    if _VER_RE.fullmatch(text) is None:
+      return False
+    n = int(text)
+  if n < 1 or n > MAX_CREATIVE_VERSION:
+    return False
+  return n
+
+
+def token_message(survey_id, version=None):
+  if not survey_id:
+    return b''
+  parsed = version if isinstance(version, int) else None
+  if parsed is None:
+    return _as_bytes(survey_id)
+  return _as_bytes('%s\n%s' % (survey_id, parsed))
+
+
+def survey_token(survey_id, secret, version=None):
   if not secret or not survey_id:
     return ''
   return hmac.new(
-      _as_bytes(secret), _as_bytes(survey_id), hashlib.sha256).hexdigest()
+      _as_bytes(secret), token_message(survey_id, version),
+      hashlib.sha256).hexdigest()
 
 
-def token_is_valid(survey_id, token, secret):
-  expected = survey_token(survey_id, secret)
+def token_is_valid(survey_id, token, secret, version=None):
+  expected = survey_token(survey_id, secret, version=version)
   got = token if isinstance(token, str) else ''
   if not expected or not got:
     return False
@@ -238,6 +267,13 @@ def validate_params(params):
   crid = _match(_TRAFFIC_RE, params.get('crid'), '')
   if crid is None:
     return None, 'invalid crid'
+  raw_ver = params.get('ver')
+  if raw_ver is None or str(raw_ver).strip() == '':
+    version = None
+  else:
+    version = parse_creative_version(raw_ver)
+    if version is None or version is False:
+      return None, 'invalid ver'
   token = params.get('token') or ''
   if token and _match(_TOKEN_RE, token) is None:
     return None, 'invalid token'
@@ -257,6 +293,7 @@ def validate_params(params):
       'PlacementID': plc,
       'SiteID': site,
       'AdCreativeID': crid,
+      'CreativeVersion': version,
       'token': token,
   }, None
 
@@ -282,7 +319,9 @@ def receiver(request):
   if not secret:
     _log.error('event=receiver_hmac_secret_missing')
     return _pixel_response(500, reason='hmac_secret_missing')
-  if not token_is_valid(fields['ID'], fields.get('token'), secret):
+  if not token_is_valid(
+      fields['ID'], fields.get('token'), secret,
+      version=fields.get('CreativeVersion')):
     _log.info('event=receiver_reject status=403 reason=bad_token survey_id=%s',
               fields['ID'])
     return _pixel_response(403, reason='invalid_token')
@@ -332,6 +371,7 @@ def receiver(request):
       'PlacementID': fields.get('PlacementID') or '',
       'SiteID': fields.get('SiteID') or '',
       'AdCreativeID': fields.get('AdCreativeID') or '',
+      'CreativeVersion': fields.get('CreativeVersion'),
   }
   try:
     errors = _bq().insert_rows_json(os.environ.get('TABLE_ID'), [row_to_insert])

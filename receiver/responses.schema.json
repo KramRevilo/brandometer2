@@ -13,5 +13,6 @@
   {"name": "CampaignID", "type": "STRING", "mode": "NULLABLE"},
   {"name": "PlacementID", "type": "STRING", "mode": "NULLABLE"},
   {"name": "SiteID", "type": "STRING", "mode": "NULLABLE"},
-  {"name": "AdCreativeID", "type": "STRING", "mode": "NULLABLE"}
+  {"name": "AdCreativeID", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "CreativeVersion", "type": "INTEGER", "mode": "NULLABLE"}
 ]

@@ -96,6 +96,7 @@ class HtmlAndReportingTest(unittest.TestCase):
         html)
     self.assertIn('id="privacy_note"', html)
     self.assertIn('&rid={rid}', html)
+    self.assertNotIn('&ver=', html)
     self.assertIn('&rsrc={rsrc}', html)
     self.assertIn('&camp={camp}', html)
     self.assertIn('&plc={plc}', html)
@@ -107,6 +108,27 @@ class HtmlAndReportingTest(unittest.TestCase):
     self.assertIn('localStorage', html)
     self.assertIn('%u', html)
     self.assertNotIn('&uid=', html)
+
+  def test_html_embeds_hmac_bound_creative_version(self):
+    previous = main.app.config.get('RECEIVER_HMAC_SECRET')
+    try:
+      with main.app.app_context():
+        main.app.config['RECEIVER_HMAC_SECRET'] = 'unit-test-hmac'
+        with mock.patch.dict(os.environ, {'RECEIVER_URL': 'https://recv.example'}):
+          html = survey_service.get_html_template(
+              'sid', {
+                  'surveyname': 'Signed',
+                  'question1': 'Q',
+                  'answer1a': 'A',
+                  'answer1b': 'B',
+              }, '', creative_version=7)
+    finally:
+      main.app.config['RECEIVER_HMAC_SECRET'] = previous or ''
+    self.assertIn('&ver=7', html)
+    self.assertIn(
+        receiver_crypto.survey_token('sid', 'unit-test-hmac', version=7), html)
+    self.assertNotIn(
+        receiver_crypto.survey_token('sid', 'unit-test-hmac'), html)
 
   def test_reporting_includes_answer_e(self):
     df = pandas.DataFrame({
@@ -151,9 +173,11 @@ class VersioningTest(unittest.TestCase):
           'surveytype': 'brand_track',
           'custom_css': 'body { color: red; }',
       })
+      self.assertEqual(survey_collection.peek_next_version(ref.id), 1)
       first = survey_collection.add_version(
           ref.id, ref.get().to_dict(), actor='mark@google.com')
       self.assertEqual(first['version'], 1)
+      self.assertEqual(survey_collection.peek_next_version(ref.id), 2)
       self.assertEqual(first['created_by'], 'mark@google.com')
       ref.update({'question1': 'Changed Q', 'creativesize': '160x600'})
       second = survey_collection.add_version(ref.id, ref.get().to_dict())

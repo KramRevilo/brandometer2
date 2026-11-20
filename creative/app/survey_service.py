@@ -88,14 +88,14 @@ _EMPTY_RESPONSES_COLUMNS = [
     'CreatedAt', 'Segmentation', 'Response', 'BomID',
     'RespondentID', 'RespondentIDSource',
     'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID',
-    'CreativeSize',
+    'CreativeSize', 'CreativeVersion',
 ]
 CSV_CHUNK_ROWS = 500
 _RESPONSE_SELECT = """
         SELECT CreatedAt, Segmentation, Response, BomID,
                RespondentID, RespondentIDSource,
                CampaignID, PlacementID, SiteID, AdCreativeID,
-               CreativeSize
+               CreativeSize, CreativeVersion
         FROM `{table}`
         WHERE ID = @survey_id
     """
@@ -460,12 +460,24 @@ def zip_file(survey_id, survey_dict, record_version=True):
   if 'responsetype' not in survey_dict:
     survey_dict['responsetype'] = RESPONSES_AT_END
 
+  # Snapshot first so the HTML can bake the same version into the signed pixel.
+  creative_version = None
+  if record_version:
+    snapshot = survey_collection.add_version(
+        survey_id, survey_dict, actor=access.actor_email())
+    creative_version = receiver_crypto.parse_creative_version(
+        (snapshot or {}).get('version'))
+  else:
+    creative_version = receiver_crypto.parse_creative_version(
+        (survey_dict or {}).get('version'))
+
   template_zips = []
   for size_key in size_keys:
     prefix = current_datetime + '_' + surveyname + '_' + size_key
     template_zips.extend(
         write_html_template(
-            survey_id, survey_dict, prefix, seg_types, size_key=size_key))
+            survey_id, survey_dict, prefix, seg_types, size_key=size_key,
+            creative_version=creative_version))
   outer_name = creative_size.outer_zip_basename(
       current_datetime, surveyname, size_keys)
   outer_stem = outer_name[:-4] if outer_name.endswith('.zip') else outer_name
@@ -475,10 +487,6 @@ def zip_file(survey_id, survey_dict, record_version=True):
     file_data = io.BytesIO(file.read())
 
   delete_tmp_zip_files([combined_zip] + template_zips)
-
-  if record_version:
-    survey_collection.add_version(
-        survey_id, survey_dict, actor=access.actor_email())
 
   return os.path.basename(combined_zip.filename), file_data
 
@@ -492,7 +500,7 @@ def zip_dir(filename, template_zips):
 
 
 def write_html_template(survey_id, survey_dict, prefix_filename, seg_types,
-                        size_key=None):
+                        size_key=None, creative_version=None):
   template_zips = []
   date_stamp = datetime.datetime.now().strftime('%Y%m%d')
   surveyname = (survey_dict.get('surveyname') or 'survey').replace(' ', '-')
@@ -511,13 +519,15 @@ def write_html_template(survey_id, survey_dict, prefix_filename, seg_types,
       zip_write_file.writestr(
           'index.html',
           get_html_template(
-              survey_id, survey_dict, seg_type, size=resolved_key))
+              survey_id, survey_dict, seg_type, size=resolved_key,
+              creative_version=creative_version))
       template_zips.append(zip_write_file)
 
   return template_zips
 
 
-def get_html_template(survey_id, survey_dict, seg_type, size=None):
+def get_html_template(survey_id, survey_dict, seg_type, size=None,
+                      creative_version=None):
   if 'custom_css' in survey_dict:
     custom_css = survey_dict['custom_css']
   else:
@@ -533,7 +543,9 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None):
     hmac_secret = current_app.config.get('RECEIVER_HMAC_SECRET') or ''
   except Exception:
     hmac_secret = os.environ.get('RECEIVER_HMAC_SECRET') or ''
-  receiver_token = receiver_crypto.survey_token(survey_id, hmac_secret)
+  creative_version = receiver_crypto.parse_creative_version(creative_version)
+  receiver_token = receiver_crypto.survey_token(
+      survey_id, hmac_secret, version=creative_version)
   macro_vars = ad_macros.render_vars(survey_dict)
   return render_template(
       'creative.html',
@@ -555,6 +567,7 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None):
       brand_name=brand.brand_name(),
       receiver_url=receiver_url,
       receiver_token=receiver_token,
+      creative_version=creative_version,
       **macro_vars,
       **brand.badge_render_vars(survey_dict))
 
@@ -906,9 +919,13 @@ def _csv_dataframe(surveyid, with_context=False):
         ('SiteID', 'Site ID'),
         ('AdCreativeID', 'Creative ID'),
         ('CreativeSize', 'Size'),
+        ('CreativeVersion', 'Creative version'),
     ):
       if src in df.columns:
-        series = df[src].fillna('').astype(str)
+        if src == 'CreativeVersion':
+          series = df[src].map(reporting._cell_text)
+        else:
+          series = df[src].fillna('').astype(str)
       else:
         series = pd.Series([''] * len(df), index=df.index)
       fallback = ''
@@ -1160,7 +1177,13 @@ def get_comment_text(survey):
 
 def tag_sheet_payload(survey_id, survey, fmt='csv'):
   """CSV or XLSX bytes plus a download filename."""
-  headers, rows = ad_macros.tag_sheet_matrix(survey_id, survey)
+  version = None
+  try:
+    version = survey_collection.peek_next_version(survey_id)
+  except Exception:
+    version = None
+  headers, rows = ad_macros.tag_sheet_matrix(
+      survey_id, survey, creative_version=version)
   slug = (survey.get('surveyname') or survey_id or 'survey').replace(' ', '-')
   fmt = (fmt or 'csv').strip().lower()
   if fmt == 'xlsx':

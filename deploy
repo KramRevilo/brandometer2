@@ -308,6 +308,8 @@ ensure_respondent_columns() {
         "ALTER TABLE \`$PROJECT_ID.responses.responses\` ADD COLUMN IF NOT EXISTS SiteID STRING"
     bq query --use_legacy_sql=false --project_id="$PROJECT_ID" --nouse_cache --quiet \
         "ALTER TABLE \`$PROJECT_ID.responses.responses\` ADD COLUMN IF NOT EXISTS AdCreativeID STRING"
+    bq query --use_legacy_sql=false --project_id="$PROJECT_ID" --nouse_cache --quiet \
+        "ALTER TABLE \`$PROJECT_ID.responses.responses\` ADD COLUMN IF NOT EXISTS CreativeVersion INT64"
 }
 
 authorize_reporting_views() {

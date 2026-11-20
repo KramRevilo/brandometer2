@@ -31,6 +31,23 @@ class ReceiverCryptoTest(unittest.TestCase):
     self.assertEqual(receiver_crypto.survey_token('', 'master'), '')
     self.assertEqual(receiver_crypto.survey_token('sid-1', ''), '')
 
+  def test_survey_token_binds_creative_version(self):
+    unversioned = receiver_crypto.survey_token('sid-1', 'master')
+    v1 = receiver_crypto.survey_token('sid-1', 'master', version=1)
+    v2 = receiver_crypto.survey_token('sid-1', 'master', version=2)
+    self.assertNotEqual(unversioned, v1)
+    self.assertNotEqual(v1, v2)
+    self.assertTrue(
+        receiver_crypto.token_is_valid('sid-1', v1, 'master', version=1))
+    self.assertFalse(
+        receiver_crypto.token_is_valid('sid-1', v1, 'master', version=2))
+    self.assertFalse(
+        receiver_crypto.token_is_valid('sid-1', unversioned, 'master', version=1))
+    self.assertEqual(receiver_crypto.parse_creative_version('3'), 3)
+    self.assertIsNone(receiver_crypto.parse_creative_version(''))
+    self.assertIsNone(receiver_crypto.parse_creative_version(0))
+    self.assertIsNone(receiver_crypto.parse_creative_version(1000001))
+
   def test_hash_ip_is_stable_same_utc_day_and_rotates(self):
     secret = 'ip-master'
     day1 = datetime.datetime(2026, 11, 19, 1, tzinfo=datetime.timezone.utc)

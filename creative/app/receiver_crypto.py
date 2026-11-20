@@ -19,18 +19,46 @@ import os
 
 SECRET_RECEIVER_HMAC = 'brandometer-receiver-hmac'
 SECRET_IP_HMAC = 'brandometer-ip-hmac'
+MAX_CREATIVE_VERSION = 1000000
 
 
-def survey_token(survey_id, secret):
-  """Per-survey HMAC-SHA256 hex digest. Empty secret or id yields ''."""
+def parse_creative_version(value):
+  """Return an int in 1..MAX_CREATIVE_VERSION, or None if blank/unusable."""
+  if value is None or isinstance(value, bool):
+    return None
+  if isinstance(value, int):
+    n = value
+  else:
+    text = str(value).strip()
+    if not text or not text.isdigit():
+      return None
+    n = int(text)
+  if n < 1 or n > MAX_CREATIVE_VERSION:
+    return None
+  return n
+
+
+def token_message(survey_id, version=None):
+  """Bytes HMAC'd for the pixel token. Version binds ver= so it cannot be spoofed."""
+  if not survey_id:
+    return b''
+  parsed = parse_creative_version(version)
+  if parsed is None:
+    return _as_bytes(survey_id)
+  return _as_bytes('%s\n%s' % (survey_id, parsed))
+
+
+def survey_token(survey_id, secret, version=None):
+  """HMAC-SHA256 hex digest. Empty secret or id yields ''."""
   if not secret or not survey_id:
     return ''
   return hmac.new(
-      _as_bytes(secret), _as_bytes(survey_id), hashlib.sha256).hexdigest()
+      _as_bytes(secret), token_message(survey_id, version),
+      hashlib.sha256).hexdigest()
 
 
-def token_is_valid(survey_id, token, secret):
-  expected = survey_token(survey_id, secret)
+def token_is_valid(survey_id, token, secret, version=None):
+  expected = survey_token(survey_id, secret, version=version)
   got = token if isinstance(token, str) else ''
   if not expected or not got:
     return False

@@ -33,6 +33,7 @@ class ReportingViewsTest(unittest.TestCase):
     self.assertIn('RespondentID', sql)
     self.assertIn('PlacementID', sql)
     self.assertIn('CreativeSize', sql)
+    self.assertIn('CreativeVersion', sql)
     self.assertNotIn('RandomTimeStamp', sql)
     self.assertNotIn('HashedIP', sql)
 
@@ -44,6 +45,7 @@ class ReportingViewsTest(unittest.TestCase):
     self.assertIn('FROM `proj-1.brandometer_reporting.deduped_responses`', sql)
     self.assertIn('GROUP BY survey_id, Segmentation', sql)
     self.assertIn('COUNT(*) AS respondents', sql)
+    self.assertIn('last_creative_version', sql)
 
   def test_looker_studio_url(self):
     self.assertEqual(reporting_views.looker_studio_url(''), '')

@@ -185,7 +185,8 @@ class BuildReportTest(unittest.TestCase):
     }
     report = reporting.build_report(df, survey, is_lift=True)
     keys = [dim['key'] for dim in report['breakouts']]
-    self.assertEqual(keys, ['size', 'placement', 'creative', 'date', 'segment'])
+    self.assertEqual(
+        keys, ['size', 'placement', 'creative', 'date', 'segment'])
     size = [dim for dim in report['breakouts'] if dim['key'] == 'size'][0]
     self.assertEqual([sl['value'] for sl in size['slices']], ['160x600', '300x250'])
     by_size = {sl['value']: sl for sl in size['slices']}
@@ -219,3 +220,25 @@ class BuildReportTest(unittest.TestCase):
     self.assertIn('date', keys)
     self.assertNotIn('placement', keys)
     self.assertNotIn('creative', keys)
+
+  def test_breakouts_creative_version_unknown_label(self):
+    t = datetime.datetime(2026, 11, 18)
+    df = pandas.DataFrame({
+        'CreatedAt': [t, t, t, t],
+        'Segmentation': [
+            'default_control', 'default_expose',
+            'default_control', 'default_expose',
+        ],
+        'Response': ['1:A', '1:A', '1:B', '1:A'],
+        'BomID': ['c1', 'e1', 'c2', 'e2'],
+        'CreativeVersion': [2, 2, None, None],
+    })
+    report = reporting.build_report(
+        df, {'question1': 'Q', 'answer1a': 'Yes', 'answer1b': 'No'},
+        is_lift=True)
+    version = [dim for dim in report['breakouts'] if dim['key'] == 'version'][0]
+    labels = [sl['value'] for sl in version['slices']]
+    self.assertEqual(labels, ['2', reporting.UNKNOWN_VERSION_LABEL])
+    csv_text = reporting.breakouts_to_csv(report)
+    self.assertIn('Creative version,2,', csv_text)
+    self.assertIn('Creative version,Unknown / pre-version,', csv_text)

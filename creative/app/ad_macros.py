@@ -127,6 +127,7 @@ TAG_SHEET_HEADERS = (
     'user_id_macro',
     'gdpr_macro',
     'us_privacy_macro',
+    'creative_version',
     'trafficking_notes',
 )
 
@@ -181,7 +182,7 @@ def _segments(survey):
   return ['']
 
 
-def tag_sheet_rows(survey_id, survey, when=None):
+def tag_sheet_rows(survey_id, survey, when=None, creative_version=None):
   """One row per inner zip (size × Brand Lift segment)."""
   survey = survey or {}
   spec = preset(survey)
@@ -191,6 +192,15 @@ def tag_sheet_rows(survey_id, survey, when=None):
   sizes = creative_size.selected_keys(survey)
   outer = creative_size.outer_zip_basename(date_stamp, surveyname, sizes)
   survey_type = survey.get('surveytype') or BRAND_TRACK
+  version_label = ''
+  if creative_version not in (None, ''):
+    version_label = str(creative_version)
+  notes = spec['notes']
+  if version_label:
+    notes = (
+        notes +
+        ' Next ZIP download stamps pixel ver=%s (HMAC-bound). '
+        'Re-download this sheet when you re-download zips.' % version_label)
   rows = []
   for size_key in sizes:
     for seg in _segments(survey):
@@ -218,13 +228,15 @@ def tag_sheet_rows(survey_id, survey, when=None):
           'user_id_macro': spec['user_id'],
           'gdpr_macro': spec['gdpr'],
           'us_privacy_macro': spec['us_privacy'],
-          'trafficking_notes': spec['notes'],
+          'creative_version': version_label,
+          'trafficking_notes': notes,
       })
   return rows
 
 
-def tag_sheet_matrix(survey_id, survey, when=None):
-  rows = tag_sheet_rows(survey_id, survey, when=when)
+def tag_sheet_matrix(survey_id, survey, when=None, creative_version=None):
+  rows = tag_sheet_rows(
+      survey_id, survey, when=when, creative_version=creative_version)
   body = []
   for row in rows:
     body.append([row.get(key, '') for key in TAG_SHEET_HEADERS])

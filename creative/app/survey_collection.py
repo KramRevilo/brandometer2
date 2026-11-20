@@ -263,6 +263,12 @@ def _google_firestore_client(survey_ref):
   return None
 
 
+def peek_next_version(survey_id):
+  """Next snapshot number without writing. Used to label the tag sheet."""
+  col = _versions_collection(survey_id)
+  return _next_version_number(col, col.document(VERSION_SEQ_DOC).get())
+
+
 def add_version(survey_id, survey_dict, actor=None):
   """Append an immutable snapshot. Version numbers are transactional 1, 2, 3, …"""
   col = _versions_collection(survey_id)
