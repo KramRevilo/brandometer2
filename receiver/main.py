@@ -51,6 +51,7 @@ _SIZE_RE = re.compile(r'^[0-9]{2,4}x[0-9]{2,4}$')
 _TEXT_RE = re.compile(r'^[0-9A-Za-z:|,._\-]{0,2048}$')
 _BOM_RE = re.compile(r'^[A-Za-z0-9._-]{0,128}$')
 _RSRC_RE = re.compile(r'^(macro|storage|impression|bomid)$')
+_TRAFFIC_RE = re.compile(r'^[A-Za-z0-9._:-]{0,128}$')
 _TOKEN_RE = re.compile(r'^[A-Fa-f0-9]{64}$')
 
 
@@ -225,6 +226,18 @@ def validate_params(params):
   rsrc = (params.get('rsrc') or '').strip().lower()
   if rsrc and _RSRC_RE.fullmatch(rsrc) is None:
     return None, 'invalid rsrc'
+  camp = _match(_TRAFFIC_RE, params.get('camp'), '')
+  if camp is None:
+    return None, 'invalid camp'
+  plc = _match(_TRAFFIC_RE, params.get('plc'), '')
+  if plc is None:
+    return None, 'invalid plc'
+  site = _match(_TRAFFIC_RE, params.get('site'), '')
+  if site is None:
+    return None, 'invalid site'
+  crid = _match(_TRAFFIC_RE, params.get('crid'), '')
+  if crid is None:
+    return None, 'invalid crid'
   token = params.get('token') or ''
   if token and _match(_TOKEN_RE, token) is None:
     return None, 'invalid token'
@@ -240,6 +253,10 @@ def validate_params(params):
       'BomID': bomid,
       'RespondentID': rid or bomid,
       'RespondentIDSource': rsrc or ('bomid' if (rid or bomid) else ''),
+      'CampaignID': camp,
+      'PlacementID': plc,
+      'SiteID': site,
+      'AdCreativeID': crid,
       'token': token,
   }, None
 
@@ -311,6 +328,10 @@ def receiver(request):
       'BomID': fields['BomID'],
       'RespondentID': fields.get('RespondentID') or fields['BomID'],
       'RespondentIDSource': fields.get('RespondentIDSource') or '',
+      'CampaignID': fields.get('CampaignID') or '',
+      'PlacementID': fields.get('PlacementID') or '',
+      'SiteID': fields.get('SiteID') or '',
+      'AdCreativeID': fields.get('AdCreativeID') or '',
   }
   try:
     errors = _bq().insert_rows_json(os.environ.get('TABLE_ID'), [row_to_insert])

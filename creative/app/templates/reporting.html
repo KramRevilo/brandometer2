@@ -12,8 +12,25 @@
           ({{ report.n_raw }} raw BigQuery rows before consolidating per-question submits)
         {% endif %}
       </p>
+      {% if survey.get('campaign_id') or survey.get('placement_id') or survey.get('ad_server') %}
+      <p class="small text-muted mb-0 mt-1">
+        {% if survey.get('campaign_id') %}Campaign ID {{ survey.get('campaign_id') }}{% endif %}
+        {% if survey.get('campaign_id') and survey.get('placement_id') %} · {% endif %}
+        {% if survey.get('placement_id') %}Placement ID {{ survey.get('placement_id') }}{% endif %}
+        {% if survey.get('ad_server') %}
+          {% if survey.get('campaign_id') or survey.get('placement_id') %} · {% endif %}
+          Ad server {{ survey.get('ad_server') }}
+        {% endif %}
+      </p>
+      {% endif %}
     </div>
-    <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
+    <div class="d-flex flex-wrap gap-2">
+      {% if can_edit %}
+      <a class="btn btn-outline-primary" href="{{ url_for('download_tags', survey_id=survey_id) }}">Tag sheet CSV</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('download_tags', survey_id=survey_id, format='xlsx') }}">Tag sheet XLSX</a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
+    </div>
   </div>
 
   <p class="small text-muted">

@@ -240,6 +240,22 @@ class ReceiverTest(unittest.TestCase):
     self.assertEqual(row['RespondentID'], 'deadbeef' * 8)
     self.assertEqual(row['RespondentIDSource'], 'macro')
 
+  def test_trafficking_ids_are_stored(self):
+    request = FakeRequest(_args(camp='camp-1', plc='plc-9', site='site-2', crid='cr-8'))
+    bq = mock.Mock()
+    bq.get_table.return_value = mock.Mock()
+    bq.insert_rows_json.return_value = []
+    with mock.patch.object(receiver, 'survey_is_active', return_value=True):
+      with mock.patch.object(receiver, '_bq', return_value=bq):
+        with mock.patch.dict(os.environ, _secrets()):
+          body, status, _headers = receiver.receiver(request)
+    self.assertEqual(status, 204)
+    row = bq.insert_rows_json.call_args[0][1][0]
+    self.assertEqual(row['CampaignID'], 'camp-1')
+    self.assertEqual(row['PlacementID'], 'plc-9')
+    self.assertEqual(row['SiteID'], 'site-2')
+    self.assertEqual(row['AdCreativeID'], 'cr-8')
+
   def test_invalid_rsrc_is_400(self):
     fields, error = receiver.validate_params(_args(rsrc='cookie'))
     self.assertIsNone(fields)

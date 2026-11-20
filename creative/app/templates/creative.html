@@ -9,7 +9,17 @@
     <meta http-equiv="Expires" content="0" />
 
     <script>
-        var clickTag = "http://www.google.com";
+        var clickTag = {{ (click_tag or 'https://www.google.com')|tojson }};
+        var BV2_CACHEBUSTER = {{ (cachebuster_macro or '')|tojson }};
+        var BV2_CAMPAIGN_MACRO = {{ (campaign_macro or '')|tojson }};
+        var BV2_PLACEMENT_MACRO = {{ (placement_macro or '')|tojson }};
+        var BV2_SITE_MACRO = {{ (site_macro or '')|tojson }};
+        var BV2_CREATIVE_MACRO = {{ (creative_macro or '')|tojson }};
+        var BV2_GDPR = {{ (gdpr_macro or '')|tojson }};
+        var BV2_GDPR_CONSENT = {{ (gdpr_consent_macro or '')|tojson }};
+        var BV2_US_PRIVACY = {{ (us_privacy_macro or '')|tojson }};
+        var BV2_SURVEY_CAMPAIGN_ID = {{ (survey_campaign_id or '')|tojson }};
+        var BV2_SURVEY_PLACEMENT_ID = {{ (survey_placement_id or '')|tojson }};
 
         // define a 'global' for the cookie - we'll possibly need to reuse it
         // if we're making multiple responses
@@ -18,9 +28,11 @@
     <script>
         var fullConfiguration = {
             "survey_config": {
-                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&rid={rid}&rsrc={rsrc}&times={time_measurement}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
+                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&rid={rid}&rsrc={rsrc}&camp={camp}&plc={plc}&site={site}&crid={crid}&cb={cb}&times={time_measurement}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
                 "receiver_token": "{% if receiver_token %}{{receiver_token}}{% endif %}",
-                "ad_user_id_candidates": ["%u", "${USER_ID}", "%%USER_ID%%"],
+                "ad_user_id_candidates": {{ (ad_user_id_candidates or ['%u', '${USER_ID}', '%%USER_ID%%'])|tojson }},
+                "overwrite_click_tag": {{ 'true' if overwrite_click_tag else 'false' }},
+                "exit_url": {{ (exit_url or 'https://www.google.com')|tojson }},
                 
                 "id": "{{survey_id}}",
                 
@@ -33,11 +45,6 @@
 
                 // TODO: Update questions and options for each survey
                 "questions": {{all_question_json|tojson}},
-
-                // TODO: capture an exit url
-                "exit_url": "https://www.google.com",
-                // Adding response_type
-                "response_type": "{{response_type}}",
                 "carousel_images": [],
                 "trackers": [
                     ""
@@ -126,8 +133,9 @@
                             this.uiConfig.component_selectors.next_button.container)
                         .innerText = this.uiConfig.component_selectors.next_button.text;
 
-                    // set the clickTag to based on configured exit
-                    clickTag = this.surveyConfig.exit_url;
+                    if (this.surveyConfig.overwrite_click_tag) {
+                        clickTag = this.surveyConfig.exit_url || clickTag;
+                    }
 
                     // Measure render time
                     this.time_measurement.start_time = new Date();
@@ -148,11 +156,19 @@
                     if (!text) {
                         return true;
                     }
-                    if (text.indexOf('%') === 0 || text.indexOf('${') === 0 ||
-                        text.indexOf('%%') === 0 || text.indexOf('[') === 0) {
+                    if (/^\$\{[A-Za-z0-9_]+\}$/.test(text)) {
                         return true;
                     }
-                    return text.length < 4;
+                    if (/^%%[A-Za-z0-9_]+%%$/.test(text)) {
+                        return true;
+                    }
+                    if (/^%[A-Za-z][A-Za-z0-9_]{0,15}!*$/.test(text)) {
+                        return true;
+                    }
+                    if (/^\[[A-Za-z0-9_]+\]$/.test(text)) {
+                        return true;
+                    }
+                    return false;
                 },
 
                 expandedAdUserId: function() {
@@ -164,6 +180,26 @@
                         }
                     }
                     return '';
+                },
+
+                expandedOrFallback: function(macroValue, fallback) {
+                    if (macroValue && !this.isUnexpandedMacro(macroValue)) {
+                        return String(macroValue).trim();
+                    }
+                    return fallback ? String(fallback).trim() : '';
+                },
+
+                cachebusterValue: function() {
+                    if (BV2_CACHEBUSTER && !this.isUnexpandedMacro(BV2_CACHEBUSTER)) {
+                        return String(BV2_CACHEBUSTER);
+                    }
+                    return this.getRandomTimestamp();
+                },
+
+                openClickTag: function() {
+                    if (clickTag && !this.isUnexpandedMacro(clickTag)) {
+                        window.open(clickTag, '_blank');
+                    }
                 },
 
                 readStoredRespondentId: function() {
@@ -725,6 +761,24 @@
                             /\{rid\}/g, encodeURIComponent(rid))
                         .replace(
                             /\{rsrc\}/g, encodeURIComponent(rsrc))
+                        .replace(
+                            /\{camp\}/g,
+                            encodeURIComponent(this.expandedOrFallback(
+                                BV2_CAMPAIGN_MACRO, BV2_SURVEY_CAMPAIGN_ID)))
+                        .replace(
+                            /\{plc\}/g,
+                            encodeURIComponent(this.expandedOrFallback(
+                                BV2_PLACEMENT_MACRO, BV2_SURVEY_PLACEMENT_ID)))
+                        .replace(
+                            /\{site\}/g,
+                            encodeURIComponent(this.expandedOrFallback(
+                                BV2_SITE_MACRO, '')))
+                        .replace(
+                            /\{crid\}/g,
+                            encodeURIComponent(this.expandedOrFallback(
+                                BV2_CREATIVE_MACRO, '')))
+                        .replace(
+                            /\{cb\}/g, encodeURIComponent(this.cachebusterValue()))
                         .replace(/\{survey_id\}/g, encodeURIComponent(surveyConfig.id))
                         .replace(
                             /\{responses\}/g,
@@ -811,7 +865,8 @@
 <body>
     <div id="master_container" class="size-{{ size_key|default('300x250') }} layout-{{ size_layout|default('stack') }}">
         <div id="ad_background">
-            <div id="ad_text">Advertisement</div>
+            <div id="ad_text" role="link" tabindex="0"
+                 onclick="controller.openClickTag(); return false;">Advertisement</div>
         </div>
         <div id="survey_container">
             <div id="question_container" class="Qbox">

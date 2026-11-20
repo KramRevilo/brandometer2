@@ -238,6 +238,7 @@ class RoleMatrixTest(unittest.TestCase):
         ('post', '/survey/archive', {'survey_id': 's1', 'archived': '1'}),
         ('get', '/survey/download_zip/s1'),
         ('get', '/survey/download_zip/s1/version/1'),
+        ('get', '/survey/download_tags/s1'),
         ('get', '/admin'),
         ('post', '/admin', {'action': 'add_user', 'email': 'a@b.co', 'role': 'editor'}),
     )
@@ -268,6 +269,7 @@ class RoleMatrixTest(unittest.TestCase):
             data={'survey_id': 's1', 'archived': '1'}, follow_redirects=False),
         302)
     self.assertEqual(self._status('editor', 'get', '/survey/download_zip/s1'), 200)
+    self.assertEqual(self._status('editor', 'get', '/survey/download_tags/s1'), 200)
     self.assertEqual(
         self._status('editor', 'get', '/survey/download_zip/s1/version/1'), 200)
     self.assertEqual(self._status('editor', 'get', '/admin'), 403)
@@ -282,6 +284,7 @@ class RoleMatrixTest(unittest.TestCase):
     self.assertEqual(self._status('admin', 'get', '/admin'), 200)
     self.assertEqual(self._status('admin', 'get', '/survey/create'), 200)
     self.assertEqual(self._status('admin', 'get', '/survey/download_zip/s1'), 200)
+    self.assertEqual(self._status('admin', 'get', '/survey/download_tags/s1'), 200)
 
   def test_viewer_ui_hides_mutate_controls(self):
     response = self._client('viewer').get('/index')
@@ -289,6 +292,7 @@ class RoleMatrixTest(unittest.TestCase):
     self.assertNotIn(b'>Create survey</a>', response.data)
     self.assertNotIn(b'>Admin</a>', response.data)
     self.assertNotIn(b'Download Creative Zip', response.data)
+    self.assertNotIn(b'tag sheet', response.data)
     self.assertNotIn(b'title="Edit Survey"', response.data)
     self.assertNotIn(b'title="Copy Survey"', response.data)
     self.assertNotIn(b'title="Archive Survey"', response.data)
@@ -303,6 +307,7 @@ class RoleMatrixTest(unittest.TestCase):
     self.assertIn(b'>Create survey</a>', response.data)
     self.assertNotIn(b'>Admin</a>', response.data)
     self.assertIn(b'Download Creative Zip', response.data)
+    self.assertIn(b'tag sheet', response.data)
     self.assertIn(b'title="Edit Survey"', response.data)
     self.assertIn(b'>editor</span>', response.data)
 

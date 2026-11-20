@@ -15,6 +15,7 @@
 
 # OS imports
 import datetime
+import io
 import logging
 import math
 import os
@@ -444,6 +445,24 @@ def download_responses_context(survey_id):
           'Content-disposition':
               'attachment; filename=surveydata_context.csv'
       })
+
+
+@app.route('/survey/download_tags/<string:survey_id>', methods=['GET'])
+def download_tags(survey_id):
+  """Trafficking tag sheet (CSV or XLSX) for one survey."""
+  google_auth.require_editor()
+  survey_doc = survey_service.get_doc_by_id(survey_id)
+  if not survey_doc or not getattr(survey_doc, 'exists', False):
+    flash('Survey not found')
+    return redirect(url_for('index'))
+  fmt = (request.args.get('format') or 'csv').strip().lower()
+  filename, payload, mime = survey_service.tag_sheet_payload(
+      survey_id, survey_doc.to_dict() or {}, fmt=fmt)
+  return send_file(
+      io.BytesIO(payload),
+      mimetype=mime,
+      as_attachment=True,
+      download_name=filename)
 
 
 @app.route('/survey/reporting/<string:survey_id>', methods=['GET'])

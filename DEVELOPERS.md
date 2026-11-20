@@ -461,7 +461,7 @@ Existing 300×250 four-answer surveys should look the same until you change them
 
 2. **Sheet / CSV upload.** Columns such as date, campaign_id or placement_id, impressions, cost. Parse in Flask and store in BigQuery or a Firestore subcollection, same join. Faster to prototype, manual, no daily refresh, easy to get IDs wrong.
 
-Join: each BOM cut is usually one CM placement (and one DV360 line item). **Placement ID** is the precise key; **campaign ID** is enough only when a survey maps 1:1 to a campaign. Both optional fields are on Identity now so surveys can be tagged before a dashboard exists. They are not read by reporting or the receiver.
+Join: each BOM cut is usually one CM placement (and one DV360 line item). **Placement ID** is the precise key; **campaign ID** is enough only when a survey maps 1:1 to a campaign. Both optional fields are on Identity, shown on the report/tag sheet, sent on the pixel when macros do not expand, and stored on the response row when the ad server expands them. A cost/impressions dashboard is still not built.
 
 Effort: the dashboard (join quality, unmatched IDs, currency, a cost table next to Brand Lift) is a later phase of its own. A sheet upload is the smaller stopgap. The Data Transfer path is larger but is what you want if this will be used weekly. Redeploy is not required for the placeholder ID fields until you want them in production editor.
 
@@ -574,6 +574,14 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, Web Preview port 8080). Then:
 2. Download zip: inner `index.html` `response_server` includes `&token=` when `RECEIVER_HMAC_SECRET` is set. Preview HTML must **not** include a token and must not post.
 3. After receiver redeploy: curl without token → 403; curl with token for a missing id → 404; omit `response` → 400; valid signed row → 204. `RandomTimeStamp` in BigQuery is a 64-char hex string that is **not** `sha256(ip)`.
 4. Thank-you screen in preview shows the privacy sentence after submit.
+
+# Phase 7c / 59 (ad-server macros + tag sheet)
+
+Identity → **Ad server** (CM360 default, DV360, GAM, generic) writes clickTag / cachebuster / placement / site / creative / user / GDPR / US-privacy placeholders into the zip. Expanded campaign/placement/site/creative IDs are posted as `camp` / `plc` / `site` / `crid` (NULLABLE BQ columns). GDPR/US privacy strings are **not** sent to the receiver.
+
+Editors download a tag sheet: `/survey/download_tags/<id>` (CSV) or `?format=xlsx`. Viewers get 403.
+
+**Full `./deploy` again** (not `--app-only`): receiver writes the new columns; `ensure_respondent_columns` ALTERs `CampaignID`, `PlacementID`, `SiteID`, `AdCreativeID`. Re-download zips after App Engine is up.
 
 # Phase 7c / 58 (durable respondent ID)
 

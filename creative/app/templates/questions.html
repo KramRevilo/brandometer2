@@ -115,11 +115,17 @@
           <div class="col-md-6">
             <label class="form-label" for="campaign_id">Campaign ID</label>
             {{ form.campaign_id(class="form-control", id="campaign_id", placeholder="Optional CM360 / DV360 campaign ID") }}
-            <div class="form-text">Placeholder for a future cost/impressions join. Not used in reporting yet.</div>
+            <div class="form-text">Shown on the report and tag sheet. Used on the pixel when the ad-server campaign macro does not expand.</div>
           </div>
           <div class="col-md-6">
             <label class="form-label" for="placement_id">Placement ID</label>
             {{ form.placement_id(class="form-control", id="placement_id", placeholder="Optional CM360 placement ID") }}
+            <div class="form-text">Fallback when the placement macro does not expand. Live hits still send the expanded placement id when the ad server fills it.</div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" for="ad_server">Ad server</label>
+            {{ form.ad_server(class="form-select", id="ad_server") }}
+            <div class="form-text">Sets clickTag, cachebuster, and ID macros in the HTML5 zip. CM360 is the default for this workflow.</div>
           </div>
           <div class="col-md-4">
             <label class="form-label" for="surveytype">Type</label>

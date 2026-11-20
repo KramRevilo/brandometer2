@@ -376,6 +376,15 @@ class QuestionForm(FlaskForm):
   agency = StringField('agency')
   campaign_id = StringField('campaignId')
   placement_id = StringField('placementId')
+  ad_server = SelectField(
+      'adServer',
+      choices=[
+          ('cm360', 'Campaign Manager 360'),
+          ('dv360', 'Display & Video 360'),
+          ('gam', 'Google Ad Manager'),
+          ('generic', 'Generic / none'),
+      ],
+      default='cm360')
 
   # adding responseType as a property of the survey
   responsetype = SelectField('responseType', choices=[

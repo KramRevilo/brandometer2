@@ -35,6 +35,7 @@ from google.cloud import bigquery_storage
 import numpy as np
 import pandas as pd
 import creative_size
+import ad_macros
 import reporting
 import respondent
 import survey_collection
@@ -45,7 +46,8 @@ from forms import DEFAULT_CSS
 from forms import RESPONSES_AT_END
 
 UNKNOWN_YEAR = 'unknown'
-_IDENTITY_KEYS = ('client', 'agency', 'campaign_id', 'placement_id')
+_IDENTITY_KEYS = (
+    'client', 'agency', 'campaign_id', 'placement_id', 'ad_server')
 _FORM_META_KEYS = ('csrf_token', 'submit', 'last_update_time')
 
 # Homepage status chips. Active <= 3 days, Stale <= 7, Timed out after that.
@@ -85,11 +87,13 @@ def _get_bqstorage_client():
 _EMPTY_RESPONSES_COLUMNS = [
     'CreatedAt', 'Segmentation', 'Response', 'BomID',
     'RespondentID', 'RespondentIDSource',
+    'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID',
 ]
 CSV_CHUNK_ROWS = 500
 _RESPONSE_SELECT = """
         SELECT CreatedAt, Segmentation, Response, BomID,
-               RespondentID, RespondentIDSource
+               RespondentID, RespondentIDSource,
+               CampaignID, PlacementID, SiteID, AdCreativeID
         FROM `{table}`
         WHERE ID = @survey_id
     """
@@ -528,6 +532,7 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None):
   except Exception:
     hmac_secret = os.environ.get('RECEIVER_HMAC_SECRET') or ''
   receiver_token = receiver_crypto.survey_token(survey_id, hmac_secret)
+  macro_vars = ad_macros.render_vars(survey_dict)
   return render_template(
       'creative.html',
       survey=survey_dict,
@@ -548,6 +553,7 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None):
       brand_name=brand.brand_name(),
       receiver_url=receiver_url,
       receiver_token=receiver_token,
+      **macro_vars,
       **brand.badge_render_vars(survey_dict))
 
 
@@ -892,6 +898,24 @@ def _csv_dataframe(surveyid, with_context=False):
   if not df.empty:
     outputdf['Date'] = df['CreatedAt'].values
     outputdf[segment_col] = df['Segmentation'].values
+    for src, dest in (
+        ('CampaignID', 'Campaign ID'),
+        ('PlacementID', 'Placement ID'),
+        ('SiteID', 'Site ID'),
+        ('AdCreativeID', 'Creative ID'),
+    ):
+      if src in df.columns:
+        series = df[src].fillna('').astype(str)
+      else:
+        series = pd.Series([''] * len(df), index=df.index)
+      fallback = ''
+      if dest == 'Campaign ID':
+        fallback = (survey_info.get('campaign_id') or '').strip()
+      elif dest == 'Placement ID':
+        fallback = (survey_info.get('placement_id') or '').strip()
+      if fallback:
+        series = series.where(series.str.strip() != '', fallback)
+      outputdf[dest] = series.values
   responselist = _response_columns_for_csv(df, question_names)
   if not responselist.empty:
     outputdf = pd.concat(
@@ -1123,3 +1147,21 @@ def get_comment_text(survey):
   language_code = survey.get('language')
   comment_text = language_codes.get(language_code) or 'Choose all applicable'
   return comment_text
+
+
+def tag_sheet_payload(survey_id, survey, fmt='csv'):
+  """CSV or XLSX bytes plus a download filename."""
+  headers, rows = ad_macros.tag_sheet_matrix(survey_id, survey)
+  slug = (survey.get('surveyname') or survey_id or 'survey').replace(' ', '-')
+  fmt = (fmt or 'csv').strip().lower()
+  if fmt == 'xlsx':
+    return (
+        '%s_tag_sheet.xlsx' % slug,
+        ad_macros.xlsx_bytes(headers, rows),
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    )
+  return (
+      '%s_tag_sheet.csv' % slug,
+      ad_macros.csv_bytes(headers, rows),
+      'text/csv',
+  )

@@ -30,7 +30,7 @@ List with search plus **client / agency / year / size** filters (kept on paginat
 
 * **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
-* View Survey (size switcher when there is more than one size), stats, ZIP download (editors/admins), and CSV download.
+* View Survey (size switcher when there is more than one size), stats, ZIP download (editors/admins), trafficking tag sheet (CSV/XLSX, editors/admins), and CSV download.
 * Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery.
 * Viewers see the list, filters, preview, reports, and CSV. Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
 
@@ -54,7 +54,9 @@ Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe 
 * **Answers:** 2–5 on 300×250 / 336×280 / 970×250; up to 8 (a–h) when **every** selected size is 160×600 or 300×600. Empty rows are skipped. Answer text wraps.
 * **Themes:** grouped presets (Classic, Loud solids, Complementary, Patterns). Classic green is the default. Pickers write CSS variables; free-form CSS stays under Advanced.
 * **Disclosure badge:** bottom-left **B** / **B2** / **Ad** / **Dentsu** pill on the creative (not an official Dentsu logo). Optional tooltip (max 120 characters).
-* **Identity:** optional display name, client, agency, campaign ID, and placement ID. Display name is the homepage label; the survey name still drives zip filenames. Campaign/placement IDs are stored for a future cost join and are **not** used in reporting yet.
+* **Identity:** optional display name, client, agency, campaign ID, placement ID, and **ad server** (CM360 default, DV360, GAM, or generic). Display name is the homepage label; the survey name still drives zip filenames. Campaign/placement IDs show on the report, the tag sheet, response CSV (fallback when the pixel did not send them), and as pixel fallbacks when the ad-server macro does not expand.
+* **Ad-server macros:** each zip sets `clickTag` and cachebuster / campaign / placement / site / creative / user-id / GDPR / US-privacy placeholders for the selected ad server. Expanded IDs are sent on the pixel (`camp`, `plc`, `site`, `crid`). Unexpanded placeholders are not sent. GDPR/US privacy strings stay in the creative for the ad environment; they are **not** stored in BigQuery. Generic mode keeps a static clickTag.
+* **Tag sheet:** editors download CSV or XLSX listing each inner zip (size × Brand Lift segment), filenames, survey campaign/placement IDs, macros, and trafficking notes.
 * **Versions:** each creative ZIP download stores an immutable snapshot. The edit page can re-download an old version. Editing the live survey does not change past snapshots.
 
 Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (Brand Lift also splits Control and Expose). Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip as a creative. Inner zips contain only `index.html`.
@@ -204,7 +206,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 * **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
 * **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
-* **Phase 7c / 7d leftover** (not built): ad-server trafficking macros and a tag sheet; BigQuery authorized views and Looker; reporting breakouts; HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 export (campaign/placement ID fields are placeholders). Also not built: free-form write-in answers, in-stream video/VAST, a cost/impressions join. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
+* **Phase 7c / 7d leftover** (not built): BigQuery authorized views and Looker; reporting breakouts; HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -337,6 +339,10 @@ Table: `` `$PROJECT_ID.responses.responses` `` (dataset `responses`, table `resp
 | `BomID` | STRING | Session / impression grouping id from the creative (REQUIRED). New creatives set this to the same durable id as `RespondentID`. |
 | `RespondentID` | STRING | Durable respondent id (NULLABLE). Missing on rows collected before Phase 7c. |
 | `RespondentIDSource` | STRING | `macro`, `storage`, `impression`, or `bomid` (NULLABLE) |
+| `CampaignID` | STRING | Expanded campaign macro or survey fallback (NULLABLE) |
+| `PlacementID` | STRING | Expanded placement macro or survey fallback (NULLABLE) |
+| `SiteID` | STRING | Expanded site macro (NULLABLE) |
+| `AdCreativeID` | STRING | Expanded creative macro (NULLABLE) |
 
 The app consolidates by `COALESCE(RespondentID, BomID)`. A raw count of rows can be higher than homepage / report / CSV counts.
 
@@ -359,15 +365,14 @@ Replace `PROJECT_ID` and `SURVEY_ID`. For production tables that are partitioned
 
 ## Roadmap (not built)
 
-Phase **7c** item **58** (durable respondent ID) is shipped. Remaining **7c / 7d** — do not treat these as shipped:
+Phase **7c** items **58** (durable respondent ID) and **59** (ad-server macros + tag sheet) are shipped. Remaining **7c / 7d** — do not treat these as shipped:
 
-* Ad-server macros and a trafficking tag sheet
 * BigQuery authorized views and Looker
 * Reporting breakouts (beyond current Lift / Track views)
 * HTML5 spec QA automation
 * Bulk CSV survey import
 * Stats-method corrections beyond current Wilson / z-test
-* CM360 / DV360 export (cost/impressions dashboard; campaign/placement ID fields are placeholders only)
+* CM360 / DV360 cost/impressions join
 * Shared stats cache (today each App Engine instance caches for 90 seconds)
 * Content-Security-Policy header
 

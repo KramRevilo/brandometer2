@@ -460,6 +460,8 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'OMD', response.data)
     self.assertIn(b'name="campaign_id"', response.data)
     self.assertIn(b'name="placement_id"', response.data)
+    self.assertIn(b'name="ad_server"', response.data)
+    self.assertIn(b'Campaign Manager 360', response.data)
 
   @mock.patch.object(survey_service, 'copy_by_id')
   def test_copy_opens_editor(self, copy_mock):

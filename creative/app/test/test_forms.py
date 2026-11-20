@@ -74,11 +74,13 @@ class QuestionFormTest(unittest.TestCase):
             'agency': 'OMD',
             'campaign_id': '123',
             'placement_id': '456',
+            'ad_server': 'dv360',
         })
         self.assertEqual(form.client.data, 'Acme')
         self.assertEqual(form.agency.data, 'OMD')
         self.assertEqual(form.campaign_id.data, '123')
         self.assertEqual(form.placement_id.data, '456')
+        self.assertEqual(form.ad_server.data, 'dv360')
         empty = self.create_form({})
         self.assertFalse(empty.client.data)
         self.assertFalse(empty.agency.data)

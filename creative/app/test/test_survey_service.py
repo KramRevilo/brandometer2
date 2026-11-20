@@ -330,6 +330,7 @@ class TestSurveyService(unittest.TestCase):
     self.assertRegex(sql, 'WHERE ID = @survey_id')
     self.assertIn('BomID', sql)
     self.assertIn('RespondentID', sql)
+    self.assertIn('PlacementID', sql)
     self.assertNotIn('STARTS_WITH', sql)
     self.assertEqual(survey_param.name, 'survey_id')
     self.assertEqual(survey_param.value, 'sid-1')
@@ -411,7 +412,8 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(
         list(df.columns),
         ['CreatedAt', 'Segmentation', 'Response', 'BomID',
-         'RespondentID', 'RespondentIDSource'])
+         'RespondentID', 'RespondentIDSource',
+         'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID'])
 
   @mock.patch.object(survey_service, '_get_bq_client')
   def test_get_all_response_counts_missing_table_returns_empty_frame(
