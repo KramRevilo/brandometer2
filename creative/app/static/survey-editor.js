@@ -237,7 +237,7 @@
         var typed = String(fieldValue('badge_text') || '').trim();
         if (typed) return typed.slice(0, 120);
         return (boot.badgeTextDefault || (boot.brand && boot.brand.tooltip) ||
-          'Survey Type Brandometer Ad - powered by Google');
+          'Survey Type Brandometer2 Ad - powered by Google');
       },
 
       badgeMarkup: function () {

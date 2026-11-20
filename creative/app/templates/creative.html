@@ -893,8 +893,8 @@
         </div>
         <button type="button" id="brand_badge"
                 class="brand-badge badge-kind-{{ badge_kind|default('letter') }} badge-icon-{{ badge_icon|default('B') }}"
-                title="{{ badge_tooltip|default('Survey Type Brandometer Ad - powered by Google') }}"
-                aria-label="{{ badge_tooltip|default('Survey Type Brandometer Ad - powered by Google') }}"
+                title="{{ badge_tooltip|default('Survey Type Brandometer2 Ad - powered by Google') }}"
+                aria-label="{{ badge_tooltip|default('Survey Type Brandometer2 Ad - powered by Google') }}"
                 onclick="event.preventDefault(); event.stopPropagation(); this.classList.toggle('is-open'); return false;">
             {% if badge_svg %}
             {{ badge_svg }}
@@ -913,7 +913,7 @@
             {% else %}
             <span class="brand-badge-face">{{ badge_mark|default(badge_icon)|default('B') }}</span>
             {% endif %}
-            <span class="brand-badge-tip">{{ badge_tooltip|default('Survey Type Brandometer Ad - powered by Google') }}</span>
+            <span class="brand-badge-tip">{{ badge_tooltip|default('Survey Type Brandometer2 Ad - powered by Google') }}</span>
         </button>
     </div>
     {% if show_back_button %}

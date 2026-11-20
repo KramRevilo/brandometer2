@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Sign in · {{ brand_name|default('Brandometer') }}</title>
+  <title>Sign in · {{ brand_name|default('Brandometer2') }}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="16x16 32x32 48x48">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}" sizes="180x180">
@@ -11,7 +11,7 @@
 </head>
 <body class="bg-light">
   <div class="container py-5" style="max-width: 28rem;">
-    <h1 class="h3 mb-3">{{ brand_name|default('Brandometer') }}</h1>
+    <h1 class="h3 mb-3">{{ brand_name|default('Brandometer2') }}</h1>
     <p class="text-muted">Sign in with your Google account. @google.com accounts are allowed as editors. Everyone else must be on the allowlist or an allowed domain.</p>
     {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}

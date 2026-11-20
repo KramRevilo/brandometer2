@@ -35,7 +35,7 @@ def _prepare_env() -> None:
   os.environ.setdefault('TABLE_ID', 'brandometer-docs.responses.responses')
   os.environ.setdefault('SECRET_KEY', 'docs-screenshots-not-a-secret')
   os.environ.setdefault('STATS_CACHE_SECONDS', '0')
-  os.environ.setdefault('APP_BRAND_NAME', 'Brandometer')
+  os.environ.setdefault('APP_BRAND_NAME', 'Brandometer2')
   # Dummy values so Secret Manager is never called and /login shows Sign in.
   os.environ.setdefault(
       'GOOGLE_OAUTH_CLIENT_ID',
@@ -388,7 +388,7 @@ def run_browser(app, out: Path) -> None:
     page.goto(base + '/survey/reporting/lift-demo', wait_until='networkidle')
     page.wait_for_selector('#dailyChart')
     page.wait_for_timeout(800)
-    capture(page, out / 'report-lift.png')
+    capture(page, out / 'report-lift.png', full_page=False)
 
     page.goto(base + '/admin', wait_until='networkidle')
     page.wait_for_selector('table')

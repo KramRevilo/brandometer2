@@ -48,7 +48,7 @@ import survey_collection
 import survey_service
 from forms import RESPONSES_AT_END
 
-# Project setup. Overridden per request by APP_BRAND_NAME (default Brandometer).
+# Project setup. Overridden per request by APP_BRAND_NAME (default Brandometer2).
 title = brand.DEFAULT_BRAND_NAME
 app = Flask(__name__)
 app_security.configure_app(app)

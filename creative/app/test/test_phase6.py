@@ -119,7 +119,7 @@ class ZipAndHtmlTest(unittest.TestCase):
       else:
         self.assertIn('width=300,height=250', html)
       self.assertIn('brand-badge', html)
-      self.assertIn('Survey Type Brandometer Ad - powered by Google', html)
+      self.assertIn('Survey Type Brandometer2 Ad - powered by Google', html)
       self.assertIn('option_container_7', html)
       self.assertIn('SONAR_LAYOUT_START', html)
       self.assertLess(len(inner_bytes), 5 * 1024 * 1024)
@@ -192,9 +192,9 @@ class PresetAndBrandTest(unittest.TestCase):
     with mock.patch.dict(os.environ, {}, clear=False):
       os.environ.pop('APP_BRAND_NAME', None)
       os.environ.pop('APP_BRAND_BADGE_LETTER', None)
-      self.assertEqual(brand.brand_name(), 'Brandometer')
+      self.assertEqual(brand.brand_name(), 'Brandometer2')
       self.assertEqual(brand.badge_letter(), 'B')
-      self.assertIn('Brandometer', brand.badge_tooltip())
+      self.assertIn('Brandometer2', brand.badge_tooltip())
     with mock.patch.dict(os.environ, {
         'APP_BRAND_NAME': 'AcmeAds',
         'APP_BRAND_BADGE_LETTER': 'Q',
@@ -209,7 +209,7 @@ class PresetAndBrandTest(unittest.TestCase):
         survey_service, 'identity_suggestions',
         return_value={'clients': [], 'agencies': []}):
       response = client.get('/survey/create')
-    self.assertIn(b'Brandometer', response.data)
+    self.assertIn(b'>Brandometer2</a>', response.data)
     self.assertIn(b'Sign out', response.data)
     self.assertIn(b'local-dev', response.data)
     self.assertIn(b'Admin', response.data)
@@ -239,7 +239,7 @@ class DisclosureBadgeTest(unittest.TestCase):
     self.assertEqual(spec['id'], 'B')
     self.assertEqual(spec['kind'], 'letter')
     self.assertEqual(spec['mark'], 'B')
-    self.assertEqual(spec['tooltip'], 'Survey Type Brandometer Ad - powered by Google')
+    self.assertEqual(spec['tooltip'], 'Survey Type Brandometer2 Ad - powered by Google')
     self.assertEqual(brand.persist_badge({})['badge_icon'], 'B')
     self.assertEqual(brand.persist_badge({'badge_text': '  '})['badge_text'], '')
 
@@ -304,13 +304,13 @@ class DisclosureBadgeTest(unittest.TestCase):
       }, '')
     self.assertIn('viewBox="0 0 20 20"', html)
     self.assertIn('>B</text>', html)
-    self.assertIn('Survey Type Brandometer Ad - powered by Google', html)
+    self.assertIn('Survey Type Brandometer2 Ad - powered by Google', html)
     self.assertIn('badge-kind-letter', html)
 
   def test_blank_text_uses_brand_default(self):
     spec = brand.badge_for_survey({'badge_icon': 'B2', 'badge_text': ''})
     self.assertEqual(spec['id'], 'B2')
-    self.assertEqual(spec['tooltip'], 'Survey Type Brandometer Ad - powered by Google')
+    self.assertEqual(spec['tooltip'], 'Survey Type Brandometer2 Ad - powered by Google')
 
   def test_version_snapshot_keeps_badge_fields(self):
     from mockfirestore import MockFirestore

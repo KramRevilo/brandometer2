@@ -4,7 +4,7 @@ N.B. This is not an officially supported Google product.
 
 Brandometer2 builds **brand-lift** and **brand-track** display surveys and hosts them on Google Cloud. Marketers create a survey in the app, download HTML5 zips, traffic them in Campaign Manager 360 / DV360, and read results in the app (or in BigQuery).
 
-It is a fork of [Google Brandometer](https://github.com/google/brandometer) (Apache-2.0). The in-app product name is `APP_BRAND_NAME` (default **Brandometer**). Developer detail lives in [DEVELOPERS.md](DEVELOPERS.md).
+It is a fork of [Google Brandometer](https://github.com/google/brandometer) (Apache-2.0). The in-app product name is `APP_BRAND_NAME` (default **Brandometer2**). Navbar, page titles, login, and the disclosure-badge tooltip use it. Override with `export APP_BRAND_NAME=…`. Developer detail lives in [DEVELOPERS.md](DEVELOPERS.md).
 
 Screenshots below use **seeded sample surveys** (Acme, Northwind, Contoso) and generic example emails. They are not production data. Regenerate them with `python3 tools/capture_screenshots.py` (see [Screenshots](#screenshots)).
 
@@ -228,7 +228,7 @@ Prerequisites: [Google Cloud SDK](https://cloud.google.com/sdk/) (`gcloud` and `
 ### OAuth client
 
 1. In the Cloud Console, open the project.
-2. **APIs & Services → OAuth consent screen.** Use **Internal** for a Google Workspace project; otherwise **External** and add yourself as a test user while the app is in Testing. App name `Brandometer`. Scopes: `openid`, userinfo email, userinfo profile. Authorized domain: `appspot.com`.
+2. **APIs & Services → OAuth consent screen.** Use **Internal** for a Google Workspace project; otherwise **External** and add yourself as a test user while the app is in Testing. App name `Brandometer2`. Scopes: `openid`, userinfo email, userinfo profile. Authorized domain: `appspot.com`.
 3. **Credentials → Create credentials → OAuth client ID → Web application.**
 
 Authorized JavaScript origins (replace `PROJECT_ID`; us-central App Engine also uses `uc.r.appspot.com`):
@@ -323,7 +323,7 @@ python3 -m playwright install chromium
 python3 tools/capture_screenshots.py
 ```
 
-The script sets `DISABLE_BASIC_AUTH=1` and dummy OAuth / HMAC values so Secret Manager is never called. Output is optimised PNG (UI capped at 1200px wide; creatives stay natural size).
+The script sets `DISABLE_BASIC_AUTH=1`, `APP_BRAND_NAME=Brandometer2`, and dummy OAuth / HMAC values so Secret Manager is never called. Output is optimised PNG (UI capped at 1200px wide; creatives stay natural size). Navbar, login, and titles in these shots show **Brandometer2**. The Brand Lift report shot is the viewport (breakout tables continue below).
 
 ## Querying results in BigQuery
 

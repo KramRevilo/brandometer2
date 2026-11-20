@@ -1,6 +1,6 @@
-# Brandometer developer guide
+# Brandometer2 developer guide
 
-Brandometer2 is a Flask + Google Cloud app (App Engine, Firestore, BigQuery, Cloud Functions) for building brand-lift / brand-track survey creatives. It started as a fork of Google Brandometer (Apache-2.0). The in-app product name is `APP_BRAND_NAME` (default **Brandometer**). Use only the Brandometer2 name in docs and UI; do not reference the previous fork's name. Theme blocks stored in `custom_css` keep their historical comment sentinels (`SONAR_THEME_*`, `SONAR_SIZE_*`, `SONAR_LAYOUT_*`) and `--sonar-*` CSS variables so existing surveys still parse — do not rename those identifiers.
+Brandometer2 is a Flask + Google Cloud app (App Engine, Firestore, BigQuery, Cloud Functions) for building brand-lift / brand-track survey creatives. It started as a fork of Google Brandometer (Apache-2.0). The in-app product name is `APP_BRAND_NAME` (default **Brandometer2**). Use only the Brandometer2 name in docs and UI; do not reference the previous fork's name. Theme blocks stored in `custom_css` keep their historical comment sentinels (`SONAR_THEME_*`, `SONAR_SIZE_*`, `SONAR_LAYOUT_*`) and `--sonar-*` CSS variables so existing surveys still parse — do not rename those identifiers.
 
 **Docs stay in the same commit.** Every change must update `README.md` in that commit. Update this file too when the change is operator- or developer-facing (deploy, IAM, local run, tests, secrets, architecture). See `AGENTS.md`.
 
@@ -243,7 +243,7 @@ The admin UI is self-hosted Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12
 
 **Ad badge.** Every creative and the preview has a bottom-left disclosure badge. Default icon is the bevelled **B** (first letter of `APP_BRAND_NAME`, overridable with `APP_BRAND_BADGE_LETTER`). Per-survey **Disclosure badge** on create/edit picks **B**, **B2**, **Ad**, or **Dentsu** (plain-text wordmark in the same bevelled pill; not Dentsu’s official logo). Stored as `badge_icon` / `badge_text`. Blank or missing fields behave as the default tooltip `Survey Type {brand} Ad - powered by Google` (`APP_BRAND_BADGE_TOOLTIP` to override the default string). Popup text is max 120 characters and HTML-escaped. Hover / focus / tap still show the tooltip; it does not fire clickTag. Copy and zip version snapshots keep the fields. Add more faces in `brand.BADGE_ICONS` (reserved `svg` for an uploaded logo).
 
-**Brand.** `export APP_BRAND_NAME=Brandometer` (that is the default). Navbar, page titles, and the badge letter/tooltip use it.
+**Brand.** `export APP_BRAND_NAME=Brandometer2` (that is the default). Navbar, page titles, login, and the badge letter/tooltip use it. Tag sheets and response CSVs do not embed the product name (survey name only). There is no branded email.
 
 **Favicon.** Rounded-square Bootstrap primary (`#0d6efd`) with white **Bv2** (`creative/app/static/favicon.svg`). Raster sizes (16/32/48 ICO, 180 apple-touch) are generated with `python3 tools/generate_favicons.py` and committed. App Engine serves `/favicon.ico` from `creative/app/favicon.ico`; `base.html` and `login.html` also link the SVG, ICO, and apple-touch icon. Browsers cache favicons aggressively — hard-refresh after a change.
 
@@ -483,11 +483,11 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, then from `creative/app`: `flask 
 
 Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --port 8080 --debug`). Web Preview → port 8080.
 
-1. Navbar says **Brandometer** (or `APP_BRAND_NAME`). Create survey: check **300×250** and **970×250**. Editor preview switcher appears; 970×250 is wide with answers in a grid. Check only **160×600** and **Add answer** through H. Checking 300×250 as well should drop F–H on save (validation).
+1. Navbar says **Brandometer2** (or `APP_BRAND_NAME`). Create survey: check **300×250** and **970×250**. Editor preview switcher appears; 970×250 is wide with answers in a grid. Check only **160×600** and **Add answer** through H. Checking 300×250 as well should drop F–H on save (validation).
 2. Homepage: that two-size survey has Sizes chips and a View split button. Pick **970×250** from the caret (`?size=970x250`). The preview page size switcher highlights 970×250. A one-size survey still has a plain View button and no preview switcher. Filter Size = 970×250 hides surveys that do not include it; combine with page 2 / Show archived.
 3. Theme preset dropdown: Classic green first; groups Classic / Loud solids / Complementary / Patterns. Hazard stripes should show a striped background with readable answer panels.
 4. Download zip with two sizes: outer zip contains two inner zips; each inner has only `index.html`, `ad.size` matching that size, a **B** badge bottom-left. Hover/tap the badge for the tooltip. Inner filenames ≤ 50 chars.
-5. **Disclosure badge.** Create survey: Icon picker shows B / B2 / Ad / Dentsu. Default B looks like the current bevelled letter. Pick **Dentsu** and 160×600 — the wordmark is a small pill, not overlapping answers. Change popup text; preview updates immediately. **Use default** restores the `Survey Type Brandometer Ad - powered by Google` string. Leave text blank and save — creative still uses that default. Copy the survey; badge choices come along.
+5. **Disclosure badge.** Create survey: Icon picker shows B / B2 / Ad / Dentsu. Default B looks like the current bevelled letter. Pick **Dentsu** and 160×600 — the wordmark is a small pill, not overlapping answers. Change popup text; preview updates immediately. **Use default** restores the `Survey Type Brandometer2 Ad - powered by Google` string. Leave text blank and save — creative still uses that default. Copy the survey; badge choices come along.
 6. Homepage speed: the survey table should appear immediately with **Loading…** in count/last/status; those cells fill in after `/index/stats-partial` (check Network: `/index` returns before the stats request). Flask debug log lines `index.request_ms` (bq=deferred) and `stats.bq_ms`.
 7. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips, one placement per size. Assign Brand Lift control/expose creatives to the matching audience ads. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
 
@@ -526,11 +526,11 @@ Do this once per GCP project (or when the OAuth client / bootstrap admin changes
 1. In [Google Cloud Console](https://console.cloud.google.com/) open the target project.
 2. **APIs & Services → OAuth consent screen**
    1. User type: **Internal** if this is a Google Workspace project; otherwise **External** (add yourself as a test user while the app is in Testing).
-   2. App name: `Brandometer`. Support email: your address.
+   2. App name: `Brandometer2`. Support email: your address.
    3. Scopes: `openid`, `.../auth/userinfo.email`, `.../auth/userinfo.profile` (Authlib requests `openid email profile`).
    4. Authorized domains: `appspot.com`. Optionally `cloudshell.dev` if you will try Sign-In from Cloud Shell Web Preview.
 3. **APIs & Services → Credentials → Create credentials → OAuth client ID**
-   1. Application type: **Web application**. Name: `Brandometer web`.
+   1. Application type: **Web application**. Name: `Brandometer2 web`.
    2. **Authorized JavaScript origins** (replace `PROJECT_ID`; us-central App Engine also uses `uc.r.appspot.com`):
       - `https://PROJECT_ID.appspot.com`
       - `https://PROJECT_ID.uc.r.appspot.com`

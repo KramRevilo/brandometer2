@@ -14,7 +14,7 @@
 """Product brand for the admin UI and the creative disclosure badge."""
 import os
 
-DEFAULT_BRAND_NAME = 'Brandometer'
+DEFAULT_BRAND_NAME = 'Brandometer2'
 DEFAULT_BADGE_ICON = 'B'
 BADGE_TEXT_MAX = 120
 

@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% if title %}{{ title }}{% else %}{{ brand_name|default('Brandometer') }}{% endif %}</title>
+  <title>{% if title %}{{ title }}{% else %}{{ brand_name|default('Brandometer2') }}{% endif %}</title>
   <link rel="icon" href="{{ url_for('static', filename='favicon.svg') }}" type="image/svg+xml">
   <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}" sizes="16x16 32x32 48x48">
   <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}" sizes="180x180">
@@ -46,7 +46,7 @@
 <body>
 <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
   <div class="container">
-    <a class="navbar-brand" href="{{ url_for('index') }}">{{ brand_name|default('Brandometer') }}</a>
+    <a class="navbar-brand" href="{{ url_for('index') }}">{{ brand_name|default('Brandometer2') }}</a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarMain" aria-controls="navbarMain" aria-expanded="false" aria-label="Toggle navigation">
       <span class="navbar-toggler-icon"></span>
     </button>

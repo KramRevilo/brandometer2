@@ -53,6 +53,8 @@ class AuthAndRedirectTest(unittest.TestCase):
     response = client.get('/login')
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'Sign in with your Google account', response.data)
+    self.assertIn(b'Brandometer2', response.data)
+    self.assertIn('Sign in · Brandometer2'.encode('utf-8'), response.data)
     self.assertIn(b'DISABLE_BASIC_AUTH=1', response.data)
     self.assertIn(b'rel="icon"', response.data)
     self.assertIn(b'favicon.svg', response.data)
