@@ -31,7 +31,7 @@ List with search plus **client / agency / year / size** filters (kept on paginat
 * **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
 * View Survey (size switcher when there is more than one size), stats, ZIP download (editors/admins), trafficking tag sheet (CSV/XLSX, editors/admins), and CSV download.
-* Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery.
+* Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery. Empty per-survey count frames are dropped before `pandas.concat` (no FutureWarning on a page of surveys with no responses).
 * Viewers see the list, filters, preview, reports, and CSVs (responses + breakouts). Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
 
 ![Home page with sample surveys, status chips, and action buttons](docs/images/home.png)

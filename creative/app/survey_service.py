@@ -108,6 +108,21 @@ def _empty_frame(columns):
   return pd.DataFrame(columns=columns)
 
 
+def _concat_frames(frames, **kwargs):
+  """pd.concat that drops empty frames so pandas does not FutureWarning."""
+  kept = [frame for frame in frames if frame is not None and not frame.empty]
+  if not kept:
+    if frames:
+      return frames[0]
+    return pd.DataFrame()
+  if len(kept) == 1:
+    out = kept[0]
+    if kwargs.get('ignore_index'):
+      return out.reset_index(drop=True)
+    return out
+  return pd.concat(kept, **kwargs)
+
+
 def _query_to_dataframe(query, job_config=None, client=None, empty_columns=None):
   """Run a BigQuery SQL job. Missing tables return an empty frame, not an error."""
   empty = _empty_frame(empty_columns or _EMPTY_RESPONSES_COLUMNS)
@@ -674,7 +689,7 @@ def get_brand_lift_results(surveyid):
   columns = list(responselist)
   for i in columns:
     responselist[i] = responselist[i].str.slice(start=2)
-  df = pd.concat([df, responselist], axis=1)
+  df = _concat_frames([df, responselist], axis=1)
   df = df.drop(columns=['CreatedAt', 'Response', 'BomID'], errors='ignore')
 
   output = []
@@ -856,7 +871,10 @@ def get_response_counts(survey_ids=None):
     frames = [by_id[sid] for sid in ids if sid in by_id]
   if not frames:
     return _empty_counts_frame()
-  return pd.concat(frames, ignore_index=True)
+  combined = _concat_frames(frames, ignore_index=True)
+  if combined is None or combined.empty:
+    return _empty_counts_frame()
+  return combined
 
 
 def get_all_response_counts(survey_ids=None):
@@ -938,7 +956,7 @@ def _csv_dataframe(surveyid, with_context=False):
       outputdf[dest] = series.values
   responselist = _response_columns_for_csv(df, question_names)
   if not responselist.empty:
-    outputdf = pd.concat(
+    outputdf = _concat_frames(
         [outputdf.reset_index(drop=True), responselist], axis=1)
   return outputdf
 

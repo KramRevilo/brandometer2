@@ -19,6 +19,7 @@ import os
 import tempfile
 import unittest
 from unittest import mock
+import warnings
 import zipfile
 
 from google.api_core.exceptions import NotFound
@@ -958,6 +959,39 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(fetch.call_count, 2)
     self.assertEqual(fetch.call_args_list[0].args[0], ['s1', 's2'])
     self.assertEqual(fetch.call_args_list[1].args[0], ['s3'])
+
+  def test_concat_frames_skips_empty_and_returns_empty_template(self):
+    empty = pandas.DataFrame(columns=['ID', 'response_count'])
+    filled = pandas.DataFrame({'ID': ['s1'], 'response_count': [3]})
+    combined = survey_service._concat_frames(
+        [empty, filled, empty], ignore_index=True)
+    self.assertEqual(list(combined['ID']), ['s1'])
+    only_empty = survey_service._concat_frames(
+        [empty, empty.copy()], ignore_index=True)
+    self.assertTrue(only_empty.empty)
+
+  def test_get_response_counts_concat_skips_empty_frames(self):
+    empty = pandas.DataFrame(columns=[
+        'ID', 'Segmentation', 'max_date', 'days_since_response',
+        'response_count'
+    ])
+    with mock.patch.dict(os.environ, {'STATS_CACHE_SECONDS': '0'}):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          return_value=empty):
+        with warnings.catch_warnings(record=True) as caught:
+          warnings.simplefilter('always')
+          df = survey_service.get_response_counts(['s1', 's2', 's3'])
+    futures = [
+        w for w in caught if issubclass(w.category, FutureWarning)
+        and 'concat' in str(w.message).lower()
+    ]
+    self.assertFalse(futures)
+    self.assertTrue(df.empty)
+    self.assertEqual(
+        list(df.columns),
+        ['ID', 'Segmentation', 'max_date', 'days_since_response',
+         'response_count'])
 
   def test_created_year_unknown_when_missing(self):
     self.assertIsNone(survey_service.created_year({}))
