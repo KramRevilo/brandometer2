@@ -1,0 +1,17 @@
+{# Bootstrap collapse via data-bs-toggle. No extra script — CSP stays as-is. #}
+{# Copy lives in ui_help.ENTRIES (injected as ui_help). Import with context. #}
+{% macro meaning(help_id, uid) %}
+{% set entry = ui_help.get(help_id) if ui_help else none %}
+{% if entry %}
+<button type="button"
+        class="btn btn-link btn-sm py-0 px-1 align-baseline help-meaning-toggle"
+        data-help-id="{{ help_id }}"
+        data-bs-toggle="collapse"
+        data-bs-target="#{{ uid }}"
+        aria-expanded="false"
+        aria-controls="{{ uid }}">What does this mean?</button>
+<div class="collapse mt-1 help-meaning-body" id="{{ uid }}">
+  <p class="small text-muted mb-0 border-start border-2 ps-2">{{ entry.body }}</p>
+</div>
+{% endif %}
+{% endmacro %}

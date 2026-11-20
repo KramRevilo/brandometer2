@@ -18,6 +18,7 @@ import re
 import zipfile
 
 import creative_size
+import ui_help
 
 # IAB HTML5 display: initial load budget. Polite/host-initiated cap is 2.2 MB.
 IAB_INITIAL_BYTES = 200 * 1024
@@ -47,7 +48,12 @@ _ALLOWED_CLICK_HOSTS = (
 
 
 def _finding(level, code, message, target=''):
-  item = {'level': level, 'code': code, 'message': message}
+  item = {
+      'level': level,
+      'code': code,
+      'message': message,
+      'help_id': ui_help.help_id_for_code(code),
+  }
   if target:
     item['target'] = target
   return item
@@ -79,16 +85,31 @@ def _allowed_url(url, allowed_hosts):
   return False
 
 
-def _allowed_hosts(receiver_url='', extra_urls=None):
+def _receiver_hosts(receiver_url=''):
   hosts = set()
-  for candidate in [receiver_url] + list(extra_urls or []):
+  for candidate in (receiver_url, os.environ.get('RECEIVER_URL') or ''):
     host = _host(candidate or '')
     if host:
       hosts.add(host)
-  env_receiver = os.environ.get('RECEIVER_URL') or ''
-  host = _host(env_receiver)
-  if host:
-    hosts.add(host)
+  return hosts
+
+
+def _is_receiver_url(url, receiver_url=''):
+  host = _host(url)
+  return bool(host) and host in _receiver_hosts(receiver_url)
+
+
+def _receiver_display(url, receiver_url=''):
+  base = (receiver_url or os.environ.get('RECEIVER_URL') or url or '')
+  return base.split('?', 1)[0]
+
+
+def _allowed_hosts(extra_urls=None):
+  hosts = set()
+  for candidate in list(extra_urls or []):
+    host = _host(candidate or '')
+    if host:
+      hosts.add(host)
   return hosts
 
 
@@ -128,11 +149,24 @@ def check_html(html, size_key=None, target='', receiver_url='', extra_urls=None)
               spec['width'], spec['height']),
           label))
 
-  allowed = _allowed_hosts(receiver_url, extra_urls)
+  allowed = _allowed_hosts(extra_urls)
   urls = set(_URL_RE.findall(text))
   for match in _BARE_HTTP_RE.findall(text):
     urls.add(match)
+  seen_receiver = set()
   for url in sorted(urls):
+    if _is_receiver_url(url, receiver_url):
+      host = _host(url)
+      if host in seen_receiver:
+        continue
+      seen_receiver.add(host)
+      display = _receiver_display(url, receiver_url)
+      findings.append(_finding(
+          'info', 'receiver',
+          'Survey response call to %s (required so answers are stored). '
+          'Some publishers may need this domain allowlisted.' % display,
+          label))
+      continue
     if _allowed_url(url, allowed):
       continue
     findings.append(_finding(
@@ -248,10 +282,12 @@ def format_report(findings):
         'HTML5 spec QA (IAB display / CM360 / DV360)\n'
         'No warnings.\n'
         'Checks: zip size, file count, index.html, ad.size vs labelled size, '
-        'clickTag, no nested zip, no unexpected external requests.\n')
+        'clickTag, no nested zip, no unexpected external requests. '
+        'The survey receiver URL is listed as [info], not a warning.\n')
   lines = [
       'HTML5 spec QA (IAB display / CM360 / DV360)',
-      'Warnings do not block the download. Fix before trafficking if listed.',
+      'Warnings do not block the download. Fix before trafficking if listed. '
+      '[info] is the survey\'s own response call, not a problem.',
       '',
   ]
   for item in findings:

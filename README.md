@@ -59,7 +59,7 @@ Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe 
 * **Tag sheet:** editors download CSV or XLSX listing each inner zip (size × Brand Lift segment), filenames, survey campaign/placement IDs, macros, the next zip snapshot version (`ver=`), and trafficking notes.
 * **CM360 / DV360 bulk files:** one row per inner zip (`cm360_html5_bulk.csv`, `dv360_html5_bulk.csv`, plus `HOW_TO_UPLOAD.txt`). Advertiser ID is left blank for you to fill in the ad-server UI. No OAuth and no API client — fill the sheet and upload inner zips by hand. Also inside the outer ZIP.
 * **Versions:** each creative ZIP download stores an immutable snapshot **first**, then bakes that number into the pixel as HMAC-bound `ver=`. The edit page can re-download an old version (same `ver=`). Editing the live survey does not change past snapshots. Old responses without `ver=` have NULL `CreativeVersion`.
-* **HTML5 spec QA:** the editor lists IAB display / CM360 / DV360 warnings for the current sizes (zip size, file count, clickTag, `ad.size` vs labelled size, no nested zip, no unexpected external requests). Warnings never block a download. The outer zip includes `html5_qa.txt` (a report, not a creative).
+* **HTML5 spec QA:** the editor lists IAB display / CM360 / DV360 checks for the current sizes (zip size, file count, clickTag, `ad.size` vs labelled size, no nested zip, no unexpected external requests). Warnings never block a download. The survey’s own response URL is an **info** note (required; some publishers need that domain allowlisted), not a warning. Other `https://` URLs stay warnings. Each line has a **What does this mean?** control that expands plain-English help in place (Bootstrap collapse; no extra script). The outer zip includes `html5_qa.txt` (`[info]` vs `[warning]`). Help copy lives in `creative/app/ui_help.py`.
 * **Bulk CSV:** editors can download a template, preview validation, and create up to 50 surveys at once (`/survey/bulk`). Invalid rows are listed and skipped. Default theme CSS is applied; change style in the editor afterwards.
 
 Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (Brand Lift also splits Control and Expose) plus `html5_qa.txt` and the CM360/DV360 bulk-upload CSVs. Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip, `html5_qa.txt`, or the sidecar CSVs as a creative. Inner zips contain only `index.html`.
@@ -67,6 +67,10 @@ Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (
 ![Survey editor identity fields, size checkboxes, theme preset, and live preview](docs/images/editor.png)
 
 *Editor: identity, multi-size checkboxes, Classic green preset, and live iframe preview.*
+
+![HTML5 spec QA panel with an expanded What does this mean? note](docs/images/editor-html5-qa.png)
+
+*HTML5 spec QA: each finding has a **What does this mean?** toggle. The survey receiver URL is info; other external URLs are warnings.*
 
 ![Standalone live preview of a 300×250 creative with size switcher](docs/images/preview-300x250.png)
 
@@ -114,7 +118,7 @@ Natural-size captures of the `#master_container` from seeded sample surveys. The
 The stats button works for **Brand Lift and Brand Track**.
 
 * Counts, reports, and CSV treat each **respondent** as one person: `COALESCE(RespondentID, BomID)` (latest, most complete `Response`). New creatives send a durable `rid` (hashed ad-server user macro when the ad server expands it, otherwise `localStorage` / `sessionStorage` for this survey, otherwise a per-impression UUID). Existing rows without `RespondentID` still collapse by BomID. Surveys that submit after each question show fewer people than raw BigQuery row counts.
-* Brand Lift: control vs exposed, Wilson 95% CIs (not Wald), two-proportion z-test, Holm–Bonferroni p-adj (overall table; each breakout dimension is its own family), warning when an arm or question has fewer than 30 respondents. Segments come from the stored `seg` value (`control` / `expos` in the string). Unadjusted breakout p-values are exploratory.
+* Brand Lift: control vs exposed, Wilson 95% CIs (not Wald), two-proportion z-test, Holm–Bonferroni p-adj (overall table; each breakout dimension is its own family), warning when an arm or question has fewer than 30 respondents. **What does this mean?** next to the methods line, the small-n warning, missing-segment alerts, and the empty-data note explains those terms in plain English (same copy module as HTML5 QA). Segments come from the stored `seg` value (`control` / `expos` in the string). Unadjusted breakout p-values are exploratory.
 * Brand Track: answer distributions and responses per day.
 * **Breakouts:** the report page slices the same lift / Wilson CIs / z-test by **size**, **placement**, **site**, **ad-server creative ID**, **zip snapshot version**, **date**, and **segment**. Dimensions that are blank on every row are omitted. Rows without `ver=` show as **Unknown / pre-version**. Download **Breakouts CSV** from the report or the homepage. Response CSV includes Size and Creative version.
 * Three response CSVs: responses, responses with question text (both stream), and breakouts (one table of overall + slices).
@@ -125,6 +129,10 @@ Preview **does not** post to BigQuery. To generate test rows, curl the receiver 
 ![Brand Lift report with daily chart, answer distribution, lift percentages, Wilson CIs, and p-values](docs/images/report-lift.png)
 
 *Brand Lift report: responses per day, control vs exposed, Wilson 95% CIs under each arm %, lift, unadjusted p-value, and Holm–Bonferroni p-adj.*
+
+![Small-sample warning on a Brand Lift report with What does this mean? expanded](docs/images/report-min-n-help.png)
+
+*Small-n warning (n &lt; 30 in an arm): expand **What does this mean?** for when to treat lift as directional only.*
 
 ### Admin, sign-in, and viewer 403
 

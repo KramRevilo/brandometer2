@@ -42,6 +42,7 @@ def _prepare_env() -> None:
       'docs-screenshots.apps.googleusercontent.com')
   os.environ.setdefault('GOOGLE_OAUTH_CLIENT_SECRET', 'docs-not-a-secret')
   os.environ.setdefault('RECEIVER_HMAC_SECRET', 'docs-hmac-not-a-secret')
+  os.environ.setdefault('RECEIVER_URL', 'https://receiver.example/pixel')
   os.environ['PYTHONPATH'] = str(APP_DIR) + os.pathsep + os.environ.get(
       'PYTHONPATH', '')
   sys.path.insert(0, str(APP_DIR))
@@ -107,6 +108,18 @@ def seed(fs) -> None:
           sizes=['300x250', '336x280'],
           preset='classic',
           answers=['Example Cola', 'Other Cola', 'Store brand', 'Not sure'],
+          question1='Which cola brand did you notice?',
+          client='Acme',
+          agency='Example Media',
+      ),
+      _survey(
+          'lift-small',
+          surveyname='cola-awareness-small',
+          displayname='Cola awareness (small n)',
+          surveytype='brand_lift',
+          sizes=['300x250'],
+          preset='classic',
+          answers=['Example Cola', 'Other Cola'],
           question1='Which cola brand did you notice?',
           client='Acme',
           agency='Example Media',
@@ -231,9 +244,28 @@ def patch_bigquery() -> None:
     })
   lift_df = pandas.DataFrame(lift_rows)
 
+  small_rows = []
+  for i in range(8):
+    small_rows.append({
+        'CreatedAt': now - datetime.timedelta(hours=i),
+        'Segmentation': 'default_control',
+        'Response': '1:A' if i % 2 else '1:B',
+        'BomID': 'sc-%02d' % i,
+    })
+  for i in range(8):
+    small_rows.append({
+        'CreatedAt': now - datetime.timedelta(hours=i),
+        'Segmentation': 'default_expose',
+        'Response': '1:A' if i % 3 else '1:B',
+        'BomID': 'se-%02d' % i,
+    })
+  small_df = pandas.DataFrame(small_rows)
+
   def fake_rows(surveyid, client=None):
     if surveyid == 'lift-demo':
       return lift_df.copy()
+    if surveyid == 'lift-small':
+      return small_df.copy()
     n = 24
     rows = []
     for i in range(n):
@@ -350,6 +382,20 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_timeout(800)
     capture(page, out / 'editor.png', full_page=False)
 
+    qa = page.locator('#html5-spec-qa')
+    qa.scroll_into_view_if_needed()
+    toggles = page.locator('#html5-spec-qa button.help-meaning-toggle')
+    if toggles.count():
+      toggles.first.click()
+      page.wait_for_selector('#html5-spec-qa .help-meaning-body.show')
+    page.wait_for_timeout(200)
+    box = qa.bounding_box()
+    if not box:
+      raise RuntimeError('HTML5 spec QA card not visible')
+    capture(
+        page, out / 'editor-html5-qa.png', full_page=False, clip=box,
+        max_width=UI_MAX_WIDTH)
+
     page.set_viewport_size({'width': 720, 'height': 420})
     page.goto(
         base + '/survey/preview/lift-demo?size=300x250', wait_until='networkidle')
@@ -389,6 +435,18 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_selector('#dailyChart')
     page.wait_for_timeout(800)
     capture(page, out / 'report-lift.png', full_page=False)
+
+    page.goto(base + '/survey/reporting/lift-small', wait_until='networkidle')
+    page.wait_for_selector('#min-n-warning')
+    page.locator('#min-n-warning button.help-meaning-toggle').click()
+    page.wait_for_selector('#min-n-warning .help-meaning-body.show')
+    page.wait_for_timeout(200)
+    box = page.locator('#min-n-warning').bounding_box()
+    if not box:
+      raise RuntimeError('min-n warning not visible')
+    capture(
+        page, out / 'report-min-n-help.png', full_page=False, clip=box,
+        max_width=UI_MAX_WIDTH)
 
     page.goto(base + '/admin', wait_until='networkidle')
     page.wait_for_selector('table')

@@ -73,11 +73,36 @@ class Html5QaCheckTest(unittest.TestCase):
         '</body>')
     findings = html5_qa.check_html(
         html, size_key='300x250', receiver_url='https://recv.example/pixel')
-    self.assertIn('external', _codes(findings))
+    by_code = {item['code']: item for item in findings}
+    self.assertIn('external', by_code)
+    self.assertEqual(by_code['external']['level'], 'warning')
+    self.assertIn('evil.example', by_code['external']['message'])
+    self.assertEqual(by_code['external']['help_id'], 'qa.external')
+    self.assertIn('receiver', by_code)
+    self.assertEqual(by_code['receiver']['level'], 'info')
+    self.assertEqual(by_code['receiver']['help_id'], 'qa.receiver')
+    self.assertIn('recv.example', by_code['receiver']['message'])
+    self.assertIn('allowlisted', by_code['receiver']['message'])
     messages = ' '.join(item['message'] for item in findings)
-    self.assertIn('evil.example', messages)
     self.assertNotIn('%c', messages)
-    self.assertNotIn('recv.example', messages)
+    self.assertNotIn('[warning]', html5_qa.format_report(
+        [item for item in findings if item['code'] == 'receiver']))
+    report = html5_qa.format_report(findings)
+    self.assertIn('[info] receiver', report)
+    self.assertIn('[warning] external', report)
+    self.assertNotIn('[warning] receiver', report)
+
+  def test_receiver_url_from_env_is_info(self):
+    html = _CLEAN_HTML.replace(
+        '</body>',
+        '<img src="https://pixel.example/r?type=survey">'
+        '<img src="https://other.example/x">'
+        '</body>')
+    with mock.patch.dict(os.environ, {'RECEIVER_URL': 'https://pixel.example/r'}):
+      findings = html5_qa.check_html(html, size_key='300x250')
+    levels = {item['code']: item['level'] for item in findings}
+    self.assertEqual(levels.get('receiver'), 'info')
+    self.assertEqual(levels.get('external'), 'warning')
 
   def test_googleusercontent_and_clicktag_hosts_allowed(self):
     html = _CLEAN_HTML.replace(
@@ -116,6 +141,7 @@ class Html5QaCheckTest(unittest.TestCase):
   def test_format_report_empty_and_warnings(self):
     empty = html5_qa.format_report([])
     self.assertIn('No warnings', empty)
+    self.assertIn('[info]', empty)
     report = html5_qa.format_report([{
         'level': 'warning',
         'code': 'clickTag',
@@ -123,6 +149,14 @@ class Html5QaCheckTest(unittest.TestCase):
         'target': '300x250',
     }])
     self.assertIn('[warning] clickTag (300x250)', report)
+    info = html5_qa.format_report([{
+        'level': 'info',
+        'code': 'receiver',
+        'message': 'Survey response call',
+        'target': '300x250',
+    }])
+    self.assertIn('[info] receiver (300x250)', info)
+    self.assertNotIn('[warning] receiver', info)
 
   def test_size_key_from_filename(self):
     self.assertEqual(
@@ -162,6 +196,23 @@ class Html5QaZipAndEditorTest(unittest.TestCase):
     self.assertNotIn('[error]', report)
 
   @mock.patch.object(survey_service.survey_collection, 'add_version')
+  def test_zip_html5_qa_txt_labels_receiver_info(self, version_mock):
+    version_mock.return_value = {'version': 1}
+    env = {'RECEIVER_URL': 'https://recv.example/pixel'}
+    with mock.patch.dict(os.environ, env):
+      with main.app.app_context():
+        _filename, data = survey_service.zip_file('sid', {
+            'surveyname': 'qa',
+            'question1': 'Q',
+            'answer1a': 'A',
+            'answer1b': 'B',
+        })
+    report = zipfile.ZipFile(data).read('html5_qa.txt').decode('utf-8')
+    self.assertIn('[info] receiver', report)
+    self.assertNotIn('[warning] receiver', report)
+    self.assertNotIn('[warning] external', report)
+
+  @mock.patch.object(survey_service.survey_collection, 'add_version')
   @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
   def test_zip_report_lists_warnings_for_bad_html(self, _html, version_mock):
     version_mock.return_value = {'version': 1}
@@ -172,6 +223,23 @@ class Html5QaZipAndEditorTest(unittest.TestCase):
     report = zipfile.ZipFile(data).read('html5_qa.txt').decode('utf-8')
     self.assertIn('[warning] clickTag', report)
     self.assertIn('[warning] ad.size', report)
+
+  def test_flash_zip_html5_qa_ignores_info_only(self):
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, 'w') as zf:
+      zf.writestr(
+          'html5_qa.txt',
+          html5_qa.format_report([{
+              'level': 'info',
+              'code': 'receiver',
+              'message': 'Survey response call',
+          }]))
+    buf.seek(0)
+    with main.app.test_request_context():
+      survey_service.flash_zip_html5_qa(buf)
+      from flask import get_flashed_messages
+      messages = get_flashed_messages(with_categories=True)
+    self.assertFalse(any('HTML5 spec' in msg for _cat, msg in messages))
 
   def test_flash_zip_html5_qa_warns_when_report_has_findings(self):
     buf = io.BytesIO()
@@ -196,3 +264,19 @@ class Html5QaZipAndEditorTest(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'HTML5 spec QA', response.data)
     self.assertIn(b'No warnings for the current sizes', response.data)
+
+  def test_create_page_shows_receiver_as_info_with_help(self):
+    env = {'RECEIVER_URL': 'https://recv.example/pixel'}
+    with mock.patch.dict(os.environ, env):
+      response = self.client.get('/survey/create')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'data-qa-code="receiver"', response.data)
+    self.assertIn(b'text-bg-info', response.data)
+    self.assertIn(b'What does this mean?', response.data)
+    self.assertIn(b'data-bs-toggle="collapse"', response.data)
+    self.assertIn(b'qa.receiver', response.data)
+    self.assertNotIn(b'data-qa-code="external"', response.data)
+    csp = response.headers.get('Content-Security-Policy', '')
+    self.assertIn("default-src 'self'", csp)
+    self.assertIsNone(
+        response.headers.get('Content-Security-Policy-Report-Only'))

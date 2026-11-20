@@ -507,6 +507,8 @@ class ReadmeImagesTest(unittest.TestCase):
         'docs/images/creative-300x600-dark.png',
         'docs/images/creative-336x280-hotpink.png',
         'docs/images/report-lift.png',
+        'docs/images/editor-html5-qa.png',
+        'docs/images/report-min-n-help.png',
         'docs/images/admin.png',
         'docs/images/avatar-dropdown.png',
         'docs/images/login.png',

@@ -39,6 +39,7 @@ from markupsafe import Markup
 import app_security
 import brand
 import bulk_surveys
+import ui_help
 import creative_size
 import css_theme
 import forms
@@ -599,6 +600,7 @@ def inject_receiver_params():
       'brand_name': brand.brand_name(),
       'badge_letter': brand.badge_letter(),
       'badge_tooltip': brand.badge_tooltip(),
+      'ui_help': ui_help.ENTRIES,
   })
   return ctx
 

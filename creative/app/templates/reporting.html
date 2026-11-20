@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from 'help_toggle.html' import meaning with context %}
 {% block content %}
 {% set is_lift = report.is_lift %}
 <div class="container pb-5">
@@ -45,19 +46,25 @@
     Looker Studio uses the authorized views in dataset <code>brandometer_reporting</code> (not the raw <code>responses</code> table). Granting access is documented in DEVELOPERS.md.
   </p>
   {% if is_lift %}
-  <p class="small text-muted">
+  <p class="small text-muted mb-1">
     Methods: Wilson score 95% CI on each arm (not Wald). Lift is (exposed − control) / control.
     p-value is a two-sided two-proportion z-test with pooled SE.
     Holm–Bonferroni p-adj is within this overall table ({{ report.n_tests }} test{% if report.n_tests != 1 %}s{% endif %})
     and, separately, within each breakout dimension (every slice × answer). Treat unadjusted p &lt; 0.05 in breakouts as exploratory.
     Arms or questions with n &lt; {{ report.min_n }} show a small-n warning; do not treat those p-values as confirmatory.
   </p>
+  <div class="small mb-3" id="report-methods-help">
+    {{ meaning('report.ci', 'help-methods-ci') }}
+    {{ meaning('report.pvalue', 'help-methods-pvalue') }}
+    {{ meaning('report.holm', 'help-methods-holm') }}
+  </div>
   {% endif %}
 
   {% if report.empty_reason == 'no_data' %}
   <div class="alert alert-secondary" role="alert">
     No responses yet. Preview does not post to BigQuery — send test rows to the receiver
     (see DEVELOPERS.md) or wait for live creatives.
+    {{ meaning('report.no_data', 'help-no-data') }}
   </div>
   {% else %}
 
@@ -65,23 +72,27 @@
     <div class="alert alert-warning" role="alert">
       No control segment in this data (look for <code>control</code> in the stored seg).
       Lift, confidence intervals, and the z-test are not computed.
+      {{ meaning('report.no_control', 'help-no-control') }}
     </div>
     {% elif is_lift and report.empty_reason == 'no_expose' %}
     <div class="alert alert-warning" role="alert">
       No exposed segment in this data (look for <code>expos</code> in the stored seg).
       Lift, confidence intervals, and the z-test are not computed.
+      {{ meaning('report.no_expose', 'help-no-expose') }}
     </div>
     {% elif is_lift and report.empty_reason == 'no_control_or_expose' %}
     <div class="alert alert-warning" role="alert">
       No control or exposed segment in this data. Lift is not computed.
       Distributions below use the stored seg values as-is.
+      {{ meaning('report.no_control', 'help-no-control-or-expose') }}
     </div>
     {% endif %}
 
     {% if is_lift and report.warning_n_small and report.has_control and report.has_expose %}
-    <div class="alert alert-warning" role="alert">
+    <div class="alert alert-warning" role="alert" id="min-n-warning">
       Sample is small (control n={{ report.control_n }}, exposed n={{ report.expose_n }}).
       Treat lift and p-values as directional until each arm has at least {{ report.min_n }} respondents.
+      {{ meaning('report.min_n', 'help-min-n') }}
     </div>
     {% endif %}
 
@@ -201,7 +212,9 @@
           sliced by size, placement, site, ad-server creative ID, zip snapshot version, date, and segment.
           Old rows without <code>ver=</code> show as Unknown / pre-version. Creative ID is still the trafficked ad-server creative.
           {% if is_lift %}Slices with only one lift arm omit lift. Small-n warnings use the same threshold (n &lt; {{ report.min_n }}).
-          p-adj is Holm–Bonferroni <em>within this dimension</em> (every slice × answer); do not compare unadjusted breakout p-values as if they were a single test.{% endif %}
+          p-adj is Holm–Bonferroni <em>within this dimension</em> (every slice × answer); do not compare unadjusted breakout p-values as if they were a single test.
+          {{ meaning('report.min_n', 'help-breakout-min-n') }}
+          {{ meaning('report.holm', 'help-breakout-holm') }}{% endif %}
         </p>
         {% for dim in report.breakouts %}
         <h3 class="h6 mt-4">{{ dim.label }}{% if is_lift and dim.n_tests %} <span class="text-muted fw-normal small">({{ dim.n_tests }} Holm test{% if dim.n_tests != 1 %}s{% endif %})</span>{% endif %}</h3>
