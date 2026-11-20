@@ -6,6 +6,10 @@ Brandometer2 builds **brand-lift** and **brand-track** display surveys and hosts
 
 It is a fork of [Google Brandometer](https://github.com/google/brandometer) (Apache-2.0). The in-app product name is `APP_BRAND_NAME` (default **Brandometer**). Developer detail lives in [DEVELOPERS.md](DEVELOPERS.md).
 
+Screenshots below use **seeded sample surveys** (Acme, Northwind, Contoso) and generic example emails. They are not production data. Regenerate them with `python3 tools/capture_screenshots.py` (see [Screenshots](#screenshots)).
+
+**Docs stay in the same commit.** Every change in this repo must update this README in that same commit. Update [DEVELOPERS.md](DEVELOPERS.md) too when the change is operator- or developer-facing. See [AGENTS.md](AGENTS.md).
+
 ## What’s new vs upstream
 
 Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250 creative, and spreadsheet reporting. Brandometer2 adds:
@@ -20,6 +24,28 @@ Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250
 
 ## Features
 
+### Homepage
+
+List with search plus **client / agency / year / size** filters (kept on pagination and Show archived). Page size 50.
+
+* **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
+* Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
+* View Survey (size switcher when there is more than one size), stats, ZIP download (editors/admins), and CSV download.
+* Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery.
+* Viewers see the list, filters, preview, reports, and CSV. Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
+
+![Home page with sample surveys, status chips, and action buttons](docs/images/home.png)
+
+*Home: seeded Brand Lift and Brand Track surveys, response counts, Active / Stale / Timed out chips, and editor actions.*
+
+![Home page filtered to client Acme and size 300×250](docs/images/home-filters.png)
+
+*Filters: client **Acme** and size **300×250**, with a Clear button once a filter is set.*
+
+![Navbar avatar dropdown showing email, role, and Sign out](docs/images/avatar-dropdown.png)
+
+*Avatar menu: Google photo when the account has one, otherwise an initial. Dropdown shows email, role, and Sign out.*
+
 ### Survey editor
 
 Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe preview).
@@ -33,15 +59,50 @@ Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe 
 
 Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (Brand Lift also splits Control and Expose). Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip as a creative. Inner zips contain only `index.html`.
 
-![Survey creation](survey_creation_screenshot.png)
+![Survey editor identity fields, size checkboxes, theme preset, and live preview](docs/images/editor.png)
 
-### Homepage
+*Editor: identity, multi-size checkboxes, Classic green preset, and live iframe preview.*
 
-* List with search plus **client / agency / year / size** filters (kept on pagination and Show archived). Page size 50.
-* **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
-* Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
-* View Survey (size switcher when there is more than one size), stats, ZIP download (editors/admins), and CSV download.
-* Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery.
+![Standalone live preview of a 300×250 creative with size switcher](docs/images/preview-300x250.png)
+
+*Preview (`/survey/preview/<id>`): unsigned, does not post to BigQuery. Size links switch among the survey’s selected sizes.*
+
+### Creatives
+
+Natural-size captures of the `#master_container` from seeded sample surveys. Themes are CSS-only presets; answer counts are 2, 4, or 8.
+
+<table>
+  <tr>
+    <td align="center" valign="top">
+      <img src="docs/images/creative-300x250-classic.png" alt="300 by 250 classic green creative with four cola answers" width="300"><br>
+      <em>300×250 · Classic · 4 answers</em>
+    </td>
+    <td align="center" valign="top">
+      <img src="docs/images/creative-300x250-two-answers.png" alt="300 by 250 ocean-blue creative with Yes and No answers" width="300"><br>
+      <em>300×250 · Ocean · 2 answers</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <img src="docs/images/creative-336x280-hotpink.png" alt="336 by 280 hot-pink creative with four brand answers" width="336"><br>
+      <em>336×280 · Hot pink · 4 answers</em>
+    </td>
+    <td align="center" valign="top">
+      <img src="docs/images/creative-300x600-dark.png" alt="300 by 600 dark creative with four recall answers" width="300"><br>
+      <em>300×600 · Dark · 4 answers</em>
+    </td>
+  </tr>
+  <tr>
+    <td align="center" valign="top">
+      <img src="docs/images/creative-160x600-hazard.png" alt="160 by 600 yellow-and-black hazard-stripe creative with eight pack answers" width="160"><br>
+      <em>160×600 · Hazard · 8 answers</em>
+    </td>
+    <td align="center" valign="top">
+      <img src="docs/images/creative-160x600-eight-answers.png" alt="160 by 600 hazard-stripe creative showing eight wrapping answers" width="160"><br>
+      <em>160×600 · eight answers (tall-only)</em>
+    </td>
+  </tr>
+</table>
 
 ### Reporting and CSV
 
@@ -54,7 +115,23 @@ The stats button works for **Brand Lift and Brand Track**.
 
 Preview **does not** post to BigQuery. To generate test rows, curl the receiver (see DEVELOPERS.md).
 
-![Download responses](download_responses_screenshot.png)
+![Brand Lift report with daily chart, answer distribution, lift percentages, Wilson CIs, and p-values](docs/images/report-lift.png)
+
+*Brand Lift report: responses per day, control vs exposed, Wilson 95% CIs under each arm %, lift, and two-proportion z-test p-value.*
+
+### Admin, sign-in, and viewer 403
+
+![Admin page with allowed users, allowed domains, default roles, and audit log](docs/images/admin.png)
+
+*Admin: per-email roles (admin / editor / viewer), allowed domains with a default role, and the audit log. Example emails only.*
+
+![Sign-in page with Sign in with Google](docs/images/login.png)
+
+*Sign-in: Google OIDC. @google.com accounts are allowed as editors; everyone else must be on the allowlist or an allowed domain.*
+
+![Viewer 403 page explaining that Admin is limited to editors and admins](docs/images/forbidden-viewer.png)
+
+*Viewer hitting `/admin`: friendly 403. Creating, editing, copying, archiving, deleting, ZIP download, and Admin are blocked server-side, not only hidden in the UI.*
 
 ### Trafficking (CM360 / DV360)
 
@@ -68,27 +145,64 @@ Still the way live studies run:
 
 ## Security and access
 
-Production is **Google Sign-In** (OIDC). Identity-Aware Proxy is not used. Shared Basic Auth is retired.
+Production is **Google Sign-In** (OIDC via Authlib). Identity-Aware Proxy is not used. Shared Basic Auth is retired. There is **no tenancy**: every allowed user sees every survey.
+
+The table is what changed versus upstream Brandometer / the old Sonar tree. Detail follows.
+
+| Risk (old) | Fix (this version) | Where it is enforced |
+| --- | --- | --- |
+| One shared HTTP Basic password; anyone with it is a full admin | Google Sign-In (OIDC). Session holds `user_email` / `user_role`. Navbar avatar + Sign out | `creative/app/google_auth.py`, `/login`, `/auth/callback` |
+| No allowlist; no roles | Admin allowlist (email → role), allowed domains (default role), **admin / editor / viewer**. Server-side 403, not only hidden buttons | `creative/app/access.py`, `google_auth.require_editor` / `require_admin`, `templates/403.html` |
+| @google.com not special-cased | Verified `@google.com` Google accounts can always sign in as **editor** unless listed with another role | `access.resolve_role` (`email_verified` + `hd`) |
+| First deploy has no admin | `BOOTSTRAP_ADMIN_EMAIL` is always admin on first sign-in | `access.py`, `app.yaml` `BOOTSTRAP_ADMIN_EMAIL` (email, not a secret) |
+| No audit trail | Firestore `AuditLog` for create / edit / delete / copy / archive and admin user/domain/role changes | `access.write_audit`, Admin page |
+| Token / HMAC compares used `==` | Timing-safe `hmac.compare_digest` | `receiver/main.py` `token_is_valid`, `creative/app/receiver_crypto.py` |
+| Delete / copy / archive were **GET** (csrf-able via `<img>`) | **POST** + Flask-WTF CSRF. GET `/survey/delete` is 405 | `main.py` routes, `CSRFProtect(app)` |
+| Last-write-wins on concurrent edits | Optimistic concurrency: save sends `expected_updated_at`; mismatch → **409** “Someone else saved this survey, reload” | `survey_collection.update`, `main.py` edit |
+| Question / answer text assigned with `innerHTML`; `custom_css` could break out of `<style>` | Creative uses `textContent`. `sanitize_user_css` strips `</style`, `<`, `@import`, `url(javascript:` | `templates/creative.html`, `css_theme.sanitize_user_css` |
+| Unsigned pixel URLs accepted | HMAC-SHA256(`RECEIVER_HMAC_SECRET`, survey id) as `token=`. **No unsigned fallback.** Preview is unsigned and does not post | `receiver_crypto.py`, `receiver/main.py` (403 `invalid_token`) |
+| Receiver accepted junk and returned 200 HTML | Regex validation; **204** empty body on success; 400 / 403 / 404 / 429 / 500 with a small JSON `reason` | `receiver/main.py` `validate_params`, `_pixel_response` |
+| No abuse control on the public pixel | 30 req / min / (hashed IP + survey id), **per function instance**; 20 000 keys cap; `--max-instances=20` | `receiver/main.py` `allow_request` |
+| Client IP stored (or unsalted SHA-256 of IP) | IP is **not** stored. `RandomTimeStamp` is HMAC-SHA256 of the IP keyed by `HMAC(IP_HMAC_SECRET, YYYY-MM-DD UTC)`. Same IP, same UTC day → same hash; hashes do not link across days | `receiver.hash_ip`, `receiver_crypto.hash_ip` |
+| Secrets in `app.yaml` / env / deploy prompts echoed | Secret Manager only. App Engine loads at startup via the SM client (`secret_environment_variables` is not valid on standard). `./deploy` prints `stored N chars`, never the value | `app_security.load_secret`, `app.yaml.template`, `./deploy` |
+| App Engine SA had `roles/editor` | Least privilege: GAE SA is datastore user, BQ **jobUser** + dataset **WRITER**, secret accessor. Receiver SA is **datastore.viewer** only (plus BQ write + HMAC secrets). `roles/editor` is removed | `./deploy` |
+| Front-end from public CDNs | Self-hosted under `creative/app/static/vendor/` (Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12, Alpine.js 3.14.3, Chart.js 4.4.6) | `static/vendor/`, tests fail if templates load jsDelivr / cdnjs / unpkg |
+| Loose / un-audited Python deps | Pins in `creative/app/requirements.txt` and `receiver/requirements.txt`. `pip-audit` in `requirements-dev.txt` | See **pyarrow** note below |
+| `DISABLE_BASIC_AUTH=1` could ship to App Engine and skip login | Refused when `GAE_ENV` is set. `app.yaml` check rejects the flag. Never written by `./deploy` | `app_security.apply_runtime_guards`, `app_yaml_check.py` |
+
+### Roles
 
 * **Admin** — Admin page plus everything editors can do.
 * **Editor** — create, edit, copy, archive, delete, download creative ZIPs. No Admin page.
-* **Viewer** — list, filters, preview, reports, and CSV. Cannot change surveys, download ZIPs, or open Admin. Mutating routes and ZIP downloads return a friendly **403**, not only hidden buttons.
-* **Admin page:** allowlist users (role per email), allowed domains (default role per domain), audit log. Role changes are audited.
-* Verified **@google.com** accounts can always sign in as **editor** unless you list them with another role.
-* **Bootstrap admin** (`BOOTSTRAP_ADMIN_EMAIL`) is always admin on first sign-in.
-* There is **no tenancy**: every allowed user sees every survey.
-* Navbar: Google profile photo when the account has one, otherwise an initial; the dropdown shows email, role, and Sign out.
+* **Viewer** — list, filters, preview, reports, and CSV. Cannot change surveys, download ZIPs, or open Admin.
+* Missing / unknown stored roles read as **editor** so existing allowlist users are not downgraded.
+* Domain default role applies only to people **not** already listed. Listing an email wins.
 
-Also in production:
+### Secrets
 
-* CSRF on POST actions (copy / archive / delete / save). Stats polling is GET.
-* Saving a survey someone else already saved returns **409** (“Someone else saved this survey, reload”).
-* Live creatives post through HMAC-signed pixel links (`token=`). Preview is unsigned and does not post. Rotating the receiver HMAC secret invalidates every live zip until you re-download.
-* Receiver rate limit: 30 requests / minute / (hashed IP + survey id), **per function instance**.
-* Client IP is **not** stored. `RandomTimeStamp` is a daily HMAC of the IP (same IP, same UTC day → same hash; hashes do not link across days).
-* Secrets live in Secret Manager. App Engine loads them at startup (standard `app.yaml` cannot inject secrets as env vars).
-* App Engine and the receiver use least-privilege service accounts (`roles/editor` is removed from the App Engine SA).
-* Front-end libraries are self-hosted under `creative/app/static/vendor/` (Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12, Alpine.js 3.14.3, Chart.js 4.4.6).
+Created by `./deploy`. HMAC / `SECRET_KEY` are **not** rotated on later runs:
+
+* `brandometer-oauth-client-id` / `brandometer-oauth-client-secret` — Google OAuth Web client
+* `brandometer-secret-key` — Flask session signing
+* `brandometer-receiver-hmac` — per-survey creative token
+* `brandometer-ip-hmac` — daily IP-hash master
+
+App Engine env vars are non-secret only: `PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`.
+
+Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-download. Rotating `SECRET_KEY` signs everyone out.
+
+### Dependency audit and pyarrow (PYSEC-2026-113)
+
+`pip-audit -r creative/app/requirements.txt` and `pip-audit -r receiver/requirements.txt` (see DEVELOPERS.md). Pins include `protobuf==5.29.6` and, in tests, `pytest==9.0.3`.
+
+**Accepted exception: [PYSEC-2026-113](https://osv.dev/vulnerability/PYSEC-2026-113) on `pyarrow==17.0.0`.** `google-cloud-bigquery-storage` `to_dataframe()` needs pyarrow. Dropping it breaks homepage counts, reports, and CSV. We keep `pyarrow==17.0.0` and do not “fix” this finding by deleting the pin. Revisit when a patched pyarrow that still works with BigQuery Storage is available.
+
+### Known limitations / remaining work
+
+* **No Content-Security-Policy yet.** Templates do not emit a CSP header. Adding a strict CSP (and nonce/hash for the small inline editor and Chart.js bootstraps) is backlog, not shipped.
+* **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
+* **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
+* **Phase 7c / 7d** (not built): durable respondent ID beyond BomID / daily IP hash; ad-server macros and a trafficking tag sheet; BigQuery authorized views and Looker; reporting breakouts; HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 export (campaign/placement ID fields are placeholders). Also not built: free-form write-in answers, in-stream video/VAST, a cost/impressions join. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -99,15 +213,6 @@ Also in production:
 | Responses | BigQuery dataset `responses`, table `responses` (`$PROJECT_ID.responses.responses`) |
 | Pixel | Gen2 Cloud Function `receiver` (python312, HTTP, unauthenticated, dedicated SA, `--max-instances=20`) |
 | UI assets | `/static` on App Engine; `/favicon.ico` is a static file |
-
-**Secrets** (created by `./deploy`; HMAC / `SECRET_KEY` are not rotated on later runs):
-
-* `brandometer-oauth-client-id` / `brandometer-oauth-client-secret` — Google OAuth Web client
-* `brandometer-secret-key` — Flask session signing
-* `brandometer-receiver-hmac` — per-survey creative token
-* `brandometer-ip-hmac` — daily IP-hash master
-
-App Engine env vars are non-secret only: `PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`.
 
 ## Setup and deploy
 
@@ -201,6 +306,18 @@ cd creative/app
 PYTHONPATH=. python -m pytest
 ```
 
+### Screenshots
+
+README images under `docs/images/` are captured from a local Flask process with **MockFirestore** and synthetic BigQuery rows. No GCP, no real client data, no real secrets.
+
+```shell
+pip install -r creative/app/requirements.txt -r tools/requirements-screenshots.txt
+python3 -m playwright install chromium
+python3 tools/capture_screenshots.py
+```
+
+The script sets `DISABLE_BASIC_AUTH=1` and dummy OAuth / HMAC values so Secret Manager is never called. Output is optimised PNG (UI capped at 1200px wide; creatives stay natural size).
+
 ## Querying results in BigQuery
 
 Table: `` `$PROJECT_ID.responses.responses` `` (dataset `responses`, table `responses`). Required columns:
@@ -247,6 +364,7 @@ Phase **7c / 7d** and related backlog — do not treat these as shipped:
 * Stats-method corrections beyond current Wilson / z-test
 * CM360 / DV360 export (cost/impressions dashboard; campaign/placement ID fields are placeholders only)
 * Shared stats cache (today each App Engine instance caches for 90 seconds)
+* Content-Security-Policy header
 
 Also not built: free-form write-in answers, in-stream video/VAST creatives, and a cost/impressions join. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 

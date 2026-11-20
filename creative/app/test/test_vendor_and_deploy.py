@@ -14,6 +14,7 @@
 
 import json
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -414,3 +415,42 @@ class FaviconAssetsTest(unittest.TestCase):
         encoding='utf-8').read()
     self.assertIn('write_ico', generator)
     self.assertIn('rsvg-convert', generator)
+
+
+class ReadmeImagesTest(unittest.TestCase):
+
+  def test_readme_embeds_existing_docs_images(self):
+    readme_path = os.path.join(_REPO_ROOT, 'README.md')
+    readme = open(readme_path, encoding='utf-8').read()
+    paths = re.findall(r'\((docs/images/[^)\s]+)\)', readme)
+    paths += re.findall(r'src="(docs/images/[^"]+)"', readme)
+    self.assertTrue(paths, 'README.md should embed docs/images/*')
+    for rel in sorted(set(paths)):
+      full = os.path.join(_REPO_ROOT, rel)
+      self.assertTrue(os.path.isfile(full), full)
+      self.assertGreater(os.path.getsize(full), 100, rel)
+    for required in (
+        'docs/images/home.png',
+        'docs/images/home-filters.png',
+        'docs/images/editor.png',
+        'docs/images/preview-300x250.png',
+        'docs/images/creative-300x250-classic.png',
+        'docs/images/creative-160x600-hazard.png',
+        'docs/images/creative-300x600-dark.png',
+        'docs/images/creative-336x280-hotpink.png',
+        'docs/images/report-lift.png',
+        'docs/images/admin.png',
+        'docs/images/avatar-dropdown.png',
+        'docs/images/login.png',
+        'docs/images/forbidden-viewer.png',
+    ):
+      self.assertIn(required, readme)
+    self.assertIn('PYSEC-2026-113', readme)
+    self.assertIn('Known limitations', readme)
+    self.assertIn('DISABLE_BASIC_AUTH', readme)
+    capture = os.path.join(_REPO_ROOT, 'tools', 'capture_screenshots.py')
+    self.assertTrue(os.path.isfile(capture), capture)
+    agents = open(
+        os.path.join(_REPO_ROOT, 'AGENTS.md'), encoding='utf-8').read()
+    self.assertIn('README.md', agents)
+    self.assertIn('same commit', agents)
