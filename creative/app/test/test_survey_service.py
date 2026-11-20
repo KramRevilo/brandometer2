@@ -1100,3 +1100,100 @@ class TestSurveyService(unittest.TestCase):
       suggestions = survey_service.identity_suggestions()
     self.assertEqual(suggestions['clients'], ['Acme', 'acme'])
     self.assertEqual(suggestions['agencies'], ['OMD', 'WPP'])
+
+
+class SharedStatsCacheTest(unittest.TestCase):
+
+  def setUp(self):
+    super().setUp()
+    self.fs = MockFirestore()
+    self._prev_db = survey_collection._db
+    self._prev_col = survey_collection._survey_collection
+    survey_collection._db = self.fs
+    survey_collection._survey_collection = self.fs.collection('Surveys')
+    survey_service.clear_stats_cache()
+
+  def tearDown(self):
+    survey_collection._db = self._prev_db
+    survey_collection._survey_collection = self._prev_col
+    survey_service.clear_stats_cache()
+    self.fs.reset()
+    super().tearDown()
+
+  def _frame(self, survey_id='s1', count=3):
+    return pandas.DataFrame({
+        'ID': [survey_id],
+        'Segmentation': ['seg'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [1],
+        'response_count': [count],
+    })
+
+  def test_l2_serves_second_instance_after_l1_cleared(self):
+    frame = self._frame()
+    with mock.patch.dict(os.environ, {
+        'STATS_CACHE_SECONDS': '90',
+        'STATS_SHARED_CACHE': '1',
+    }):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          return_value=frame) as fetch:
+        first = survey_service.get_response_counts(['s1'])
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(int(first['response_count'].iloc[0]), 3)
+        survey_service.clear_stats_cache()
+        second = survey_service.get_response_counts(['s1'])
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(int(second['response_count'].iloc[0]), 3)
+
+  def test_expired_l2_refetches_bigquery(self):
+    frame = self._frame(count=4)
+    with mock.patch.dict(os.environ, {
+        'STATS_CACHE_SECONDS': '90',
+        'STATS_SHARED_CACHE': '1',
+    }):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          return_value=frame) as fetch:
+        survey_service.get_response_counts(['s1'])
+        self.assertEqual(fetch.call_count, 1)
+        past = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(
+            seconds=10)
+        survey_collection.write_stats_cache(
+            {'s1': survey_service._counts_rows_from_frame(frame, 's1')},
+            past)
+        survey_service.clear_stats_cache()
+        survey_service.get_response_counts(['s1'])
+        self.assertEqual(fetch.call_count, 2)
+
+  def test_shared_cache_env_off_skips_firestore(self):
+    frame = self._frame()
+    with mock.patch.dict(os.environ, {
+        'STATS_CACHE_SECONDS': '90',
+        'STATS_SHARED_CACHE': '0',
+    }):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          return_value=frame) as fetch:
+        survey_service.get_response_counts(['s1'])
+        survey_service.clear_stats_cache()
+        survey_service.get_response_counts(['s1'])
+        self.assertEqual(fetch.call_count, 2)
+    self.assertFalse(
+        self.fs.collection('StatsCache').document('s1').get().exists)
+
+  def test_l2_read_failure_falls_back_to_bigquery(self):
+    frame = self._frame()
+    with mock.patch.dict(os.environ, {
+        'STATS_CACHE_SECONDS': '90',
+        'STATS_SHARED_CACHE': '1',
+    }):
+      with mock.patch.object(
+          survey_collection, 'read_stats_cache',
+          side_effect=RuntimeError('unavailable')):
+        with mock.patch.object(
+            survey_service, '_fetch_all_response_counts',
+            return_value=frame) as fetch:
+          out = survey_service.get_response_counts(['s1'])
+          self.assertEqual(fetch.call_count, 1)
+          self.assertEqual(int(out['response_count'].iloc[0]), 3)

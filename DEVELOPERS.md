@@ -180,6 +180,9 @@ export RECEIVER_URL="$(gcloud functions describe receiver --gen2 --region=us-cen
 # export GTAG_ID=""
 # Optional. Homepage BQ stats cache TTL in seconds (default 90). 0 disables.
 # export STATS_CACHE_SECONDS=90
+# Optional. Shared Firestore L2 for homepage counts (default on). 0 keeps
+# the in-process map only.
+# export STATS_SHARED_CACHE=1
 # Optional. CreatedAt partition window for homepage counts (default 400 days). 0 disables.
 # export STATS_LOOKBACK_DAYS=400
 ```
@@ -231,7 +234,7 @@ Segment roles come from the stored `seg` value (`control` / `expos` in the strin
 
 Status chips: **Active** up to 3 days since last response, **Stale** up to 7 days, **Timed out** after 7. (Previously Stale ran through 14 days.) Thresholds are `STATUS_ACTIVE_DAYS` / `STATUS_STALE_DAYS` in `creative/app/survey_service.py`.
 
-The homepage paginates at 50 surveys and projects list fields only (no `custom_css`; includes `client`, `agency`, `created_at`, `creativesize`, `creativesizes`). **GET `/index` does not call BigQuery.** Count / last-response / status cells render as `Loading…` and load from `/index/stats-partial` via htmx `hx-trigger="load, every 30s [!document.hidden]"` (the previous `every 30s` trigger never ran before first paint, so the list waited on BQ). The stats query is limited to the survey IDs on the current page (`ID IN UNNEST(@survey_ids)`) plus a `CreatedAt` partition window (`STATS_LOOKBACK_DAYS`, default 400). Results are cached in-process **per survey ID** for 90 seconds (`STATS_CACHE_SECONDS`). Each App Engine instance has its own cache; values can be up to that TTL stale. Surveys with no rows in that window used to produce empty DataFrames that pandas concatenated together (`FutureWarning` on empty-or-all-NA concat). `survey_service._concat_frames` drops empty frames first (homepage counts, brand-lift join, CSV join). Debug logs: `index.firestore_list_ms`, `index.filter_ms`, `index.render_ms`, `index.request_ms`, `index.stats_partial_ms`, `stats.bq_ms` (`cache=hit|miss|skip`).
+The homepage paginates at 50 surveys and projects list fields only (no `custom_css`; includes `client`, `agency`, `created_at`, `creativesize`, `creativesizes`). **GET `/index` does not call BigQuery.** Count / last-response / status cells render as `Loading…` and load from `/index/stats-partial` via htmx `hx-trigger="load, every 30s [!document.hidden]"` (the previous `every 30s` trigger never ran before first paint, so the list waited on BQ). The stats query is limited to the survey IDs on the current page (`ID IN UNNEST(@survey_ids)`) plus a `CreatedAt` partition window (`STATS_LOOKBACK_DAYS`, default 400). Results are cached **per survey ID** for 90 seconds (`STATS_CACHE_SECONDS`): in-process L1 on each instance, then Firestore collection `StatsCache` L2 with a logical `expires_at` (no Firestore TTL policy, no extra GCP product). `STATS_SHARED_CACHE=0` keeps L1 only. Values can be up to that TTL stale. Surveys with no rows in that window used to produce empty DataFrames that pandas concatenated together (`FutureWarning` on empty-or-all-NA concat). `survey_service._concat_frames` drops empty frames first (homepage counts, brand-lift join, CSV join). Debug logs: `index.firestore_list_ms`, `index.filter_ms`, `index.render_ms`, `index.request_ms`, `index.stats_partial_ms`, `stats.bq_ms` (`cache=l1|l2|miss|skip`). **Phase 7d / 68.** Redeploy App Engine (`--app-only`). Firestore creates `StatsCache` on first write.
 
 Homepage filters (`q`, `client`, `agency`, `year`, `size`) are query params, applied in Python after the list `select()`, and are kept on pagination and the archive toggle. A survey matches the size filter if that size is in its configured list (legacy docs with no size field match **300×250**). The **Sizes** column shows those keys as chips. Year **Unknown** is for old documents with no `created_at`. Optional **Client** and **Agency** on the editor (datalist of existing values) copy with the survey. `created_at` is set on create and copy. Optional **Campaign ID** / **Placement ID** are placeholders for a future cost join; they are not used in reporting yet.
 
@@ -413,7 +416,7 @@ post "default_expose" "1:A|2:A" "lift-e1"
 post "default_expose" "1:A" "lift-e2"
 ```
 
-A successful insert returns HTTP 204 (empty body). `curl -sS` still exits 0; add `-w '%{http_code}\n'` if you want to see the status. Invalid `id` / `response` / size characters return 400. Missing or wrong `token` returns **403**. Streaming inserts can take a few seconds to show up in `SELECT`. Homepage counts are cached up to 90 seconds (`STATS_CACHE_SECONDS`; set `0` while testing). Reporting and CSV query BigQuery on each request.
+A successful insert returns HTTP 204 (empty body). `curl -sS` still exits 0; add `-w '%{http_code}\n'` if you want to see the status. Invalid `id` / `response` / size characters return 400. Missing or wrong `token` returns **403**. Streaming inserts can take a few seconds to show up in `SELECT`. Homepage counts are cached up to 90 seconds (`STATS_CACHE_SECONDS`; set `0` while testing) in process memory and in Firestore `StatsCache`. Reporting and CSV query BigQuery on each request.
 
 Per-question submits for `lift-c1` / `lift-e1` collapse to **one respondent each** (the longer Response). Raw `COUNT(*)` in BigQuery stays higher.
 
@@ -525,7 +528,7 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1` locally only). Then:
 
 # Phase 7b (Google Sign-In, signed pixels, daily IP HMAC)
 
-There is **no tenancy**: every allowed user sees every survey. Roles are `admin` (Admin page + everything), `editor` (create/change surveys, ZIP downloads; no Admin), and `viewer` (list, preview, reports, CSV results only). Firestore collections: `AccessUsers` (email → role), `AccessConfig/settings` (`domains` plus `domain_roles` default role per domain), `AuditLog` (create/edit/delete/copy/archive + admin changes, including role updates). Surveys and versions store `created_by` / `created_at` / `updated_by` / `updated_at`. Verified `@google.com` Google identities (`email_verified` and `hd` empty or `google.com`) can always sign in as **editor** unless listed with another role. Missing/unknown stored roles read as **editor** (existing allowlist users are not downgraded). The first admin is `BOOTSTRAP_ADMIN_EMAIL`. Navbar avatar dropdown shows the signed-in email, role, and **Sign out**.
+There is **no tenancy**: every allowed user sees every survey. Roles are `admin` (Admin page + everything), `editor` (create/change surveys, ZIP downloads; no Admin), and `viewer` (list, preview, reports, CSV results only). Firestore collections: `AccessUsers` (email → role), `AccessConfig/settings` (`domains` plus `domain_roles` default role per domain), `AuditLog` (create/edit/delete/copy/archive + admin changes, including role updates), `StatsCache` (homepage count L2, logical `expires_at`). Surveys and versions store `created_by` / `created_at` / `updated_by` / `updated_at`. Verified `@google.com` Google identities (`email_verified` and `hd` empty or `google.com`) can always sign in as **editor** unless listed with another role. Missing/unknown stored roles read as **editor** (existing allowlist users are not downgraded). The first admin is `BOOTSTRAP_ADMIN_EMAIL`. Navbar avatar dropdown shows the signed-in email, role, and **Sign out**.
 
 Identity-Aware Proxy is **not** used.
 

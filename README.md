@@ -208,10 +208,10 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 ### Known limitations / remaining work
 
 * **CSP allows inline script and `unsafe-eval`.** Alpine `x-data`, Chart.js bootstraps, and creative HTML (including editor `srcdoc` preview) are inline. A nonce/hash CSP is not shipped. `CSP_REPORT_ONLY=1` switches the header to report-only.
-* **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
+* **Homepage stats cache.** `/index/stats-partial` uses an in-process L1 plus a Firestore `StatsCache` L2 (`STATS_CACHE_SECONDS`, default 90). Logical `expires_at` only — no extra paid product. `STATS_SHARED_CACHE=0` disables L2.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
 * **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
-* **Phase 7d leftover** (not built): CM360 / DV360 cost/impressions join; shared stats cache. Bulk-upload **files** (item 67) are shipped; the APIs are not. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
+* **Phase 7d leftover** (not built): CM360 / DV360 cost/impressions join. Bulk-upload **files** (item 67) and the shared stats cache (item 68) are shipped; the CM360/DV360 APIs are not. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -379,10 +379,9 @@ ORDER BY CreatedAt;
 
 ## Roadmap (not built)
 
-Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). **7d** HTML5 spec QA (item 64), bulk CSV survey create (item 65), stats-method corrections (item 66), and CM360/DV360 bulk-upload **files** (item 67; no API) are shipped. Remaining **7d** — do not treat these as shipped:
+Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). **7d** HTML5 spec QA (item 64), bulk CSV survey create (item 65), stats-method corrections (item 66), CM360/DV360 bulk-upload **files** (item 67; no API), and the shared Firestore stats cache (item 68) are shipped. Remaining **7d** — do not treat these as shipped:
 
 * CM360 / DV360 cost/impressions join
-* Shared stats cache (today each App Engine instance caches for 90 seconds)
 
 Also not built: free-form write-in answers, in-stream video/VAST creatives, and a cost/impressions join. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 

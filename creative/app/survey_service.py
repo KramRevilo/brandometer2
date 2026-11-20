@@ -814,6 +814,90 @@ def stats_lookback_days():
     return _DEFAULT_STATS_LOOKBACK_DAYS
 
 
+def shared_stats_cache_enabled():
+  """Firestore L2 for homepage counts. Off when STATS_SHARED_CACHE=0."""
+  raw = os.environ.get('STATS_SHARED_CACHE', '1')
+  return str(raw).strip().lower() not in ('0', 'false', 'no', 'off')
+
+
+def _l2_available():
+  return shared_stats_cache_enabled() and survey_collection._db is not None
+
+
+def _counts_frame_from_rows(rows):
+  if not rows:
+    return _empty_counts_frame()
+  frame = pd.DataFrame(list(rows))
+  for col in _EMPTY_COUNTS_COLUMNS:
+    if col not in frame.columns:
+      frame[col] = '' if col in ('ID', 'Segmentation', 'max_date') else 0
+  return frame[_EMPTY_COUNTS_COLUMNS]
+
+
+def _counts_rows_from_frame(frame, survey_id):
+  if frame is None or frame.empty:
+    return []
+  rows = []
+  for rec in frame.to_dict('records'):
+    max_date = rec.get('max_date')
+    if max_date is None or (
+        isinstance(max_date, float) and math.isnan(max_date)):
+      max_text = ''
+    elif hasattr(max_date, 'isoformat') and not isinstance(max_date, str):
+      max_text = max_date.isoformat()
+      if 'T' in max_text:
+        max_text = max_text.split('T', 1)[0]
+    else:
+      max_text = str(max_date)
+    seg = rec.get('Segmentation')
+    if seg is None or (isinstance(seg, float) and math.isnan(seg)):
+      seg = ''
+    try:
+      days = int(rec.get('days_since_response') or 0)
+    except (TypeError, ValueError):
+      days = 0
+    try:
+      count = int(rec.get('response_count') or 0)
+    except (TypeError, ValueError):
+      count = 0
+    rows.append({
+        'ID': str(rec.get('ID') or survey_id or ''),
+        'Segmentation': str(seg),
+        'max_date': max_text,
+        'days_since_response': days,
+        'response_count': count,
+    })
+  return rows
+
+
+def _l2_get(survey_ids):
+  if not _l2_available():
+    return {}
+  try:
+    stored = survey_collection.read_stats_cache(survey_ids)
+  except Exception:
+    _log.debug('stats.l2_get_failed', exc_info=True)
+    return {}
+  out = {}
+  for sid, rows in (stored or {}).items():
+    out[sid] = _counts_frame_from_rows(rows)
+  return out
+
+
+def _l2_put(frames_by_id, ttl):
+  if not _l2_available() or ttl <= 0:
+    return
+  expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+      seconds=int(ttl))
+  payload = {}
+  for sid, frame in (frames_by_id or {}).items():
+    payload[sid] = _counts_rows_from_frame(frame, sid)
+  try:
+    survey_collection.write_stats_cache(payload, expires)
+  except Exception:
+    _log.debug('stats.l2_put_failed', exc_info=True)
+
+
 def clear_stats_cache():
   with _stats_lock:
     _stats_cache['by_id'] = {}
@@ -901,10 +985,13 @@ def _fetch_all_response_counts(survey_ids=None):
 
 
 def get_response_counts(survey_ids=None):
-  """Homepage BQ summary for the given survey IDs, cached in-process per ID.
+  """Homepage BQ summary for the given survey IDs.
 
-  Does not scan the whole responses table. Stale values up to
-  STATS_CACHE_SECONDS (default 90) are acceptable; set 0 to disable.
+  L1 is in-process per instance. L2 is Firestore collection StatsCache with a
+  logical expires_at TTL (STATS_CACHE_SECONDS, default 90). Set 0 to disable
+  both caches. STATS_SHARED_CACHE=0 keeps L1 only. Stale values up to the TTL
+  are acceptable. L2 is skipped until a Firestore client already exists so
+  unit tests without a mock db never open a real client.
   """
   ids = []
   for sid in survey_ids or []:
@@ -921,19 +1008,35 @@ def get_response_counts(survey_ids=None):
       _stats_cache['by_id'] = {}
     by_id = _stats_cache['by_id']
     missing = [sid for sid in ids if sid not in by_id]
-    if missing:
-      fetched = _fetch_all_response_counts(missing)
+    if not missing:
+      _log.debug('stats.bq_ms=0.0 cache=l1 n_ids=%d', len(ids))
+      frames = [by_id[sid] for sid in ids]
+    else:
+      frames = None
+  if frames is None:
+    l2_hits = _l2_get(missing)
+    still = [sid for sid in missing if sid not in l2_hits]
+    fetched_by_id = {}
+    if still:
+      fetched = _fetch_all_response_counts(still)
       empty = _empty_counts_frame()
-      for sid in missing:
+      for sid in still:
         if fetched is None or fetched.empty or 'ID' not in fetched.columns:
-          by_id[sid] = empty
+          fetched_by_id[sid] = empty
         else:
           slice_df = fetched.loc[fetched['ID'] == sid]
-          by_id[sid] = slice_df if not slice_df.empty else empty
+          fetched_by_id[sid] = slice_df if not slice_df.empty else empty
+      _l2_put(fetched_by_id, ttl)
+    elif l2_hits:
+      _log.debug('stats.bq_ms=0.0 cache=l2 n_ids=%d', len(ids))
+    with _stats_lock:
+      by_id = _stats_cache['by_id']
+      for sid, frame in l2_hits.items():
+        by_id[sid] = frame
+      for sid, frame in fetched_by_id.items():
+        by_id[sid] = frame
       _stats_cache['expires_at'] = time.monotonic() + ttl
-    else:
-      _log.debug('stats.bq_ms=0.0 cache=hit n_ids=%d', len(ids))
-    frames = [by_id[sid] for sid in ids if sid in by_id]
+      frames = [by_id[sid] for sid in ids if sid in by_id]
   if not frames:
     return _empty_counts_frame()
   combined = _concat_frames(frames, ignore_index=True)

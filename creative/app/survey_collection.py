@@ -344,3 +344,61 @@ def copy(survey_id, actor=None):
   data['updated_by'] = actor or ''
   data.pop('version_seq', None)
   return create(data)
+
+
+STATS_CACHE_COLLECTION = 'StatsCache'
+
+
+def _stats_cache_collection():
+  return get_db().collection(STATS_CACHE_COLLECTION)
+
+
+def _as_utc(value):
+  if value is None or not isinstance(value, datetime.datetime):
+    return None
+  if value.tzinfo is None:
+    return value.replace(tzinfo=datetime.timezone.utc)
+  return value.astimezone(datetime.timezone.utc)
+
+
+def read_stats_cache(survey_ids, now=None):
+  """Return {survey_id: rows} for docs whose expires_at is still in the future.
+
+  Logical TTL only — stale documents may remain until overwritten. No Firestore
+  TTL policy is required.
+  """
+  now = _as_utc(now) or datetime.datetime.now(datetime.timezone.utc)
+  out = {}
+  col = _stats_cache_collection()
+  for sid in survey_ids or []:
+    if not sid:
+      continue
+    snap = col.document(sid).get()
+    if not getattr(snap, 'exists', False):
+      continue
+    data = snap.to_dict() or {}
+    expires = _as_utc(data.get('expires_at'))
+    if expires is None or expires <= now:
+      continue
+    rows = data.get('rows')
+    if not isinstance(rows, list):
+      rows = []
+    out[sid] = rows
+  return out
+
+
+def write_stats_cache(entries, expires_at):
+  """Write per-survey homepage count rows. entries is {survey_id: [row, ...]}."""
+  expires = _as_utc(expires_at)
+  if expires is None:
+    return
+  now = datetime.datetime.now(datetime.timezone.utc)
+  col = _stats_cache_collection()
+  for sid, rows in (entries or {}).items():
+    if not sid:
+      continue
+    col.document(sid).set({
+        'rows': list(rows or []),
+        'expires_at': expires,
+        'updated_at': now,
+    })
