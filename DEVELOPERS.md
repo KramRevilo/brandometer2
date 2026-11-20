@@ -223,7 +223,7 @@ Reporting (parameterized `WHERE ID = @survey_id`):
 
 * Daily responses by stored `seg` (self-hosted Chart.js 4.4.6)
 * Per-question answer distributions
-* Brand Lift only: control vs exposed table, Wilson 95% CIs, two-proportion z-test p-value, n-too-small warning when an arm has fewer than 30 respondents
+* Brand Lift only: control vs exposed table, Wilson 95% CIs (not Wald), two-proportion z-test p-value plus Holm–Bonferroni p-adj (overall table = one family; each breakout dimension = its own family), n-too-small warning when an arm or question has fewer than 30 respondents
 * Empty states when there is no data, no control, or no exposed segment
 * CSV downloads stream in chunks after the same consolidation (not one in-memory string)
 
@@ -600,9 +600,11 @@ The report page **Breakouts** section (and `/survey/download_breakouts/<id>`) re
 * **Date** (`CreatedAt` UTC day)
 * **Segment** (`Segmentation`)
 
-A dimension is omitted when every row is blank. Mixed NULL / numbered versions show **Unknown / pre-version** for old rows. Slices with only one lift arm show counts/CIs for that arm and em-dash for lift. Small-n uses the same `MIN_N = 30` threshold as the overall table.
+A dimension is omitted when every row is blank. Mixed NULL / numbered versions show **Unknown / pre-version** for old rows. Slices with only one lift arm show counts/CIs for that arm and em-dash for lift. Small-n uses the same `MIN_N = 30` threshold as the overall table (slice respondents or people who answered that question).
 
-CSV columns: `dimension,slice,question_index,question,answer_id,answer,n_answered,k,p,ci_lo,ci_hi,n_control,…,lift,pvalue,warning_n_small`. Proportions are 0–1. `overall,all` is the un-sliced table.
+CSV columns: `dimension,slice,question_index,question,answer_id,answer,n_answered,k,p,ci_lo,ci_hi,n_control,…,lift,pvalue,pvalue_adjusted,warning_n_small`. Proportions are 0–1. `overall,all` is the un-sliced table. `pvalue` is unadjusted; `pvalue_adjusted` is Holm–Bonferroni within that CSV dimension (`overall` or one breakout). Breakout unadjusted p &lt; 0.05 is exploratory.
+
+**Stats methods (Phase 7d / 66).** Wilson 95% CIs stay; Wald is not used near 0/1. The two-proportion z-test is two-sided with pooled SE. Holm is applied after every answer-level p-value is computed. Redeploy App Engine (`--app-only`).
 
 `fetch_survey_response_rows` SELECTs `CreativeSize` and `CreativeVersion` as well as the trafficking IDs. Response CSV includes **Size** and **Creative version**.
 

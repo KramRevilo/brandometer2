@@ -63,6 +63,18 @@ class ReportingMathTest(unittest.TestCase):
     self.assertTrue(math.isnan(reporting.lift_ratio(0.4, 0.0)))
     self.assertTrue(math.isnan(reporting.lift_ratio(0.4, float('nan'))))
 
+  def test_holm_adjust_monotone_and_skips_nan(self):
+    adjusted = reporting.holm_adjust([0.01, 0.04, 0.03])
+    self.assertAlmostEqual(adjusted[0], 0.03)
+    self.assertAlmostEqual(adjusted[1], 0.06)
+    self.assertAlmostEqual(adjusted[2], 0.06)
+    with_nan = reporting.holm_adjust([0.01, float('nan'), 0.04])
+    self.assertAlmostEqual(with_nan[0], 0.02)
+    self.assertTrue(math.isnan(with_nan[1]))
+    self.assertAlmostEqual(with_nan[2], 0.04)
+    self.assertEqual(reporting.holm_adjust([]), [])
+    self.assertTrue(math.isnan(reporting.holm_adjust([None])[0]))
+
 
 class ConsolidationTest(unittest.TestCase):
 
@@ -137,6 +149,10 @@ class BuildReportTest(unittest.TestCase):
     self.assertEqual(yes['k_control'], 1)
     self.assertEqual(yes['k_expose'], 2)
     self.assertEqual(yes['lift'], 1.0)
+    self.assertIn('pvalue_adjusted', yes)
+    self.assertTrue(lift['questions'][0]['warning_n_small'])
+    self.assertGreaterEqual(lift['n_tests'], 2)
+    self.assertIn('Holm', lift['stats_notes']['multiple_comparison'])
     self.assertTrue(lift['daily'])
 
     track = reporting.build_report(df, survey, is_lift=False)
@@ -205,6 +221,11 @@ class BuildReportTest(unittest.TestCase):
     self.assertIn('Size,300x250,1,Aware?,A,Yes', csv_text)
     self.assertIn('overall,all,', csv_text)
     self.assertIn('Date,2026-11-18,', csv_text)
+    self.assertIn('pvalue_adjusted', csv_text)
+    yes_300_adj = yes_300['pvalue_adjusted']
+    self.assertFalse(math.isnan(yes_300_adj))
+    size_dim = [dim for dim in report['breakouts'] if dim['key'] == 'size'][0]
+    self.assertGreaterEqual(size_dim['n_tests'], 1)
 
   def test_breakouts_skip_blank_only_dimensions(self):
     t = datetime.datetime(2026, 11, 18)

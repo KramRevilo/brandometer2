@@ -43,6 +43,15 @@
     Segments are the values stored on the response (<code>seg</code>), not renamed labels.
     Looker Studio uses the authorized views in dataset <code>brandometer_reporting</code> (not the raw <code>responses</code> table). Granting access is documented in DEVELOPERS.md.
   </p>
+  {% if is_lift %}
+  <p class="small text-muted">
+    Methods: Wilson score 95% CI on each arm (not Wald). Lift is (exposed − control) / control.
+    p-value is a two-sided two-proportion z-test with pooled SE.
+    Holm–Bonferroni p-adj is within this overall table ({{ report.n_tests }} test{% if report.n_tests != 1 %}s{% endif %})
+    and, separately, within each breakout dimension (every slice × answer). Treat unadjusted p &lt; 0.05 in breakouts as exploratory.
+    Arms or questions with n &lt; {{ report.min_n }} show a small-n warning; do not treat those p-values as confirmatory.
+  </p>
+  {% endif %}
 
   {% if report.empty_reason == 'no_data' %}
   <div class="alert alert-secondary" role="alert">
@@ -127,9 +136,8 @@
         {% else %}
         <p class="small text-muted">
           Percentages are of respondents who answered this question
-          (control n={{ question.n_control }}, exposed n={{ question.n_expose }}).
-          Intervals are Wilson 95% CIs on each arm. p-value is a two-proportion z-test
-          of exposed vs control.
+          (control n={{ question.n_control }}, exposed n={{ question.n_expose }}{% if question.warning_n_small %}; small n{% endif %}).
+          Intervals are Wilson 95% CIs on each arm. p is unadjusted; p-adj is Holm–Bonferroni across this report’s overall answers.
         </p>
         <div class="table-responsive">
         <table class="table table-bordered table-striped table-sm align-middle">
@@ -142,6 +150,7 @@
               <th scope="col">Exposed %</th>
               <th scope="col">Lift</th>
               <th scope="col">p-value</th>
+              <th scope="col">p-adj (Holm)</th>
             </tr>
           </thead>
           <tbody>
@@ -166,6 +175,7 @@
                 {{ answer.lift | format_percentage }}
               </td>
               <td>{{ answer.pvalue | format_pvalue }}</td>
+              <td>{{ answer.pvalue_adjusted | format_pvalue }}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -189,10 +199,11 @@
           Same answer rates{% if is_lift %} plus Wilson 95% CIs and two-proportion z-test{% endif %}
           sliced by size, placement, site, ad-server creative ID, zip snapshot version, date, and segment.
           Old rows without <code>ver=</code> show as Unknown / pre-version. Creative ID is still the trafficked ad-server creative.
-          {% if is_lift %}Slices with only one lift arm omit lift. Small-n warnings use the same threshold (n &lt; {{ report.min_n }}).{% endif %}
+          {% if is_lift %}Slices with only one lift arm omit lift. Small-n warnings use the same threshold (n &lt; {{ report.min_n }}).
+          p-adj is Holm–Bonferroni <em>within this dimension</em> (every slice × answer); do not compare unadjusted breakout p-values as if they were a single test.{% endif %}
         </p>
         {% for dim in report.breakouts %}
-        <h3 class="h6 mt-4">{{ dim.label }}</h3>
+        <h3 class="h6 mt-4">{{ dim.label }}{% if is_lift and dim.n_tests %} <span class="text-muted fw-normal small">({{ dim.n_tests }} Holm test{% if dim.n_tests != 1 %}s{% endif %})</span>{% endif %}</h3>
         <div class="table-responsive">
         <table class="table table-bordered table-striped table-sm align-middle">
           <thead class="table-light">
@@ -206,6 +217,7 @@
               <th scope="col">Exposed %</th>
               <th scope="col">Lift</th>
               <th scope="col">p-value</th>
+              <th scope="col">p-adj (Holm)</th>
               {% else %}
               <th scope="col">%</th>
               {% endif %}
@@ -245,6 +257,11 @@
                   <td>
                     {% if sl.has_control and sl.has_expose %}
                     {{ answer.pvalue | format_pvalue }}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>
+                    {% if sl.has_control and sl.has_expose %}
+                    {{ answer.pvalue_adjusted | format_pvalue }}
                     {% else %}—{% endif %}
                   </td>
                   {% else %}

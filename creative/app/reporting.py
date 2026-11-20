@@ -113,6 +113,60 @@ def lift_ratio(p_expose, p_control):
   return (p_expose - p_control) / p_control
 
 
+def holm_adjust(pvalues):
+  """Holm–Bonferroni adjusted p-values. NaN / None are skipped (not tests).
+
+  Sort p1 ≤ p2 ≤ … ≤ pm, then p'_k = min(1, max_{j≤k} (m−j+1)·p_j).
+  """
+  n = len(pvalues or [])
+  adjusted = [float('nan')] * n
+  indexed = []
+  for i, raw in enumerate(pvalues or []):
+    if raw is None:
+      continue
+    try:
+      p = float(raw)
+    except (TypeError, ValueError):
+      continue
+    if math.isnan(p):
+      continue
+    indexed.append((i, max(0.0, min(1.0, p))))
+  m = len(indexed)
+  if not m:
+    return adjusted
+  indexed.sort(key=lambda item: item[1])
+  running = 0.0
+  for rank, (i, p) in enumerate(indexed):
+    adj = min(1.0, p * (m - rank))
+    if adj < running:
+      adj = running
+    running = adj
+    adjusted[i] = adj
+  return adjusted
+
+
+def _finite_pvalue(value):
+  if value is None:
+    return False
+  try:
+    p = float(value)
+  except (TypeError, ValueError):
+    return False
+  return not math.isnan(p)
+
+
+def apply_holm_to_questions(questions):
+  """Attach pvalue_adjusted on every answer. Returns the Holm family size."""
+  answers = []
+  for question in questions or []:
+    answers.extend(question.get('answers') or [])
+  raw = [answer.get('pvalue') for answer in answers]
+  adjusted = holm_adjust(raw)
+  for answer, adj in zip(answers, adjusted):
+    answer['pvalue_adjusted'] = adj
+  return sum(1 for value in raw if _finite_pvalue(value))
+
+
 BREAKOUT_DIMS = (
     ('size', 'CreativeSize', 'Size'),
     ('placement', 'PlacementID', 'Placement'),
@@ -129,7 +183,7 @@ BREAKOUT_CSV_HEADERS = (
     'n_answered', 'k', 'p', 'ci_lo', 'ci_hi',
     'n_control', 'k_control', 'p_control', 'ci_control_lo', 'ci_control_hi',
     'n_expose', 'k_expose', 'p_expose', 'ci_expose_lo', 'ci_expose_hi',
-    'lift', 'pvalue', 'warning_n_small',
+    'lift', 'pvalue', 'pvalue_adjusted', 'warning_n_small',
 )
 
 
@@ -237,6 +291,7 @@ def question_stats(work, survey_info):
           'lift': lift_ratio(p_expose, p_control),
           'pvalue': two_proportion_pvalue(
               k_expose, n_expose, k_control, n_control),
+          'pvalue_adjusted': float('nan'),
       })
     questions.append({
         'index': q,
@@ -246,6 +301,7 @@ def question_stats(work, survey_info):
         'n_answered': n_answered,
         'n_control': n_control,
         'n_expose': n_expose,
+        'warning_n_small': n_control < MIN_N or n_expose < MIN_N,
     })
   return questions
 
@@ -290,10 +346,15 @@ def build_breakouts(work, survey_info, is_lift=False):
           slice_df, survey_info, value,
           blank=UNKNOWN_VERSION_LABEL if key == 'version' else '(blank)'))
     if slices:
+      family_questions = []
+      for sl in slices:
+        family_questions.extend(sl.get('questions') or [])
+      n_tests = apply_holm_to_questions(family_questions)
       breakouts.append({
           'key': key,
           'label': label,
           'slices': slices,
+          'n_tests': n_tests,
       })
   return breakouts
 
@@ -336,6 +397,7 @@ def _csv_answer_row(dimension, slice_value, question, answer, warning_n_small):
       'ci_expose_hi': _csv_num(ci_e[1]),
       'lift': _csv_num(answer.get('lift')),
       'pvalue': _csv_num(answer.get('pvalue')),
+      'pvalue_adjusted': _csv_num(answer.get('pvalue_adjusted')),
       'warning_n_small': '1' if warning_n_small else '0',
   }
 
@@ -346,13 +408,15 @@ def breakout_csv_rows(report):
   rows = []
   overall_warning = bool(report.get('warning_n_small'))
   for question in report.get('questions') or []:
+    warning = overall_warning or bool(question.get('warning_n_small'))
     for answer in question.get('answers') or []:
       rows.append(_csv_answer_row(
-          'overall', 'all', question, answer, overall_warning))
+          'overall', 'all', question, answer, warning))
   for dim in report.get('breakouts') or []:
     for sl in dim.get('slices') or []:
-      warning = bool(sl.get('warning_n_small'))
+      slice_warning = bool(sl.get('warning_n_small'))
       for question in sl.get('questions') or []:
+        warning = slice_warning or bool(question.get('warning_n_small'))
         for answer in question.get('answers') or []:
           rows.append(_csv_answer_row(
               dim['label'], sl['value'], question, answer, warning))
@@ -390,6 +454,16 @@ def build_report(df, survey_info, is_lift=False):
       'empty_reason': None,
       'control_n': 0,
       'expose_n': 0,
+      'n_tests': 0,
+      'stats_notes': {
+          'ci': 'Wilson score 95% CI on each arm (not Wald).',
+          'test': 'Two-sided two-proportion z-test with pooled standard error.',
+          'multiple_comparison': (
+              'Holm–Bonferroni within the overall table (all answers) and '
+              'separately within each breakout dimension (all slices × answers). '
+              'Unadjusted p-values are still shown.'),
+          'min_n': MIN_N,
+      },
   }
   if n_total == 0:
     report['empty_reason'] = 'no_data'
@@ -437,5 +511,6 @@ def build_report(df, survey_info, is_lift=False):
   ]
 
   report['questions'] = question_stats(work, survey_info)
+  report['n_tests'] = apply_holm_to_questions(report['questions'])
   report['breakouts'] = build_breakouts(work, survey_info, is_lift=is_lift)
   return report

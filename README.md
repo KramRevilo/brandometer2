@@ -113,7 +113,7 @@ Natural-size captures of the `#master_container` from seeded sample surveys. The
 The stats button works for **Brand Lift and Brand Track**.
 
 * Counts, reports, and CSV treat each **respondent** as one person: `COALESCE(RespondentID, BomID)` (latest, most complete `Response`). New creatives send a durable `rid` (hashed ad-server user macro when the ad server expands it, otherwise `localStorage` / `sessionStorage` for this survey, otherwise a per-impression UUID). Existing rows without `RespondentID` still collapse by BomID. Surveys that submit after each question show fewer people than raw BigQuery row counts.
-* Brand Lift: control vs exposed, Wilson 95% CIs, two-proportion z-test, warning when an arm has fewer than 30 respondents. Segments come from the stored `seg` value (`control` / `expos` in the string).
+* Brand Lift: control vs exposed, Wilson 95% CIs (not Wald), two-proportion z-test, Holm–Bonferroni p-adj (overall table; each breakout dimension is its own family), warning when an arm or question has fewer than 30 respondents. Segments come from the stored `seg` value (`control` / `expos` in the string). Unadjusted breakout p-values are exploratory.
 * Brand Track: answer distributions and responses per day.
 * **Breakouts:** the report page slices the same lift / Wilson CIs / z-test by **size**, **placement**, **site**, **ad-server creative ID**, **zip snapshot version**, **date**, and **segment**. Dimensions that are blank on every row are omitted. Rows without `ver=` show as **Unknown / pre-version**. Download **Breakouts CSV** from the report or the homepage. Response CSV includes Size and Creative version.
 * Three response CSVs: responses, responses with question text (both stream), and breakouts (one table of overall + slices).
@@ -123,7 +123,7 @@ Preview **does not** post to BigQuery. To generate test rows, curl the receiver 
 
 ![Brand Lift report with daily chart, answer distribution, lift percentages, Wilson CIs, and p-values](docs/images/report-lift.png)
 
-*Brand Lift report: responses per day, control vs exposed, Wilson 95% CIs under each arm %, lift, and two-proportion z-test p-value.*
+*Brand Lift report: responses per day, control vs exposed, Wilson 95% CIs under each arm %, lift, unadjusted p-value, and Holm–Bonferroni p-adj.*
 
 ### Admin, sign-in, and viewer 403
 
@@ -210,7 +210,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 * **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
 * **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
-* **Phase 7d leftover** (not built): stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join; shared stats cache. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
+* **Phase 7d leftover** (not built): CM360 / DV360 cost/impressions join; shared stats cache. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -378,9 +378,8 @@ ORDER BY CreatedAt;
 
 ## Roadmap (not built)
 
-Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). **7d** HTML5 spec QA (item 64) and bulk CSV survey create (item 65) are shipped. Remaining **7d** — do not treat these as shipped:
+Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). **7d** HTML5 spec QA (item 64), bulk CSV survey create (item 65), and stats-method corrections (item 66: Holm–Bonferroni p-adj, Wilson/z-test notes, min-n) are shipped. Remaining **7d** — do not treat these as shipped:
 
-* Stats-method corrections beyond current Wilson / z-test
 * CM360 / DV360 cost/impressions join
 * Shared stats cache (today each App Engine instance caches for 90 seconds)
 
