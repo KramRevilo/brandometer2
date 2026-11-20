@@ -16,9 +16,9 @@ Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250
 
 * A Bootstrap 5 survey editor (multi-size creatives, 2–8 answers, theme presets, wrapping text, disclosure badge, zip version history)
 * Homepage archive/copy, status chips, and client/agency/year/size filters
-* In-app reporting (Brand Lift with Wilson CIs and a z-test; Brand Track distributions) and streamed CSV, with one row per BomID
+* In-app reporting (Brand Lift with Wilson CIs and a z-test; Brand Track distributions) and streamed CSV, with one row per respondent (`COALESCE(RespondentID, BomID)`)
 * Google Sign-In, an Admin page, and **admin / editor / viewer** roles (not IAP, not shared passwords)
-* HMAC-signed pixel links, daily-rotating IP hashes, CSRF on mutating actions, and a 409 when two people save the same survey
+* HMAC-signed pixel links, a survey-scoped durable respondent ID, daily-rotating IP hashes, CSRF on mutating actions, and a 409 when two people save the same survey
 * Secret Manager, least-privilege service accounts, App Engine **python312**, a gen2 Cloud Function receiver, and self-hosted front-end libraries
 * A **Bv2** favicon and a Google-account avatar in the navbar
 
@@ -108,7 +108,7 @@ Natural-size captures of the `#master_container` from seeded sample surveys. The
 
 The stats button works for **Brand Lift and Brand Track**.
 
-* Counts, reports, and CSV treat each **BomID as one respondent** (latest, most complete `Response`). Surveys that submit after each question show fewer people than raw BigQuery row counts.
+* Counts, reports, and CSV treat each **respondent** as one person: `COALESCE(RespondentID, BomID)` (latest, most complete `Response`). New creatives send a durable `rid` (hashed ad-server user macro when the ad server expands it, otherwise `localStorage` / `sessionStorage` for this survey, otherwise a per-impression UUID). Existing rows without `RespondentID` still collapse by BomID. Surveys that submit after each question show fewer people than raw BigQuery row counts.
 * Brand Lift: control vs exposed, Wilson 95% CIs, two-proportion z-test, warning when an arm has fewer than 30 respondents. Segments come from the stored `seg` value (`control` / `expos` in the string).
 * Brand Track: answer distributions and responses per day.
 * Two CSVs: responses, and responses with question text. Both stream; they are not built as one in-memory string.
@@ -164,6 +164,7 @@ The table is what changed versus upstream Brandometer / the old Sonar tree. Deta
 | Receiver accepted junk and returned 200 HTML | Regex validation; **204** empty body on success; 400 / 403 / 404 / 429 / 500 with a small JSON `reason` | `receiver/main.py` `validate_params`, `_pixel_response` |
 | No abuse control on the public pixel | 30 req / min / (hashed IP + survey id), **per function instance**; 20 000 keys cap; `--max-instances=20` | `receiver/main.py` `allow_request` |
 | Client IP stored (or unsalted SHA-256 of IP) | IP is **not** stored. `RandomTimeStamp` is HMAC-SHA256 of the IP keyed by `HMAC(IP_HMAC_SECRET, YYYY-MM-DD UTC)`. Same IP, same UTC day → same hash; hashes do not link across days | `receiver.hash_ip`, `receiver_crypto.hash_ip` |
+| One row per impression (BomID was in-memory UUID only) | Durable survey-scoped `RespondentID`: hashed expanded ad-server user macro, else partitioned storage, else per-impression UUID. Raw user ids never on the pixel URL or in BQ. Old rows keep BomID | `creative.html` `resolveRespondentId`, `receiver` `rid`/`rsrc`, `respondent.session_keys` |
 | Secrets in `app.yaml` / env / deploy prompts echoed | Secret Manager only. App Engine loads at startup via the SM client (`secret_environment_variables` is not valid on standard). `./deploy` prints `stored N chars`, never the value | `app_security.load_secret`, `app.yaml.template`, `./deploy` |
 | App Engine SA had `roles/editor` | Least privilege: GAE SA is datastore user, BQ **jobUser** + dataset **WRITER**, secret accessor. Receiver SA is **datastore.viewer** only (plus BQ write + HMAC secrets). `roles/editor` is removed | `./deploy` |
 | Front-end from public CDNs | Self-hosted under `creative/app/static/vendor/` (Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12, Alpine.js 3.14.3, Chart.js 4.4.6) | `static/vendor/`, tests fail if templates load jsDelivr / cdnjs / unpkg |
@@ -202,7 +203,8 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 * **No Content-Security-Policy yet.** Templates do not emit a CSP header. Adding a strict CSP (and nonce/hash for the small inline editor and Chart.js bootstraps) is backlog, not shipped.
 * **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
-* **Phase 7c / 7d** (not built): durable respondent ID beyond BomID / daily IP hash; ad-server macros and a trafficking tag sheet; BigQuery authorized views and Looker; reporting breakouts; HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 export (campaign/placement ID fields are placeholders). Also not built: free-form write-in answers, in-stream video/VAST, a cost/impressions join. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
+* **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
+* **Phase 7c / 7d leftover** (not built): ad-server trafficking macros and a tag sheet; BigQuery authorized views and Looker; reporting breakouts; HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 export (campaign/placement ID fields are placeholders). Also not built: free-form write-in answers, in-stream video/VAST, a cost/impressions join. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -320,7 +322,7 @@ The script sets `DISABLE_BASIC_AUTH=1` and dummy OAuth / HMAC values so Secret M
 
 ## Querying results in BigQuery
 
-Table: `` `$PROJECT_ID.responses.responses` `` (dataset `responses`, table `responses`). Required columns:
+Table: `` `$PROJECT_ID.responses.responses` `` (dataset `responses`, table `responses`). Columns (REQUIRED unless noted):
 
 | Column | Type | Meaning |
 | --- | --- | --- |
@@ -332,14 +334,18 @@ Table: `` `$PROJECT_ID.responses.responses` `` (dataset `responses`, table `resp
 | `Visual` | STRING | Unused placeholder (schema is REQUIRED) |
 | `CreativeSize` | STRING | e.g. `300x250` |
 | `RandomTimeStamp` | STRING | Daily HMAC of the client IP (not the IP, not unsalted SHA-256) |
-| `BomID` | STRING | Respondent id from the creative |
+| `BomID` | STRING | Session / impression grouping id from the creative (REQUIRED). New creatives set this to the same durable id as `RespondentID`. |
+| `RespondentID` | STRING | Durable respondent id (NULLABLE). Missing on rows collected before Phase 7c. |
+| `RespondentIDSource` | STRING | `macro`, `storage`, `impression`, or `bomid` (NULLABLE) |
 
-The app consolidates by BomID. A raw count of rows can be higher than homepage / report / CSV counts.
+The app consolidates by `COALESCE(RespondentID, BomID)`. A raw count of rows can be higher than homepage / report / CSV counts.
 
 ```sql
 SELECT
   ID,
   BomID,
+  RespondentID,
+  RespondentIDSource,
   Segmentation,
   Response,
   CreativeSize,
@@ -353,9 +359,8 @@ Replace `PROJECT_ID` and `SURVEY_ID`. For production tables that are partitioned
 
 ## Roadmap (not built)
 
-Phase **7c / 7d** and related backlog — do not treat these as shipped:
+Phase **7c** item **58** (durable respondent ID) is shipped. Remaining **7c / 7d** — do not treat these as shipped:
 
-* Durable respondent ID (beyond BomID / daily IP hash)
 * Ad-server macros and a trafficking tag sheet
 * BigQuery authorized views and Looker
 * Reporting breakouts (beyond current Lift / Track views)

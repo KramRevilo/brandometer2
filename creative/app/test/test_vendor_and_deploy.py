@@ -162,6 +162,9 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('bq --format=prettyjson --quiet show --dataset', script)
     self.assertIn('bq --quiet update --source', script)
     self.assertIn('bq_dataset_iam.py', script)
+    self.assertIn('ensure_respondent_columns()', script)
+    self.assertIn('ADD COLUMN IF NOT EXISTS RespondentID STRING', script)
+    self.assertIn('ADD COLUMN IF NOT EXISTS RespondentIDSource STRING', script)
     self.assertIn(
         'Removing project roles/bigquery.dataEditor from $member', script)
     self.assertIn('MAX_INSTANCES', script)
@@ -446,6 +449,7 @@ class ReadmeImagesTest(unittest.TestCase):
     ):
       self.assertIn(required, readme)
     self.assertIn('PYSEC-2026-113', readme)
+    self.assertIn('RespondentID', readme)
     self.assertIn('Known limitations', readme)
     self.assertIn('DISABLE_BASIC_AUTH', readme)
     capture = os.path.join(_REPO_ROOT, 'tools', 'capture_screenshots.py')

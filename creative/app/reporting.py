@@ -17,6 +17,8 @@ import re
 
 import pandas as pd
 
+import respondent
+
 # Warn when a lift arm has fewer than this many respondents who answered.
 MIN_N = 30
 Z_95 = 1.959963984540054  # inverse Phi(0.975)
@@ -52,24 +54,18 @@ def segment_role(seg):
 
 
 def consolidate_frame(df):
-  """Keep one row per BomID: the most complete response, then the latest.
+  """Keep one row per respondent: the most complete response, then the latest.
 
-  Rows with a missing/blank BomID are left as individual respondents
-  (typical of 'submit at end' surveys).
+  Session key is COALESCE(RespondentID, BomID). Blank IDs stay as individual
+  respondents (typical of old 'submit at end' rows with no BomID).
   """
   if df is None or df.empty:
     return df
   out = df.copy()
-  if 'BomID' not in out.columns:
+  if 'BomID' not in out.columns and 'RespondentID' not in out.columns:
     return out
   out['_complete'] = out['Response'].map(completeness)
-  bom = out['BomID'].fillna('').astype(str).str.strip()
-  out['_session'] = bom
-  blank = bom == ''
-  if blank.any():
-    out.loc[blank, '_session'] = [
-        'row:%s' % idx for idx in out.index[blank]
-    ]
+  out['_session'] = respondent.session_keys(out)
   sort_cols = ['_complete']
   ascending = [False]
   if 'CreatedAt' in out.columns:

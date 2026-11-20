@@ -114,6 +114,9 @@ class ReceiverTest(unittest.TestCase):
     self.assertIsNone(error)
     self.assertEqual(fields['ID'], 'survey_1')
     self.assertEqual(fields['BomID'], 'a1b2c3d4-e5f6-7890-abcd-ef1234567890')
+    self.assertEqual(
+        fields['RespondentID'], 'a1b2c3d4-e5f6-7890-abcd-ef1234567890')
+    self.assertEqual(fields['RespondentIDSource'], 'bomid')
 
   def test_missing_response_is_400(self):
     fields, error = receiver.validate_params({'id': 'abc'})
@@ -218,3 +221,26 @@ class ReceiverTest(unittest.TestCase):
     self.assertEqual(row['RandomTimeStamp'], expected)
     self.assertNotEqual(row['RandomTimeStamp'], unsalted)
     self.assertEqual(len(row['RandomTimeStamp']), 64)
+    self.assertEqual(row['RespondentID'], 'b1')
+    self.assertEqual(row['RespondentIDSource'], 'bomid')
+
+  def test_rid_and_rsrc_are_stored(self):
+    request = FakeRequest(_args(rid='deadbeef' * 8, rsrc='macro'))
+    bq = mock.Mock()
+    bq.get_table.return_value = mock.Mock()
+    bq.insert_rows_json.return_value = []
+    with mock.patch.object(receiver, 'survey_is_active', return_value=True):
+      with mock.patch.object(receiver, '_bq', return_value=bq):
+        with mock.patch.dict(os.environ, _secrets()):
+          body, status, _headers = receiver.receiver(request)
+    self.assertEqual(status, 204)
+    self.assertEqual(body, '')
+    row = bq.insert_rows_json.call_args[0][1][0]
+    self.assertEqual(row['BomID'], 'b1')
+    self.assertEqual(row['RespondentID'], 'deadbeef' * 8)
+    self.assertEqual(row['RespondentIDSource'], 'macro')
+
+  def test_invalid_rsrc_is_400(self):
+    fields, error = receiver.validate_params(_args(rsrc='cookie'))
+    self.assertIsNone(fields)
+    self.assertEqual(error, 'invalid rsrc')

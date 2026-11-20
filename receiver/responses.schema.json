@@ -7,5 +7,7 @@
   {"name": "Visual", "type": "STRING", "mode": "REQUIRED"},
   {"name": "CreativeSize", "type": "STRING", "mode": "REQUIRED"},
   {"name": "RandomTimeStamp", "type": "STRING", "mode": "REQUIRED"},
-  {"name": "BomID", "type": "STRING", "mode": "REQUIRED"}
+  {"name": "BomID", "type": "STRING", "mode": "REQUIRED"},
+  {"name": "RespondentID", "type": "STRING", "mode": "NULLABLE"},
+  {"name": "RespondentIDSource", "type": "STRING", "mode": "NULLABLE"}
 ]

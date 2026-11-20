@@ -50,6 +50,7 @@ _TYPE_RE = re.compile(r'^[A-Za-z0-9_]{1,32}$')
 _SIZE_RE = re.compile(r'^[0-9]{2,4}x[0-9]{2,4}$')
 _TEXT_RE = re.compile(r'^[0-9A-Za-z:|,._\-]{0,2048}$')
 _BOM_RE = re.compile(r'^[A-Za-z0-9._-]{0,128}$')
+_RSRC_RE = re.compile(r'^(macro|storage|impression|bomid)$')
 _TOKEN_RE = re.compile(r'^[A-Fa-f0-9]{64}$')
 
 
@@ -218,6 +219,12 @@ def validate_params(params):
   bomid = _match(_BOM_RE, params.get('bomid'), '')
   if bomid is None:
     return None, 'invalid bomid'
+  rid = _match(_BOM_RE, params.get('rid'), '')
+  if rid is None:
+    return None, 'invalid rid'
+  rsrc = (params.get('rsrc') or '').strip().lower()
+  if rsrc and _RSRC_RE.fullmatch(rsrc) is None:
+    return None, 'invalid rsrc'
   token = params.get('token') or ''
   if token and _match(_TOKEN_RE, token) is None:
     return None, 'invalid token'
@@ -231,6 +238,8 @@ def validate_params(params):
       'Visual': visual,
       'CreativeSize': size,
       'BomID': bomid,
+      'RespondentID': rid or bomid,
+      'RespondentIDSource': rsrc or ('bomid' if (rid or bomid) else ''),
       'token': token,
   }, None
 
@@ -300,6 +309,8 @@ def receiver(request):
       'CreativeSize': fields['CreativeSize'],
       'RandomTimeStamp': ip_hash,
       'BomID': fields['BomID'],
+      'RespondentID': fields.get('RespondentID') or fields['BomID'],
+      'RespondentIDSource': fields.get('RespondentIDSource') or '',
   }
   try:
     errors = _bq().insert_rows_json(os.environ.get('TABLE_ID'), [row_to_insert])

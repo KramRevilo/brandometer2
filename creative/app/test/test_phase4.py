@@ -92,9 +92,15 @@ class HtmlAndReportingTest(unittest.TestCase):
     self.assertIn('&token=', html)
     self.assertIn(receiver_crypto.survey_token('sid', 'unit-test-hmac'), html)
     self.assertIn(
-        'Your IP address is not stored. A daily hash is used only to limit repeat responses.',
+        'Your IP address is not stored. A daily hash limits repeat posts.',
         html)
     self.assertIn('id="privacy_note"', html)
+    self.assertIn('&rid={rid}', html)
+    self.assertIn('&rsrc={rsrc}', html)
+    self.assertIn('resolveRespondentId', html)
+    self.assertIn('localStorage', html)
+    self.assertIn('%u', html)
+    self.assertNotIn('&uid=', html)
 
   def test_reporting_includes_answer_e(self):
     df = pandas.DataFrame({

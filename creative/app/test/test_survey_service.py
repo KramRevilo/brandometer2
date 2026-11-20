@@ -329,6 +329,7 @@ class TestSurveyService(unittest.TestCase):
     survey_param = query_call.kwargs['job_config'].query_parameters[0]
     self.assertRegex(sql, 'WHERE ID = @survey_id')
     self.assertIn('BomID', sql)
+    self.assertIn('RespondentID', sql)
     self.assertNotIn('STARTS_WITH', sql)
     self.assertEqual(survey_param.name, 'survey_id')
     self.assertEqual(survey_param.value, 'sid-1')
@@ -345,6 +346,7 @@ class TestSurveyService(unittest.TestCase):
     job_config = client.query.call_args.kwargs['job_config']
     names = [p.name for p in job_config.query_parameters]
     self.assertIn('BomID', sql)
+    self.assertIn('RespondentID', sql)
     self.assertIn('session_key', sql)
     self.assertIn('n_answers', sql)
     self.assertIn('PARTITION BY ID, session_key', sql)
@@ -408,7 +410,8 @@ class TestSurveyService(unittest.TestCase):
     self.assertTrue(df.empty)
     self.assertEqual(
         list(df.columns),
-        ['CreatedAt', 'Segmentation', 'Response', 'BomID'])
+        ['CreatedAt', 'Segmentation', 'Response', 'BomID',
+         'RespondentID', 'RespondentIDSource'])
 
   @mock.patch.object(survey_service, '_get_bq_client')
   def test_get_all_response_counts_missing_table_returns_empty_frame(

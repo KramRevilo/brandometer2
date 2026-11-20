@@ -18,7 +18,9 @@
     <script>
         var fullConfiguration = {
             "survey_config": {
-                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&times={time_measurement}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
+                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&rid={rid}&rsrc={rsrc}&times={time_measurement}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
+                "receiver_token": "{% if receiver_token %}{{receiver_token}}{% endif %}",
+                "ad_user_id_candidates": ["%u", "${USER_ID}", "%%USER_ID%%"],
                 
                 "id": "{{survey_id}}",
                 
@@ -91,11 +93,9 @@
                 creativeState: 'BEGIN',
                 questionMap: {},
 
-                cookieReplacement: null,  // Introducing a member var that is a replacement
-                                          // for the cookie because 3rd party cookies have
-                                          // been deprecated.  Just need an ID to keep track 
-                                          // of answers all belonging to the same session
-                                          // that are sent back separately. 
+                cookieReplacement: null,  // Durable respondent ID (macro hash, storage, or impression)
+                respondentSource: 'impression',
+                _ridPromise: null, 
 
                 time_measurement: {
                     start_time: null,
@@ -132,42 +132,135 @@
                     // Measure render time
                     this.time_measurement.start_time = new Date();
 
+                    // Resolve durable ID before the first pixel (macro hash is async).
+                    this.resolveRespondentId();
+
                     //Fire Global Tag Config
                     this.setupGlobalTags();
                 },
 
-                // Check cookie to get User ID or Drop a new one
+                storageKey: function() {
+                    return 'bv2.rid.' + String(this.surveyConfig.id || '');
+                },
+
+                isUnexpandedMacro: function(value) {
+                    var text = (value == null) ? '' : String(value).trim();
+                    if (!text) {
+                        return true;
+                    }
+                    if (text.indexOf('%') === 0 || text.indexOf('${') === 0 ||
+                        text.indexOf('%%') === 0 || text.indexOf('[') === 0) {
+                        return true;
+                    }
+                    return text.length < 4;
+                },
+
+                expandedAdUserId: function() {
+                    var candidates = this.surveyConfig.ad_user_id_candidates ||
+                        ['%u', '${USER_ID}', '%%USER_ID%%'];
+                    for (var i = 0; i < candidates.length; i++) {
+                        if (!this.isUnexpandedMacro(candidates[i])) {
+                            return String(candidates[i]).trim();
+                        }
+                    }
+                    return '';
+                },
+
+                readStoredRespondentId: function() {
+                    var key = this.storageKey();
+                    var stores = [];
+                    try { stores.push(window.localStorage); } catch (e1) {}
+                    try { stores.push(window.sessionStorage); } catch (e2) {}
+                    for (var i = 0; i < stores.length; i++) {
+                        try {
+                            var value = stores[i].getItem(key);
+                            if (value) {
+                                return value;
+                            }
+                        } catch (e3) {}
+                    }
+                    return '';
+                },
+
+                writeStoredRespondentId: function(id) {
+                    var key = this.storageKey();
+                    try {
+                        window.localStorage.setItem(key, id);
+                        return 'storage';
+                    } catch (e1) {}
+                    try {
+                        window.sessionStorage.setItem(key, id);
+                        return 'storage';
+                    } catch (e2) {}
+                    return '';
+                },
+
+                hashAdUserId: function(token, uid, done) {
+                    if (!token || !uid || !window.crypto || !window.crypto.subtle ||
+                        typeof TextEncoder === 'undefined') {
+                        done('');
+                        return;
+                    }
+                    try {
+                        var data = new TextEncoder().encode(String(token) + '\n' + String(uid));
+                        window.crypto.subtle.digest('SHA-256', data).then(function(buf) {
+                            var bytes = new Uint8Array(buf);
+                            var hex = '';
+                            for (var i = 0; i < bytes.length; i++) {
+                                hex += ('0' + bytes[i].toString(16)).slice(-2);
+                            }
+                            done(hex);
+                        }).catch(function() { done(''); });
+                    } catch (e) {
+                        done('');
+                    }
+                },
+
+                resolveRespondentId: function() {
+                    var self = this;
+                    if (self._ridPromise) {
+                        return self._ridPromise;
+                    }
+                    self._ridPromise = new Promise(function(resolve) {
+                        var finish = function(id, source) {
+                            self.cookieReplacement = id;
+                            self.respondentSource = source;
+                            resolve(id);
+                        };
+                        var stored = self.readStoredRespondentId();
+                        var uid = self.expandedAdUserId();
+                        var token = self.surveyConfig.receiver_token || '';
+                        var fallback = function() {
+                            if (stored) {
+                                finish(stored, 'storage');
+                                return;
+                            }
+                            var id = self.uuidv4();
+                            var persisted = self.writeStoredRespondentId(id);
+                            finish(id, persisted ? 'storage' : 'impression');
+                        };
+                        if (uid) {
+                            self.hashAdUserId(token, uid, function(hex) {
+                                if (hex) {
+                                    finish(hex, 'macro');
+                                    return;
+                                }
+                                fallback();
+                            });
+                            return;
+                        }
+                        fallback();
+                    });
+                    return self._ridPromise;
+                },
+
+                // Durable respondent ID. generate-once for this impression if resolve has not finished.
                 getOrGenerateCookieId: function() {
-                    /*
-                    // var cookieIdRegexMatch = /bomu=([^;]+)/.exec(document.cookie);
-                    // return (cookieIdRegexMatch == null) ? this.setCookieId() :
-                    //     cookieIdRegexMatch[1];
-
-                    // look for matching cookie
-                    var cookieIdRegexMatch = /bomu=([^;]+)/.exec(document.cookie);
-
-                    // if no cookie found then create one and store in window.cookie
-                    if (cookieIdRegexMatch == null)
-                        window.cookie = this.setCookieId();
-                    // if cookie found use first returned item and store in
-                    // window.cookie
-                    else
-                        window.cookie = cookieIdRegexMatch[1]
-                    */
-
-                    // The default value of the member var cookieReplacement is
-                    // null.  This should only be generated once during the lifetime
-                    // of this object and is used to group all responses from this
-                    // session together regardless if they are send back as
-                    // separate responses
-
                     if (this.cookieReplacement == null) {
                         this.cookieReplacement = this.uuidv4();
+                        this.respondentSource = this.respondentSource || 'impression';
                     }
-
                     return this.cookieReplacement;
-
-                    // return window.cookie;
                 },
 
                 setCookieId: function() {
@@ -572,7 +665,10 @@
                     if (!this.surveyConfig.response_server) {
                         return;
                     }
-                    this.insertPixel(this.surveyConfig.response_server);
+                    var self = this;
+                    this.resolveRespondentId().then(function() {
+                        self.insertPixel(self.surveyConfig.response_server);
+                    });
                 },
 
                 insertScript: function(scriptString, srcString, position) {
@@ -620,9 +716,15 @@
                 },
 
                 fillMacrosInUrl: function(url) {
+                    var rid = this.getOrGenerateCookieId();
+                    var rsrc = this.respondentSource || 'impression';
                     return url
                         .replace(
-                            /\{bomid\}/g, encodeURIComponent(this.getOrGenerateCookieId()))
+                            /\{bomid\}/g, encodeURIComponent(rid))
+                        .replace(
+                            /\{rid\}/g, encodeURIComponent(rid))
+                        .replace(
+                            /\{rsrc\}/g, encodeURIComponent(rsrc))
                         .replace(/\{survey_id\}/g, encodeURIComponent(surveyConfig.id))
                         .replace(
                             /\{responses\}/g,
@@ -729,7 +831,7 @@
         <div id="thankyou_container" class="invisible">
             <div id="thankyou_text"></div>
         </div>
-        <div id="privacy_note" class="invisible privacy-note">Your IP address is not stored. A daily hash is used only to limit repeat responses.</div>
+        <div id="privacy_note" class="invisible privacy-note">Your IP address is not stored. A daily hash limits repeat posts. A survey-only ID (this browser, or a hashed ad-server id) counts each person once and is not shared across surveys.</div>
         <div id="bottom_container">
             <span id="question_comment"></span>
             <span id="next_button">Next</span>

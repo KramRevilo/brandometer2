@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 import creative_size
 import reporting
+import respondent
 import survey_collection
 from forms import ANSWER_LETTERS
 from forms import BRAND_LIFT
@@ -81,10 +82,14 @@ def _get_bqstorage_client():
   return _bqstorage_client
 
 
-_EMPTY_RESPONSES_COLUMNS = ['CreatedAt', 'Segmentation', 'Response', 'BomID']
+_EMPTY_RESPONSES_COLUMNS = [
+    'CreatedAt', 'Segmentation', 'Response', 'BomID',
+    'RespondentID', 'RespondentIDSource',
+]
 CSV_CHUNK_ROWS = 500
 _RESPONSE_SELECT = """
-        SELECT CreatedAt, Segmentation, Response, BomID
+        SELECT CreatedAt, Segmentation, Response, BomID,
+               RespondentID, RespondentIDSource
         FROM `{table}`
         WHERE ID = @survey_id
     """
@@ -603,7 +608,10 @@ def get_version(survey_id, version):
 
 
 def fetch_survey_response_rows(surveyid, client=None):
-  """All response rows for one survey. Parameterized by ID. Includes BomID."""
+  """All response rows for one survey. Parameterized by ID.
+
+  Includes BomID plus nullable RespondentID / RespondentIDSource.
+  """
   table_id = os.environ.get('TABLE_ID')
   query = _RESPONSE_SELECT.format(table=table_id)
   return get_survey_responses(surveyid, query, client=client)
@@ -716,7 +724,7 @@ def _empty_counts_frame():
 
 
 def _fetch_all_response_counts(survey_ids=None):
-  """Homepage counts: one respondent per BomID (latest/most complete row).
+  """Homepage counts: one respondent per COALESCE(RespondentID, BomID).
 
   Restricted to the given survey IDs (current homepage page) and, when
   STATS_LOOKBACK_DAYS > 0, a CreatedAt partition window so BigQuery can prune.
@@ -727,6 +735,7 @@ def _fetch_all_response_counts(survey_ids=None):
     return _empty_counts_frame()
   table_id = os.environ.get('TABLE_ID')
   lookback = stats_lookback_days()
+  session_key = respondent.SESSION_KEY_SQL
   partition = ''
   if lookback > 0:
     partition = (
@@ -740,6 +749,7 @@ def _fetch_all_response_counts(survey_ids=None):
         CreatedAt,
         Response,
         BomID,
+        RespondentID,
         ARRAY_LENGTH(REGEXP_EXTRACT_ALL(IFNULL(Response, ''), r'[1-5]:[^|]+')) AS n_answers,
         ROW_NUMBER() OVER () AS row_id
       FROM `{table_id}`
@@ -749,8 +759,7 @@ def _fetch_all_response_counts(survey_ids=None):
     keyed AS (
       SELECT
         *,
-        IF(BomID IS NOT NULL AND TRIM(BomID) != '', TRIM(BomID),
-           CONCAT('row:', CAST(row_id AS STRING))) AS session_key
+        {session_key} AS session_key
       FROM numbered
     ),
     best AS (
@@ -858,7 +867,7 @@ def _response_columns_for_csv(df, question_names):
 
 
 def _csv_dataframe(surveyid, with_context=False):
-  """Consolidated response table ready for CSV. One row per BomID."""
+  """Consolidated response table ready for CSV. One row per respondent."""
   df = reporting.consolidate_frame(fetch_survey_response_rows(surveyid))
   question_names = [
       'Response 1', 'Response 2', 'Response 3', 'Response 4', 'Response 5'

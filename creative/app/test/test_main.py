@@ -111,7 +111,8 @@ class MainRoutesTest(unittest.TestCase):
     self.assertNotIn(b'View Brand Lift Stats', response.data)
     self.assertIn(b'Copy Survey', response.data)
     self.assertIn(b'Archive Survey', response.data)
-    self.assertIn(b'each BomID as one respondent', response.data)
+    self.assertIn(b'each RespondentID (or BomID on older rows) as one respondent',
+                  response.data)
 
   @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')

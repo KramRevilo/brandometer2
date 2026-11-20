@@ -286,6 +286,19 @@ grant_dataset_editor() {
     grant_project_role "$member" "roles/bigquery.dataEditor"
 }
 
+ensure_respondent_columns() {
+    table="$PROJECT_ID:responses.responses"
+    if ! bq show --format=none "$table" >/dev/null 2>&1; then
+        echo "Table $table missing; skip RespondentID columns"
+        return 0
+    fi
+    echo "-- Add NULLABLE RespondentID columns on $table (idempotent)"
+    bq query --use_legacy_sql=false --project_id="$PROJECT_ID" --nouse_cache --quiet \
+        "ALTER TABLE \`$PROJECT_ID.responses.responses\` ADD COLUMN IF NOT EXISTS RespondentID STRING"
+    bq query --use_legacy_sql=false --project_id="$PROJECT_ID" --nouse_cache --quiet \
+        "ALTER TABLE \`$PROJECT_ID.responses.responses\` ADD COLUMN IF NOT EXISTS RespondentIDSource STRING"
+}
+
 grant_sa_user() {
     sa_email="$1"
     member="$2"
@@ -572,6 +585,7 @@ grant_gae_build_roles
 # dataEditor after bq show stdout was polluted with Python warnings).
 grant_dataset_editor "serviceAccount:$RECEIVER_SA"
 grant_dataset_editor "serviceAccount:$GAE_SA"
+ensure_respondent_columns
 # HMAC secrets were created before App Engine existed; bind GAE now.
 bind_secret_member brandometer-receiver-hmac "serviceAccount:$GAE_SA"
 if gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
