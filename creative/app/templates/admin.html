@@ -2,7 +2,7 @@
 {% block content %}
 <div class="container pb-5">
   <h1 class="h3 mb-2">Admin</h1>
-  <p class="text-muted">Every allowed user sees every survey. There is no per-client tenancy. Verified @{{ google_domain }} Google accounts can always sign in as editors. Bootstrap admin: <code>{{ bootstrap_admin or '(not set)' }}</code></p>
+  <p class="text-muted">Every allowed user sees every survey. There is no per-client tenancy. Roles: <strong>admin</strong> (this page plus everything), <strong>editor</strong> (create and change surveys), <strong>viewer</strong> (read-only, including results downloads). Verified @{{ google_domain }} Google accounts can always sign in as editors unless you list them with a different role. Bootstrap admin: <code>{{ bootstrap_admin or '(not set)' }}</code></p>
 
   <section class="card mb-4">
     <div class="card-body">
@@ -17,8 +17,9 @@
         <div class="col-md-3">
           <label class="form-label" for="role">Role</label>
           <select class="form-select" id="role" name="role">
-            <option value="editor">editor</option>
-            <option value="admin">admin</option>
+            {% for item in roles %}
+            <option value="{{ item }}"{% if item == default_role %} selected{% endif %}>{{ item }}</option>
+            {% endfor %}
           </select>
         </div>
         <div class="col-md-2">
@@ -27,13 +28,25 @@
       </form>
       {% if users %}
       <div class="table-responsive">
-        <table class="table table-sm">
+        <table class="table table-sm align-middle">
           <thead><tr><th>Email</th><th>Role</th><th></th></tr></thead>
           <tbody>
           {% for user in users %}
             <tr>
               <td>{{ user.email }}</td>
-              <td>{{ user.role }}</td>
+              <td>
+                <form method="post" class="d-flex gap-2 align-items-center">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                  <input type="hidden" name="action" value="set_user_role">
+                  <input type="hidden" name="email" value="{{ user.email }}">
+                  <select class="form-select form-select-sm" name="role" aria-label="Role for {{ user.email }}">
+                    {% for item in roles %}
+                    <option value="{{ item }}"{% if item == user.role %} selected{% endif %}>{{ item }}</option>
+                    {% endfor %}
+                  </select>
+                  <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+                </form>
+              </td>
               <td>
                 <form method="post" class="d-inline" onsubmit="return confirm('Remove this user?');">
                   <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -56,6 +69,7 @@
   <section class="card mb-4">
     <div class="card-body">
       <h2 class="h5">Allowed domains</h2>
+      <p class="form-text">People on an allowed domain who are not listed above get that domain’s default role. Existing listed users keep the role you set on their row.</p>
       <form class="row g-2 align-items-end mb-3" method="post">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="action" value="add_domain">
@@ -63,26 +77,45 @@
           <label class="form-label" for="domain">Domain</label>
           <input class="form-control" id="domain" name="domain" placeholder="agency.example" required>
         </div>
+        <div class="col-md-3">
+          <label class="form-label" for="domain-role">Default role</label>
+          <select class="form-select" id="domain-role" name="role">
+            {% for item in roles %}
+            <option value="{{ item }}"{% if item == default_role %} selected{% endif %}>{{ item }}</option>
+            {% endfor %}
+          </select>
+        </div>
         <div class="col-md-2">
           <button class="btn btn-primary" type="submit">Allow domain</button>
         </div>
       </form>
-      {% if domains %}
+      {% if domain_rows %}
       <ul class="list-unstyled mb-0">
-        {% for domain in domains %}
-        <li class="d-flex align-items-center gap-2 mb-1">
-          <code>{{ domain }}</code>
+        {% for row in domain_rows %}
+        <li class="d-flex flex-wrap align-items-center gap-2 mb-2">
+          <code>{{ row.domain }}</code>
+          <form method="post" class="d-flex gap-2 align-items-center">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="action" value="set_domain_role">
+            <input type="hidden" name="domain" value="{{ row.domain }}">
+            <select class="form-select form-select-sm" name="role" aria-label="Default role for {{ row.domain }}" style="width:auto;">
+              {% for item in roles %}
+              <option value="{{ item }}"{% if item == row.role %} selected{% endif %}>{{ item }}</option>
+              {% endfor %}
+            </select>
+            <button class="btn btn-sm btn-outline-primary" type="submit">Save</button>
+          </form>
           <form method="post" class="d-inline">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="action" value="remove_domain">
-            <input type="hidden" name="domain" value="{{ domain }}">
+            <input type="hidden" name="domain" value="{{ row.domain }}">
             <button class="btn btn-sm btn-outline-secondary" type="submit">Remove</button>
           </form>
         </li>
         {% endfor %}
       </ul>
       {% else %}
-      <p class="text-muted mb-0">No extra domains. Verified @{{ google_domain }} still always works.</p>
+      <p class="text-muted mb-0">No extra domains. Verified @{{ google_domain }} still always works as editor.</p>
       {% endif %}
     </div>
   </section>

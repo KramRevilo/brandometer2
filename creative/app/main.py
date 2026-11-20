@@ -240,6 +240,7 @@ def _render_editor(form, page_title, survey_id=None, versions=None,
 @app.route('/survey/create', methods=['GET', 'POST'])
 def create():
   """Survey creation."""
+  google_auth.require_editor()
   form = forms.QuestionForm()
   if form.validate_on_submit():
     survey_service.create(form)
@@ -300,6 +301,7 @@ def preview(survey_id):
 @app.route('/survey/delete', methods=['POST'])
 def delete():
   """Delete survey."""
+  google_auth.require_editor()
   docref_id = request.form.get('survey_id') or request.args.get('survey_id')
   survey_service.delete_by_id(docref_id)
   flash(f'Survey \'{docref_id}\' deleted')
@@ -309,6 +311,7 @@ def delete():
 @app.route('/survey/copy', methods=['POST'])
 def copy_survey():
   """Copy a survey and open the new document in the editor."""
+  google_auth.require_editor()
   survey_id = request.form.get('survey_id') or request.args.get('survey_id')
   new_ref = survey_service.copy_by_id(survey_id)
   if new_ref is None:
@@ -321,6 +324,7 @@ def copy_survey():
 @app.route('/survey/archive', methods=['POST'])
 def archive():
   """Archive or restore a survey."""
+  google_auth.require_editor()
   survey_id = request.form.get('survey_id') or request.args.get('survey_id')
   archived_raw = request.form.get('archived', request.args.get('archived', '1'))
   archived = (archived_raw or '1').strip().lower() in (
@@ -336,6 +340,7 @@ def archive():
 @app.route('/survey/edit', methods=['POST', 'PUT', 'GET'])
 def edit():
   """Edit Survey."""
+  google_auth.require_editor()
   # Create form object
   form = forms.QuestionForm()
 
@@ -381,6 +386,7 @@ def edit():
 @app.route('/survey/download_zip/<string:survey_id>', methods=['GET'])
 def download_zip(survey_id):
   """Download zip of survey creative(s) and snapshot a version."""
+  google_auth.require_editor()
   survey_doc = survey_service.get_doc_by_id(survey_id)
 
   # this is the standard survey
@@ -401,6 +407,7 @@ def download_zip(survey_id):
     methods=['GET'])
 def download_zip_version(survey_id, version):
   """Re-zip a stored snapshot. Does not write a new version."""
+  google_auth.require_editor()
   snapshot = survey_service.get_version(survey_id, version)
   if not snapshot:
     flash('Version not found')
@@ -459,6 +466,11 @@ def reporting(survey_id):
   else:
     flash('Survey not found')
     return redirect(url_for('index'))
+
+
+@app.errorhandler(403)
+def forbidden(_error):
+  return render_template('403.html', title='Not allowed'), 403
 
 
 @app.context_processor

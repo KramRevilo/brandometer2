@@ -25,7 +25,8 @@ CONFIG_COLLECTION = 'AccessConfig'
 CONFIG_DOC = 'settings'
 AUDIT_COLLECTION = 'AuditLog'
 GOOGLE_DOMAIN = 'google.com'
-ROLES = ('admin', 'editor')
+ROLES = ('admin', 'editor', 'viewer')
+DEFAULT_ROLE = 'editor'
 _EMAIL_RE = re.compile(r'^[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}$')
 
 
@@ -63,6 +64,22 @@ def bootstrap_admin_email(environ=None):
   return normalize_email(env.get('BOOTSTRAP_ADMIN_EMAIL'))
 
 
+def normalize_role(role, default=DEFAULT_ROLE):
+  """Listed/stored role, or editor for missing/unknown values (no silent viewer)."""
+  text = (role or '').strip().lower()
+  if text in ROLES:
+    return text
+  return default
+
+
+def can_edit(role):
+  return normalize_role(role) in ('admin', 'editor')
+
+
+def can_admin(role):
+  return normalize_role(role) == 'admin'
+
+
 def actor_email():
   """Email of the signed-in user, or local-dev when auth is bypassed."""
   try:
@@ -95,23 +112,43 @@ def _audit():
 
 
 def get_settings():
+  empty = {'domains': [], 'domain_roles': {}}
   try:
     snap = _config_ref().get()
   except Exception:
     _log.debug('access_settings_unavailable', exc_info=True)
-    return {'domains': []}
+    return empty
   if not getattr(snap, 'exists', False):
-    return {'domains': []}
+    return empty
   data = snap.to_dict() or {}
   domains = []
   for item in data.get('domains') or []:
     if is_valid_domain(item):
       domains.append((item or '').strip().lower().lstrip('@'))
-  return {'domains': sorted(set(domains))}
+  domains = sorted(set(domains))
+  raw_roles = data.get('domain_roles') or {}
+  domain_roles = {}
+  for domain in domains:
+    domain_roles[domain] = normalize_role(raw_roles.get(domain))
+  return {'domains': domains, 'domain_roles': domain_roles}
 
 
 def allowed_domains():
   return get_settings().get('domains') or []
+
+
+def domain_default_role(domain):
+  domain = (domain or '').strip().lower().lstrip('@')
+  roles = get_settings().get('domain_roles') or {}
+  return normalize_role(roles.get(domain))
+
+
+def list_domain_rows():
+  settings = get_settings()
+  return [
+      {'domain': domain, 'role': settings['domain_roles'].get(domain, DEFAULT_ROLE)}
+      for domain in settings['domains']
+  ]
 
 
 def list_users():
@@ -124,7 +161,7 @@ def list_users():
   for doc in stream:
     data = doc.to_dict() or {}
     email = normalize_email(data.get('email') or doc.id)
-    role = data.get('role') if data.get('role') in ROLES else 'editor'
+    role = normalize_role(data.get('role'))
     users.append({
         'email': email,
         'role': role,
@@ -147,7 +184,7 @@ def get_user(email):
   if not getattr(snap, 'exists', False):
     return None
   data = snap.to_dict() or {}
-  role = data.get('role') if data.get('role') in ROLES else 'editor'
+  role = normalize_role(data.get('role'))
   return {'email': email, 'role': role}
 
 
@@ -169,7 +206,7 @@ def upsert_user(email, role, actor=None):
   if not is_valid_email(email):
     raise AccessError('Enter a valid email address')
   if role not in ROLES:
-    raise AccessError('Role must be admin or editor')
+    raise AccessError('Role must be admin, editor, or viewer')
   existing = get_user(email)
   if existing and existing['role'] == 'admin' and role != 'admin':
     if _admin_count(except_email=email) < 1 and email != bootstrap_admin_email():
@@ -204,32 +241,64 @@ def delete_user(email, actor=None):
   return existing
 
 
-def set_domains(domains, actor=None):
+def _domain_roles_payload(domains, domain_roles=None):
+  existing = get_settings().get('domain_roles') or {}
+  merged = dict(existing)
+  if domain_roles:
+    for name, role in domain_roles.items():
+      key = (name or '').strip().lower().lstrip('@')
+      if key:
+        merged[key] = normalize_role(role)
+  return {
+      domain: merged.get(domain, DEFAULT_ROLE) for domain in domains
+  }
+
+
+def set_domains(domains, actor=None, domain_roles=None):
   cleaned = []
   for item in domains or []:
     if not is_valid_domain(item):
       raise AccessError('Invalid domain: %s' % item)
     cleaned.append((item or '').strip().lower().lstrip('@'))
   cleaned = sorted(set(cleaned))
+  roles_map = _domain_roles_payload(cleaned, domain_roles)
   _config_ref().set({
       'domains': cleaned,
+      'domain_roles': roles_map,
       'updated_at': survey_collection.utc_now_iso(),
       'updated_by': actor or actor_email(),
   }, merge=True)
-  write_audit(
-      'admin_domains', actor or actor_email(),
-      detail=','.join(cleaned) or '(none)')
+  detail = ','.join(
+      '%s=%s' % (domain, roles_map[domain]) for domain in cleaned) or '(none)'
+  write_audit('admin_domains', actor or actor_email(), detail=detail)
   return cleaned
 
 
-def add_domain(domain, actor=None):
+def add_domain(domain, actor=None, role=None):
   if not is_valid_domain(domain):
     raise AccessError('Enter a valid domain (example.com)')
   domain = domain.strip().lower().lstrip('@')
+  if role is not None and str(role).strip() and str(role).strip().lower() not in ROLES:
+    raise AccessError('Role must be admin, editor, or viewer')
   domains = allowed_domains()
   if domain not in domains:
     domains.append(domain)
-  return set_domains(domains, actor=actor)
+  roles = dict(get_settings().get('domain_roles') or {})
+  if role is not None and str(role).strip():
+    roles[domain] = normalize_role(role)
+  else:
+    roles.setdefault(domain, DEFAULT_ROLE)
+  return set_domains(domains, actor=actor, domain_roles=roles)
+
+
+def set_domain_role(domain, role, actor=None):
+  domain = (domain or '').strip().lower().lstrip('@')
+  if domain not in allowed_domains():
+    raise AccessError('Domain is not allowed')
+  role = (role or '').strip().lower()
+  if role not in ROLES:
+    raise AccessError('Role must be admin, editor, or viewer')
+  return add_domain(domain, actor=actor, role=role)
 
 
 def remove_domain(domain, actor=None):
@@ -250,7 +319,13 @@ def google_identity_ok(email, email_verified, hd):
 
 
 def resolve_role(email, email_verified, hd, environ=None):
-  """Return 'admin' or 'editor', or None if the identity is not allowed."""
+  """Return admin/editor/viewer, or None if the identity is not allowed.
+
+  Unlisted verified @google.com identities stay editor (not viewer).
+  Listed users keep their stored role. Domain members use that domain's
+  default role (editor unless an admin changed it). Missing/unknown stored
+  roles become editor so existing allowlist users are not downgraded.
+  """
   if email_verified is not True:
     return None
   email = normalize_email(email)
@@ -270,7 +345,7 @@ def resolve_role(email, email_verified, hd, environ=None):
     return 'editor'
   domain = email_domain(email)
   if domain and domain in allowed_domains():
-    return 'editor'
+    return domain_default_role(domain)
   return None
 
 

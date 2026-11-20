@@ -490,7 +490,7 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1` locally only). Then:
 
 # Phase 7b (Google Sign-In, signed pixels, daily IP HMAC)
 
-There is **no tenancy**: every allowed user sees every survey. Roles are `admin` (Admin page + everything) and `editor` (everything except Admin). Firestore collections: `AccessUsers` (email → role), `AccessConfig/settings` (allowed domains), `AuditLog` (create/edit/delete/copy/archive + admin changes). Surveys and versions store `created_by` / `created_at` / `updated_by` / `updated_at`. Verified `@google.com` Google identities (`email_verified` and `hd` empty or `google.com`) can always sign in as **editor**. The first admin is `BOOTSTRAP_ADMIN_EMAIL`. Navbar shows the signed-in email and **Sign out**.
+There is **no tenancy**: every allowed user sees every survey. Roles are `admin` (Admin page + everything), `editor` (create/change surveys, ZIP downloads; no Admin), and `viewer` (list, preview, reports, CSV results only). Firestore collections: `AccessUsers` (email → role), `AccessConfig/settings` (`domains` plus `domain_roles` default role per domain), `AuditLog` (create/edit/delete/copy/archive + admin changes, including role updates). Surveys and versions store `created_by` / `created_at` / `updated_by` / `updated_at`. Verified `@google.com` Google identities (`email_verified` and `hd` empty or `google.com`) can always sign in as **editor** unless listed with another role. Missing/unknown stored roles read as **editor** (existing allowlist users are not downgraded). The first admin is `BOOTSTRAP_ADMIN_EMAIL`. Navbar avatar dropdown shows the signed-in email, role, and **Sign out**.
 
 Identity-Aware Proxy is **not** used.
 
@@ -540,7 +540,7 @@ To redeploy **only App Engine** after a failed `gcloud app deploy` (or to rotate
    2. **OAuth client secret** — paste the secret (not echoed). After a write you should see `stored N chars (brandometer-oauth-client-secret)`.
    3. **Bootstrap admin email** — your Google account, e.g. `mark@google.com`. This identity becomes the first **admin** and is upserted into `AccessUsers` on first sign-in.
 6. `./deploy` writes Secret Manager (`brandometer-oauth-client-id`, `brandometer-oauth-client-secret`, `brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`), deploys the receiver with HMAC secrets and `--max-instances=20` (skipped with `--app-only`), and deploys App Engine with `BOOTSTRAP_ADMIN_EMAIL`. The generated yaml is checked for App Engine standard keys before `gcloud app deploy`.
-7. Open `https://PROJECT_ID.appspot.com`, **Sign in with Google** as the bootstrap email, confirm the navbar shows your address and **Sign out**, then open **Admin**. Add other users (`email` + `admin`/`editor`) and extra allowed domains if needed. `@google.com` accounts can sign in as editors without being listed.
+7. Open `https://PROJECT_ID.appspot.com`, **Sign in with Google** as the bootstrap email, confirm the navbar shows your address and **Sign out**, then open **Admin**. Add other users (`email` + `admin`/`editor`/`viewer`) and extra allowed domains (each with a default role; editor unless you change it). `@google.com` accounts can sign in as editors without being listed.
 8. Download a survey zip, unzip an inner `index.html`, and confirm `response_server` contains `&token=`. Preview in the app still has an empty `response_server` (unsigned, does not post).
 9. `curl` the receiver without `token` → **403**. With the HMAC token from [Generate test responses](#generate-test-responses) against an active survey → **204**.
 

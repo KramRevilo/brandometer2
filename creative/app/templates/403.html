@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container py-5" style="max-width: 36rem;">
+  <h1 class="h3 mb-3">You don’t have permission to do that</h1>
+  <p class="text-muted">
+    {% if current_user and current_user.role == 'viewer' %}
+    Viewers can open surveys, previews, and reports, and download results.
+    Creating, editing, copying, archiving, deleting, downloading creative ZIPs, and Admin are limited to editors and admins.
+    {% else %}
+    This page or action is limited to admins.
+    {% endif %}
+    Ask an admin if you need a different role.
+  </p>
+  <a class="btn btn-primary" href="{{ url_for('index') }}">Back to surveys</a>
+</div>
+{% endblock %}

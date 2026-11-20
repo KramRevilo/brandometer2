@@ -53,7 +53,9 @@
     <div class="collapse navbar-collapse" id="navbarMain">
       <ul class="navbar-nav ms-auto d-flex align-items-center">
         <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
+        {% if can_edit %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('create') }}">Create survey</a></li>
+        {% endif %}
         {% if is_admin %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('admin') }}">Admin</a></li>
         {% endif %}
@@ -69,6 +71,9 @@
           </a>
           <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="userMenu">
             <li><span class="dropdown-item-text text-muted">{{ current_user.email }}</span></li>
+            {% if current_user.role %}
+            <li><span class="dropdown-item-text text-muted small">{{ current_user.role }}</span></li>
+            {% endif %}
             <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item" href="{{ url_for('logout') }}">Sign out</a></li>
           </ul>

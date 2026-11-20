@@ -111,11 +111,22 @@ def current_user():
 
 def is_admin():
   user = current_user()
-  return bool(user and user.get('role') == 'admin')
+  return bool(user and access.can_admin(user.get('role')))
+
+
+def can_edit():
+  user = current_user()
+  return bool(user and access.can_edit(user.get('role')))
 
 
 def require_admin():
   if not is_admin():
+    abort(403)
+
+
+def require_editor():
+  """Admin and editor. Viewers get a friendly 403."""
+  if not can_edit():
     abort(403)
 
 
@@ -268,16 +279,24 @@ def register_routes(app):
     if request.method == 'POST':
       action = (request.form.get('action') or '').strip()
       try:
-        if action == 'add_user':
+        if action == 'add_user' or action == 'set_user_role':
           access.upsert_user(
-              request.form.get('email'), request.form.get('role') or 'editor')
+              request.form.get('email'),
+              request.form.get('role') or access.DEFAULT_ROLE)
           flash('User saved')
         elif action == 'delete_user':
           access.delete_user(request.form.get('email'))
           flash('User removed')
         elif action == 'add_domain':
-          access.add_domain(request.form.get('domain'))
+          access.add_domain(
+              request.form.get('domain'),
+              role=request.form.get('role') or access.DEFAULT_ROLE)
           flash('Domain allowed')
+        elif action == 'set_domain_role':
+          access.set_domain_role(
+              request.form.get('domain'),
+              request.form.get('role') or access.DEFAULT_ROLE)
+          flash('Domain role saved')
         elif action == 'remove_domain':
           access.remove_domain(request.form.get('domain'))
           flash('Domain removed')
@@ -293,6 +312,9 @@ def register_routes(app):
         title='Admin',
         users=access.list_users(),
         domains=access.allowed_domains(),
+        domain_rows=access.list_domain_rows(),
+        roles=access.ROLES,
+        default_role=access.DEFAULT_ROLE,
         audit=access.list_audit(80),
         bootstrap_admin=access.bootstrap_admin_email(),
         google_domain=access.GOOGLE_DOMAIN)
@@ -302,5 +324,6 @@ def login_context():
   user = current_user()
   return {
       'current_user': user,
-      'is_admin': bool(user and user.get('role') == 'admin'),
+      'is_admin': bool(user and access.can_admin(user.get('role'))),
+      'can_edit': bool(user and access.can_edit(user.get('role'))),
   }

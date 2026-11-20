@@ -91,20 +91,22 @@
                     <th scope="col" class="table_header" style="width:75px;">Last Response (days)</th>
                     <th scope="col" class="table_header">Status</th>
                     <th scope="col" class="table_header" style="width:75px;">Download</th>
+                    {% if can_edit %}
                     <th scope="col" class="table_header" style="width:50px;">Actions</th>
+                    {% endif %}
             </tr>
         </thead>
         <tbody>
         {% if not all_surveys %}
         <tr>
-            <td colspan="10" class="text-center py-4">
+            <td colspan="{{ 10 if can_edit else 9 }}" class="text-center py-4">
                 {% if unfiltered_count %}
                     No surveys match these filters.
                     <a href="{{ url_for('index', archived=1) if show_archived else url_for('index') }}">Clear filters</a>
                 {% elif show_archived %}
                     No archived surveys.
                 {% else %}
-                    No surveys yet. <a href="{{ url_for('create') }}">Create survey</a>
+                    No surveys yet.{% if can_edit %} <a href="{{ url_for('create') }}">Create survey</a>{% endif %}
                 {% endif %}
             </td>
         </tr>
@@ -163,9 +165,11 @@
                 <div id="status-{{ survey.id }}">{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ status_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
             <td class="text-center">
+                    {% if can_edit %}
                     <a class="btn btn-sm btn-success" href="{{ url_for('download_zip', survey_id=survey.id) }}" title="Download Creative Zip">
                         <i class="bi bi-file-zip"></i>
                     </a>
+                    {% endif %}
                     <a class="btn btn-sm btn-info" href="{{ url_for('download_responses', survey_id=survey.id) }}" title="Download Responses">
                         <i class="bi bi-download"></i>
                     </a>
@@ -173,6 +177,7 @@
                         <i class="bi bi-file-earmark-spreadsheet"></i>
                     </a>
             </td>
+            {% if can_edit %}
             <td class="text-center">
                     <a class="btn btn-sm btn-primary" href="{{ url_for('edit', survey_id=survey.id) }}" title="Edit Survey">
                         <i class="bi bi-pencil"></i>
@@ -212,6 +217,7 @@
                         </button>
                     </form>
             </td>
+            {% endif %}
         </tr>
         {% endfor %}
         </tbody>

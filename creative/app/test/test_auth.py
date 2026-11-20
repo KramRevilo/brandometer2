@@ -110,11 +110,14 @@ class AuthAndRedirectTest(unittest.TestCase):
       sess['user_role'] = 'admin'
     with mock.patch.object(access, 'list_users', return_value=[]):
       with mock.patch.object(access, 'allowed_domains', return_value=[]):
-        with mock.patch.object(access, 'list_audit', return_value=[]):
-          response = client.get('/admin')
+        with mock.patch.object(access, 'list_domain_rows', return_value=[]):
+          with mock.patch.object(access, 'list_audit', return_value=[]):
+            response = client.get('/admin')
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'Allowed users', response.data)
     self.assertIn(b'Audit log', response.data)
+    self.assertIn(b'value="viewer"', response.data)
+    self.assertIn(b'Default role', response.data)
     main.app.config['WTF_CSRF_ENABLED'] = True
 
   def test_open_redirect_on_callback_is_ignored(self):
@@ -276,6 +279,8 @@ class AuthAndRedirectTest(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'editor@agency.example', response.data)
     self.assertIn(b'Sign out', response.data)
+    self.assertIn(b'>editor</span>', response.data)
+    self.assertIn(b'>Create survey</a>', response.data)
     self.assertNotIn(b'>Admin</a>', response.data)
     self.assertNotIn(b'navbar-text', response.data)
     self.assertIn(b'navbar-avatar-fallback', response.data)
