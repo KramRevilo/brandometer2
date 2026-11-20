@@ -243,6 +243,8 @@ The admin UI is self-hosted Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12
 
 **Brand.** `export APP_BRAND_NAME=Brandometer` (that is the default). Navbar, page titles, and the badge letter/tooltip use it.
 
+**Favicon.** Rounded-square Bootstrap primary (`#0d6efd`) with white **Bv2** (`creative/app/static/favicon.svg`). Raster sizes (16/32/48 ICO, 180 apple-touch) are generated with `python3 tools/generate_favicons.py` and committed. App Engine serves `/favicon.ico` from `creative/app/favicon.ico`; `base.html` and `login.html` also link the SVG, ICO, and apple-touch icon. Browsers cache favicons aggressively — hard-refresh after a change.
+
 **Version history.** Each zip download writes an immutable snapshot to the Firestore subcollection `Surveys/{id}/versions/{n}` (questions, CSS, size, type, timestamp, version number). The edit page lists them with **Download this version**. Editing the live survey does not change past snapshots. No GCS. No new index.
 
 Redeploy **App Engine** (`./deploy` or `gcloud app deploy creative/app`) to pick up size, variable answers, versioning, and reporting. No new Firestore index is required; archive filtering and version listing are done in the app. Optional: `export GTAG_ID=AW-…` before `./deploy` if creatives should load gtag.js.

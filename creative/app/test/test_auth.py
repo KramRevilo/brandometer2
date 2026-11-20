@@ -54,6 +54,20 @@ class AuthAndRedirectTest(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'Sign in with your Google account', response.data)
     self.assertIn(b'DISABLE_BASIC_AUTH=1', response.data)
+    self.assertIn(b'rel="icon"', response.data)
+    self.assertIn(b'favicon.svg', response.data)
+    self.assertIn(b'apple-touch-icon.png', response.data)
+
+  def test_favicon_is_public(self):
+    main.app.config['AUTH_BYPASS'] = False
+    client = main.app.test_client()
+    response = client.get('/favicon.ico')
+    self.assertEqual(response.status_code, 200)
+    self.assertGreater(len(response.data), 500)
+    self.assertTrue(
+        response.data.startswith(b'\x00\x00\x01\x00') or
+        response.data[:8] == b'\x89PNG\r\n\x1a\n')
+    self.assertIn(b'favicon.svg', client.get('/login').data)
 
   def test_login_google_without_oauth_redirects_to_login(self):
     main.app.config['AUTH_BYPASS'] = False

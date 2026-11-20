@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Brandometer2">
+  <defs>
+    <linearGradient id="bv2-bg" x1="16" y1="0" x2="16" y2="32" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3d8bfd"/>
+      <stop offset="1" stop-color="#0d6efd"/>
+    </linearGradient>
+    <style>
+      .mark-full { display: inline; }
+      .mark-tiny { display: none; }
+      @media (max-width: 20px) {
+        .mark-full { display: none; }
+        .mark-tiny { display: inline; }
+      }
+    </style>
+  </defs>
+  <rect width="32" height="32" rx="8" fill="url(#bv2-bg)"/>
+  <!-- 32px+: Bv2. 16px tabs: B2 so the mark stays legible. -->
+  <g class="mark-full" fill="#fff" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-weight="700">
+    <text x="4.2" y="23" font-size="17">B</text>
+    <text x="16.6" y="22.8" font-size="12">v2</text>
+  </g>
+  <g class="mark-tiny" fill="#fff" font-family="DejaVu Sans, Arial, Helvetica, sans-serif" font-weight="700">
+    <text x="4" y="24.5" font-size="20">B</text>
+    <text x="20.4" y="14.2" font-size="11">2</text>
+  </g>
+</svg>

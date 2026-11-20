@@ -14,6 +14,7 @@
 
 import json
 import os
+import struct
 import subprocess
 import sys
 import tempfile
@@ -354,3 +355,62 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('protobuf==5.29.6', reqs)
     self.assertIn('pytest==9.0.3', reqs)
     self.assertIn('pyarrow==', reqs)
+
+
+def _png_size(path):
+  data = open(path, 'rb').read(24)
+  if data[:8] != b'\x89PNG\r\n\x1a\n':
+    raise AssertionError('%s is not a PNG' % path)
+  width, height = struct.unpack('>II', data[16:24])
+  return width, height
+
+
+def _ico_sizes(path):
+  data = open(path, 'rb').read()
+  _reserved, itype, count = struct.unpack_from('<HHH', data)
+  if itype != 1 or count < 1:
+    raise AssertionError('%s is not a multi-image ICO' % path)
+  sizes = []
+  for index in range(count):
+    width = data[6 + index * 16]
+    height = data[7 + index * 16]
+    sizes.append((width or 256, height or 256))
+  return sizes
+
+
+class FaviconAssetsTest(unittest.TestCase):
+
+  def test_svg_mark_and_brand_blue(self):
+    svg = open(
+        os.path.join(_APP_DIR, 'static', 'favicon.svg'), encoding='utf-8').read()
+    self.assertIn('Bv2', svg)
+    self.assertIn('#0d6efd', svg)
+    self.assertIn('Brandometer2', svg)
+
+  def test_committed_raster_sizes(self):
+    apple = os.path.join(_APP_DIR, 'static', 'apple-touch-icon.png')
+    self.assertEqual(_png_size(apple), (180, 180))
+    ico_static = os.path.join(_APP_DIR, 'static', 'favicon.ico')
+    ico_root = os.path.join(_APP_DIR, 'favicon.ico')
+    self.assertEqual(sorted(_ico_sizes(ico_static)), [(16, 16), (32, 32), (48, 48)])
+    self.assertEqual(
+        open(ico_static, 'rb').read(), open(ico_root, 'rb').read())
+
+  def test_templates_and_yaml_link_icons(self):
+    for name in ('base.html', 'login.html'):
+      html = open(
+          os.path.join(_APP_DIR, 'templates', name), encoding='utf-8').read()
+      self.assertIn("filename='favicon.svg'", html)
+      self.assertIn("filename='favicon.ico'", html)
+      self.assertIn("filename='apple-touch-icon.png'", html)
+      self.assertIn('rel="icon"', html)
+      self.assertIn('rel="apple-touch-icon"', html)
+    yaml_text = open(
+        os.path.join(_APP_DIR, 'app.yaml.template'), encoding='utf-8').read()
+    self.assertIn('/favicon\\.ico', yaml_text)
+    self.assertIn('static_files: favicon.ico', yaml_text)
+    generator = open(
+        os.path.join(_REPO_ROOT, 'tools', 'generate_favicons.py'),
+        encoding='utf-8').read()
+    self.assertIn('write_ico', generator)
+    self.assertIn('rsvg-convert', generator)

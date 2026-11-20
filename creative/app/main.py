@@ -28,6 +28,7 @@ from flask import render_template
 from flask import request
 from flask import Response
 from flask import send_file
+from flask import send_from_directory
 from flask import stream_with_context
 from flask import url_for
 from flask_wtf.csrf import CSRFProtect
@@ -113,6 +114,16 @@ def _log_index_timing(part, started, **fields):
 def root():
   # Path-only Location so Cloud Shell / reverse proxies do not flip http/https.
   return redirect('/index')
+
+
+@app.route('/favicon.ico')
+def favicon():
+  """Local /favicon.ico. App Engine serves the same file via app.yaml."""
+  return send_from_directory(
+      os.path.dirname(os.path.abspath(__file__)),
+      'favicon.ico',
+      mimetype='image/vnd.microsoft.icon',
+      max_age=86400)
 
 
 @app.route('/index')

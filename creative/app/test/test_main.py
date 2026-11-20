@@ -70,6 +70,8 @@ class MainRoutesTest(unittest.TestCase):
     list_mock.assert_called_once_with(include_archived=False)
     self.assertIn(b'Show archived', response.data)
     self.assertIn(b'No surveys yet', response.data)
+    self.assertIn(b'favicon.svg', response.data)
+    self.assertIn(b'rel="apple-touch-icon"', response.data)
 
   @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')

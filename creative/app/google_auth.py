@@ -36,6 +36,7 @@ PUBLIC_ENDPOINTS = frozenset({
     'auth_callback',
     'logout',
     'static',
+    'favicon',
 })
 
 
