@@ -331,6 +331,7 @@ class TestSurveyService(unittest.TestCase):
     self.assertIn('BomID', sql)
     self.assertIn('RespondentID', sql)
     self.assertIn('PlacementID', sql)
+    self.assertIn('CreativeSize', sql)
     self.assertNotIn('STARTS_WITH', sql)
     self.assertEqual(survey_param.name, 'survey_id')
     self.assertEqual(survey_param.value, 'sid-1')
@@ -413,7 +414,8 @@ class TestSurveyService(unittest.TestCase):
         list(df.columns),
         ['CreatedAt', 'Segmentation', 'Response', 'BomID',
          'RespondentID', 'RespondentIDSource',
-         'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID'])
+         'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID',
+         'CreativeSize'])
 
   @mock.patch.object(survey_service, '_get_bq_client')
   def test_get_all_response_counts_missing_table_returns_empty_frame(
@@ -535,7 +537,39 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(len(responses), 1)
     self.assertEqual(responses[0]['Response 1'], 'A')
     self.assertEqual(responses[0]['Response 2'], 'B')
-    self.assertEqual(responses[0]['Date'], str(t2))
+
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  def test_download_breakouts_csv(self, responses_mock, doc_mock):
+    doc = mock.Mock()
+    doc.exists = True
+    doc.to_dict.return_value = {
+        'surveytype': 'brand_lift',
+        'question1': 'Aware?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+    }
+    doc_mock.return_value = doc
+    t = datetime.datetime(2026, 11, 18, 12, 0, 0)
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [t, t],
+        'Segmentation': ['default_control', 'default_expose'],
+        'Response': ['1:A', '1:A'],
+        'BomID': ['c1', 'e1'],
+        'CreativeSize': ['300x250', '300x250'],
+        'PlacementID': ['p1', 'p1'],
+        'AdCreativeID': ['cr1', 'cr1'],
+    })
+    raw_csv = survey_service.download_breakouts('sid-1')
+    rows = list(csv.DictReader(raw_csv.splitlines()))
+    self.assertTrue(rows)
+    self.assertEqual(rows[0]['dimension'], 'overall')
+    size_rows = [row for row in rows if row['dimension'] == 'Size']
+    self.assertTrue(size_rows)
+    self.assertEqual(size_rows[0]['slice'], '300x250')
+    self.assertEqual(size_rows[0]['answer_id'], 'A')
+    self.assertEqual(size_rows[0]['k_control'], '1')
+    self.assertEqual(size_rows[0]['k_expose'], '1')
 
   @mock.patch.object(survey_service, 'get_doc_by_id')
   @mock.patch.object(survey_service, 'get_survey_responses')

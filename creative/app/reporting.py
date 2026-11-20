@@ -12,6 +12,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 """Response consolidation and honest reporting math (Wilson CI, z-test)."""
+import csv
+import io
 import math
 import re
 
@@ -111,6 +113,252 @@ def lift_ratio(p_expose, p_control):
   return (p_expose - p_control) / p_control
 
 
+# In-app zip snapshot version is not on the pixel. Ad-server creative ID is
+# the trafficked creative identity we can break out without a schema change.
+BREAKOUT_DIMS = (
+    ('size', 'CreativeSize', 'Size'),
+    ('placement', 'PlacementID', 'Placement'),
+    ('creative', 'AdCreativeID', 'Creative ID'),
+    ('date', '_date', 'Date'),
+    ('segment', 'Segmentation', 'Segment'),
+)
+
+BREAKOUT_CSV_HEADERS = (
+    'dimension', 'slice', 'question_index', 'question', 'answer_id', 'answer',
+    'n_answered', 'k', 'p', 'ci_lo', 'ci_hi',
+    'n_control', 'k_control', 'p_control', 'ci_control_lo', 'ci_control_hi',
+    'n_expose', 'k_expose', 'p_expose', 'ci_expose_lo', 'ci_expose_hi',
+    'lift', 'pvalue', 'warning_n_small',
+)
+
+
+def _cell_text(value):
+  if value is None:
+    return ''
+  if isinstance(value, float) and math.isnan(value):
+    return ''
+  text = str(value).strip()
+  if text.lower() == 'nan':
+    return ''
+  return text
+
+
+def _display_slice(value):
+  return value if value else '(blank)'
+
+
+def question_stats(work, survey_info):
+  """Answer distributions + lift for one already-sliced respondent frame."""
+  survey_info = survey_info or {}
+  questions = []
+  if work is None or work.empty:
+    return questions
+  parsed_list = list(work['_parsed']) if '_parsed' in work.columns else []
+  for q in range(1, 6):
+    text = survey_info.get('question' + str(q)) or ''
+    if not text and not any(q in parsed for parsed in parsed_list):
+      continue
+    labels = {}
+    for letter in 'abcdefgh':
+      label = survey_info.get('answer' + str(q) + letter) or ''
+      if label:
+        labels[letter.upper()] = label
+    seen = set(labels)
+    for parsed in parsed_list:
+      token = parsed.get(q)
+      if token:
+        seen.add(token)
+    answer_ids = []
+    for letter in 'ABCDEFGH':
+      if letter in seen:
+        answer_ids.append(letter)
+    for token in sorted(seen):
+      if token not in answer_ids:
+        answer_ids.append(token)
+
+    n_by_segment = {}
+    n_control = 0
+    n_expose = 0
+    n_answered = 0
+    for _, row in work.iterrows():
+      if q not in row['_parsed']:
+        continue
+      n_answered += 1
+      seg = '' if pd.isna(row['Segmentation']) else str(row['Segmentation'])
+      n_by_segment[seg] = n_by_segment.get(seg, 0) + 1
+      if row['role'] == 'control':
+        n_control += 1
+      elif row['role'] == 'expose':
+        n_expose += 1
+
+    answers = []
+    for answer_id in answer_ids:
+      counts = {}
+      k_control = 0
+      k_expose = 0
+      k_total = 0
+      for _, row in work.iterrows():
+        if row['_parsed'].get(q) != answer_id:
+          continue
+        k_total += 1
+        seg = '' if pd.isna(row['Segmentation']) else str(row['Segmentation'])
+        counts[seg] = counts.get(seg, 0) + 1
+        if row['role'] == 'control':
+          k_control += 1
+        elif row['role'] == 'expose':
+          k_expose += 1
+      p_all = (k_total / n_answered) if n_answered else float('nan')
+      p_control = (k_control / n_control) if n_control else float('nan')
+      p_expose = (k_expose / n_expose) if n_expose else float('nan')
+      ci_all = wilson_interval(k_total, n_answered)
+      ci_control = wilson_interval(k_control, n_control)
+      ci_expose = wilson_interval(k_expose, n_expose)
+      answers.append({
+          'id': answer_id,
+          'text': labels.get(answer_id, answer_id),
+          'counts': counts,
+          'total': sum(counts.values()),
+          'k': k_total,
+          'p': p_all,
+          'ci': ci_all,
+          'k_control': k_control,
+          'k_expose': k_expose,
+          'p_control': p_control,
+          'p_expose': p_expose,
+          'ci_control': ci_control,
+          'ci_expose': ci_expose,
+          'lift': lift_ratio(p_expose, p_control),
+          'pvalue': two_proportion_pvalue(
+              k_expose, n_expose, k_control, n_control),
+      })
+    questions.append({
+        'index': q,
+        'text': text or ('Question %s' % q),
+        'answers': answers,
+        'n_by_segment': n_by_segment,
+        'n_answered': n_answered,
+        'n_control': n_control,
+        'n_expose': n_expose,
+    })
+  return questions
+
+
+def _slice_summary(work, survey_info, value):
+  roles = work['role'] if 'role' in work.columns else pd.Series(dtype=str)
+  control_n = int((roles == 'control').sum())
+  expose_n = int((roles == 'expose').sum())
+  return {
+      'value': _display_slice(value),
+      'n': int(len(work)),
+      'control_n': control_n,
+      'expose_n': expose_n,
+      'warning_n_small': control_n < MIN_N or expose_n < MIN_N,
+      'has_control': control_n > 0,
+      'has_expose': expose_n > 0,
+      'questions': question_stats(work, survey_info),
+  }
+
+
+def build_breakouts(work, survey_info, is_lift=False):
+  """Per-dimension slices with the same lift / CI math as the overall report."""
+  del is_lift  # lift columns are always computed; UI hides them for Track
+  if work is None or work.empty:
+    return []
+  breakouts = []
+  for key, column, label in BREAKOUT_DIMS:
+    if column not in work.columns:
+      continue
+    values = {_cell_text(v) for v in work[column].tolist()}
+    nonempty = sorted(v for v in values if v)
+    ordered = nonempty + ([''] if '' in values else [])
+    if not nonempty:
+      continue
+    slices = []
+    blanked = work[column].map(_cell_text)
+    for value in ordered:
+      slice_df = work.loc[blanked == value]
+      if slice_df.empty:
+        continue
+      slices.append(_slice_summary(slice_df, survey_info, value))
+    if slices:
+      breakouts.append({
+          'key': key,
+          'label': label,
+          'slices': slices,
+      })
+  return breakouts
+
+
+def _csv_num(value):
+  if value is None:
+    return ''
+  if isinstance(value, float) and math.isnan(value):
+    return ''
+  if isinstance(value, float):
+    return '%.6f' % value
+  return str(value)
+
+
+def _csv_answer_row(dimension, slice_value, question, answer, warning_n_small):
+  ci = answer.get('ci') or (float('nan'), float('nan'))
+  ci_c = answer.get('ci_control') or (float('nan'), float('nan'))
+  ci_e = answer.get('ci_expose') or (float('nan'), float('nan'))
+  return {
+      'dimension': dimension,
+      'slice': slice_value,
+      'question_index': question['index'],
+      'question': question['text'],
+      'answer_id': answer['id'],
+      'answer': answer['text'],
+      'n_answered': question.get('n_answered', 0),
+      'k': answer.get('k', answer.get('total', 0)),
+      'p': _csv_num(answer.get('p')),
+      'ci_lo': _csv_num(ci[0]),
+      'ci_hi': _csv_num(ci[1]),
+      'n_control': question.get('n_control', 0),
+      'k_control': answer.get('k_control', 0),
+      'p_control': _csv_num(answer.get('p_control')),
+      'ci_control_lo': _csv_num(ci_c[0]),
+      'ci_control_hi': _csv_num(ci_c[1]),
+      'n_expose': question.get('n_expose', 0),
+      'k_expose': answer.get('k_expose', 0),
+      'p_expose': _csv_num(answer.get('p_expose')),
+      'ci_expose_lo': _csv_num(ci_e[0]),
+      'ci_expose_hi': _csv_num(ci_e[1]),
+      'lift': _csv_num(answer.get('lift')),
+      'pvalue': _csv_num(answer.get('pvalue')),
+      'warning_n_small': '1' if warning_n_small else '0',
+  }
+
+
+def breakout_csv_rows(report):
+  """Flat rows for overall + every breakout slice."""
+  report = report or {}
+  rows = []
+  overall_warning = bool(report.get('warning_n_small'))
+  for question in report.get('questions') or []:
+    for answer in question.get('answers') or []:
+      rows.append(_csv_answer_row(
+          'overall', 'all', question, answer, overall_warning))
+  for dim in report.get('breakouts') or []:
+    for sl in dim.get('slices') or []:
+      warning = bool(sl.get('warning_n_small'))
+      for question in sl.get('questions') or []:
+        for answer in question.get('answers') or []:
+          rows.append(_csv_answer_row(
+              dim['label'], sl['value'], question, answer, warning))
+  return rows
+
+
+def breakouts_to_csv(report):
+  buf = io.StringIO()
+  writer = csv.DictWriter(buf, fieldnames=list(BREAKOUT_CSV_HEADERS))
+  writer.writeheader()
+  for row in breakout_csv_rows(report):
+    writer.writerow(row)
+  return buf.getvalue()
+
+
 def build_report(df, survey_info, is_lift=False):
   """Build the reporting page model from consolidated response rows."""
   survey_info = survey_info or {}
@@ -129,6 +377,7 @@ def build_report(df, survey_info, is_lift=False):
       'segments': [],
       'daily': [],
       'questions': [],
+      'breakouts': [],
       'empty_reason': None,
       'control_n': 0,
       'expose_n': 0,
@@ -178,80 +427,6 @@ def build_report(df, survey_info, is_lift=False):
       if row['_date']
   ]
 
-  for q in range(1, 6):
-    text = survey_info.get('question' + str(q)) or ''
-    if not text and not any(q in parsed for parsed in work['_parsed']):
-      continue
-    labels = {}
-    for letter in 'abcdefgh':
-      label = survey_info.get('answer' + str(q) + letter) or ''
-      if label:
-        labels[letter.upper()] = label
-    seen = set(labels)
-    for parsed in work['_parsed']:
-      token = parsed.get(q)
-      if token:
-        seen.add(token)
-    answer_ids = []
-    for letter in 'ABCDEFGH':
-      if letter in seen:
-        answer_ids.append(letter)
-    for token in sorted(seen):
-      if token not in answer_ids:
-        answer_ids.append(token)
-
-    n_by_segment = {}
-    n_control = 0
-    n_expose = 0
-    for _, row in work.iterrows():
-      if q not in row['_parsed']:
-        continue
-      seg = '' if pd.isna(row['Segmentation']) else str(row['Segmentation'])
-      n_by_segment[seg] = n_by_segment.get(seg, 0) + 1
-      if row['role'] == 'control':
-        n_control += 1
-      elif row['role'] == 'expose':
-        n_expose += 1
-
-    answers = []
-    for answer_id in answer_ids:
-      counts = {}
-      k_control = 0
-      k_expose = 0
-      for _, row in work.iterrows():
-        if row['_parsed'].get(q) != answer_id:
-          continue
-        seg = '' if pd.isna(row['Segmentation']) else str(row['Segmentation'])
-        counts[seg] = counts.get(seg, 0) + 1
-        if row['role'] == 'control':
-          k_control += 1
-        elif row['role'] == 'expose':
-          k_expose += 1
-      p_control = (k_control / n_control) if n_control else float('nan')
-      p_expose = (k_expose / n_expose) if n_expose else float('nan')
-      ci_control = wilson_interval(k_control, n_control)
-      ci_expose = wilson_interval(k_expose, n_expose)
-      answers.append({
-          'id': answer_id,
-          'text': labels.get(answer_id, answer_id),
-          'counts': counts,
-          'total': sum(counts.values()),
-          'k_control': k_control,
-          'k_expose': k_expose,
-          'p_control': p_control,
-          'p_expose': p_expose,
-          'ci_control': ci_control,
-          'ci_expose': ci_expose,
-          'lift': lift_ratio(p_expose, p_control),
-          'pvalue': two_proportion_pvalue(
-              k_expose, n_expose, k_control, n_control),
-      })
-    report['questions'].append({
-        'index': q,
-        'text': text or ('Question %s' % q),
-        'answers': answers,
-        'n_by_segment': n_by_segment,
-        'n_control': n_control,
-        'n_expose': n_expose,
-    })
+  report['questions'] = question_stats(work, survey_info)
+  report['breakouts'] = build_breakouts(work, survey_info, is_lift=is_lift)
   return report

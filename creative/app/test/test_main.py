@@ -637,6 +637,45 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'brandometer_reporting', response.data)
     self.assertIn(b'deduped_responses', response.data)
 
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_reporting_shows_size_breakouts(self, doc_mock, responses_mock):
+    doc_mock.return_value = self._survey('abc', {
+        'surveytype': 'brand_lift',
+        'surveyname': 'Lift',
+        'question1': 'Aware?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+    })
+    t = datetime.datetime(2026, 11, 18, 12, 0, 0)
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [t, t, t, t],
+        'Segmentation': [
+            'default_control', 'default_control',
+            'default_expose', 'default_expose',
+        ],
+        'Response': ['1:A', '1:B', '1:A', '1:A'],
+        'BomID': ['c1', 'c2', 'e1', 'e2'],
+        'CreativeSize': ['300x250', '160x600', '300x250', '160x600'],
+        'PlacementID': ['p1', 'p1', 'p1', 'p1'],
+        'AdCreativeID': ['cr1', 'cr1', 'cr1', 'cr1'],
+    })
+    response = self.client.get('/survey/reporting/abc')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'Breakouts', response.data)
+    self.assertIn(b'300x250', response.data)
+    self.assertIn(b'160x600', response.data)
+    self.assertIn(b'Breakouts CSV', response.data)
+    self.assertIn(b'/survey/download_breakouts/abc', response.data)
+
+  @mock.patch.object(survey_service, 'download_breakouts', return_value='dimension,slice\nSize,300x250\n')
+  def test_download_breakouts_csv(self, download_mock):
+    response = self.client.get('/survey/download_breakouts/abc')
+    self.assertEqual(response.status_code, 200)
+    self.assertEqual(response.mimetype, 'text/csv')
+    self.assertIn(b'Size,300x250', response.data)
+    download_mock.assert_called_once_with('abc')
+
   @mock.patch.object(survey_service, 'iter_response_csv')
   def test_download_responses_streams_chunks(self, iter_mock):
     iter_mock.return_value = iter(['Date,Segment\n', 'd1,seg1\n'])

@@ -179,6 +179,9 @@
                     <a class="btn btn-sm btn-warning" href="{{ url_for('download_responses_context', survey_id=survey.id) }}" title="Download Responses with Context">
                         <i class="bi bi-file-earmark-spreadsheet"></i>
                     </a>
+                    <a class="btn btn-sm btn-outline-info" href="{{ url_for('download_breakouts', survey_id=survey.id) }}" title="Download breakouts CSV">
+                        <i class="bi bi-table"></i>
+                    </a>
             </td>
             {% if can_edit %}
             <td class="text-center">

@@ -32,7 +32,7 @@ List with search plus **client / agency / year / size** filters (kept on paginat
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
 * View Survey (size switcher when there is more than one size), stats, ZIP download (editors/admins), trafficking tag sheet (CSV/XLSX, editors/admins), and CSV download.
 * Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery.
-* Viewers see the list, filters, preview, reports, and CSV. Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
+* Viewers see the list, filters, preview, reports, and CSVs (responses + breakouts). Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
 
 ![Home page with sample surveys, status chips, and action buttons](docs/images/home.png)
 
@@ -113,7 +113,8 @@ The stats button works for **Brand Lift and Brand Track**.
 * Counts, reports, and CSV treat each **respondent** as one person: `COALESCE(RespondentID, BomID)` (latest, most complete `Response`). New creatives send a durable `rid` (hashed ad-server user macro when the ad server expands it, otherwise `localStorage` / `sessionStorage` for this survey, otherwise a per-impression UUID). Existing rows without `RespondentID` still collapse by BomID. Surveys that submit after each question show fewer people than raw BigQuery row counts.
 * Brand Lift: control vs exposed, Wilson 95% CIs, two-proportion z-test, warning when an arm has fewer than 30 respondents. Segments come from the stored `seg` value (`control` / `expos` in the string).
 * Brand Track: answer distributions and responses per day.
-* Two CSVs: responses, and responses with question text. Both stream; they are not built as one in-memory string.
+* **Breakouts:** the report page slices the same lift / Wilson CIs / z-test by **size**, **placement**, **ad-server creative ID**, **date**, and **segment**. Dimensions that are blank on every row are omitted. Zip snapshot version is not on the pixel (Creative ID is the trafficked creative). Download **Breakouts CSV** from the report or the homepage.
+* Three response CSVs: responses, responses with question text (both stream), and breakouts (one table of overall + slices).
 * **Looker Studio / BigQuery analysts:** `./deploy` creates dataset `brandometer_reporting` with authorized views `deduped_responses` (one row per respondent) and `survey_summaries`. Grant `READER` on that dataset only — not on `responses`. The report page has **Open in Looker Studio** (Looker Studio Linking API; each click starts a new report on the deduped view). Granting a user or group is documented in DEVELOPERS.md.
 
 Preview **does not** post to BigQuery. To generate test rows, curl the receiver (see DEVELOPERS.md).
@@ -208,7 +209,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 * **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
 * **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
-* **Phase 7c / 7d leftover** (not built): reporting breakouts; HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
+* **Phase 7d leftover** (not built): HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -376,9 +377,8 @@ ORDER BY CreatedAt;
 
 ## Roadmap (not built)
 
-Phase **7c** items **58** (durable respondent ID), **59** (ad-server macros + tag sheet), and **60** (authorized views + Looker Studio) are shipped. Remaining **7c / 7d** — do not treat these as shipped:
+Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). Remaining **7d** — do not treat these as shipped:
 
-* Reporting breakouts (beyond current Lift / Track views)
 * HTML5 spec QA automation
 * Bulk CSV survey import
 * Stats-method corrections beyond current Wilson / z-test

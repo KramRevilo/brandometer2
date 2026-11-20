@@ -161,3 +161,61 @@ class BuildReportTest(unittest.TestCase):
     self.assertEqual(report['empty_reason'], 'no_control')
     self.assertTrue(report['has_expose'])
     self.assertEqual(report['n_total'], 1)
+
+  def test_breakouts_by_size_and_date_include_lift(self):
+    t1 = datetime.datetime(2026, 11, 18, 12, 0, 0)
+    t2 = datetime.datetime(2026, 11, 19, 12, 0, 0)
+    df = pandas.DataFrame({
+        'CreatedAt': [t1, t1, t2, t2],
+        'Segmentation': [
+            'default_control', 'default_expose',
+            'default_control', 'default_expose',
+        ],
+        'Response': ['1:A', '1:A', '1:B', '1:A'],
+        'BomID': ['c1', 'e1', 'c2', 'e2'],
+        'CreativeSize': ['300x250', '300x250', '160x600', '160x600'],
+        'PlacementID': ['p1', 'p1', 'p2', 'p2'],
+        'AdCreativeID': ['cr-a', 'cr-a', 'cr-b', 'cr-b'],
+    })
+    survey = {
+        'question1': 'Aware?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+        'surveytype': 'brand_lift',
+    }
+    report = reporting.build_report(df, survey, is_lift=True)
+    keys = [dim['key'] for dim in report['breakouts']]
+    self.assertEqual(keys, ['size', 'placement', 'creative', 'date', 'segment'])
+    size = [dim for dim in report['breakouts'] if dim['key'] == 'size'][0]
+    self.assertEqual([sl['value'] for sl in size['slices']], ['160x600', '300x250'])
+    by_size = {sl['value']: sl for sl in size['slices']}
+    yes_300 = [
+        a for a in by_size['300x250']['questions'][0]['answers'] if a['id'] == 'A'
+    ][0]
+    self.assertEqual(yes_300['k_control'], 1)
+    self.assertEqual(yes_300['k_expose'], 1)
+    self.assertEqual(yes_300['lift'], 0.0)
+    csv_text = reporting.breakouts_to_csv(report)
+    self.assertIn('dimension,slice,question_index', csv_text)
+    self.assertIn('Size,300x250,1,Aware?,A,Yes', csv_text)
+    self.assertIn('overall,all,', csv_text)
+    self.assertIn('Date,2026-11-18,', csv_text)
+
+  def test_breakouts_skip_blank_only_dimensions(self):
+    t = datetime.datetime(2026, 11, 18)
+    df = pandas.DataFrame({
+        'CreatedAt': [t, t],
+        'Segmentation': ['default_control', 'default_expose'],
+        'Response': ['1:A', '1:A'],
+        'BomID': ['c1', 'e1'],
+        'CreativeSize': ['300x250', '300x250'],
+        'PlacementID': ['', ''],
+        'AdCreativeID': [None, ''],
+    })
+    report = reporting.build_report(
+        df, {'question1': 'Q', 'answer1a': 'Yes'}, is_lift=True)
+    keys = [dim['key'] for dim in report['breakouts']]
+    self.assertIn('size', keys)
+    self.assertIn('date', keys)
+    self.assertNotIn('placement', keys)
+    self.assertNotIn('creative', keys)

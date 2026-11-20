@@ -32,6 +32,7 @@
       {% if looker_studio_url %}
       <a class="btn btn-outline-primary" href="{{ looker_studio_url }}" target="_blank" rel="noopener">Open in Looker Studio</a>
       {% endif %}
+      <a class="btn btn-outline-primary" href="{{ url_for('download_breakouts', survey_id=survey_id) }}">Breakouts CSV</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
     </div>
   </div>
@@ -178,6 +179,92 @@
 
     {% if not report.questions %}
     <div class="alert alert-secondary" role="alert">No questions with answers to show.</div>
+    {% endif %}
+
+    {% if report.breakouts %}
+    <div class="card mb-4" id="breakouts">
+      <div class="card-body">
+        <h2 class="h5">Breakouts</h2>
+        <p class="small text-muted">
+          Same answer rates{% if is_lift %} plus Wilson 95% CIs and two-proportion z-test{% endif %}
+          sliced by size, placement, ad-server creative ID, date, and segment.
+          Zip snapshot version is not stored on the response row — Creative ID is the trafficked creative.
+          {% if is_lift %}Slices with only one lift arm omit lift. Small-n warnings use the same threshold (n &lt; {{ report.min_n }}).{% endif %}
+        </p>
+        {% for dim in report.breakouts %}
+        <h3 class="h6 mt-4">{{ dim.label }}</h3>
+        <div class="table-responsive">
+        <table class="table table-bordered table-striped table-sm align-middle">
+          <thead class="table-light">
+            <tr>
+              <th scope="col">{{ dim.label }}</th>
+              <th scope="col">Question</th>
+              <th scope="col">Answer</th>
+              <th scope="col">n</th>
+              {% if is_lift %}
+              <th scope="col">Control %</th>
+              <th scope="col">Exposed %</th>
+              <th scope="col">Lift</th>
+              <th scope="col">p-value</th>
+              {% else %}
+              <th scope="col">%</th>
+              {% endif %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for sl in dim.slices %}
+              {% for question in sl.questions %}
+                {% for answer in question.answers %}
+                <tr>
+                  <td>{{ sl.value }}{% if sl.warning_n_small and is_lift %} <span class="text-muted small">(small n)</span>{% endif %}</td>
+                  <td>Q{{ question.index }}</td>
+                  <td>{{ answer.text }}</td>
+                  <td>{{ answer.k }} / {{ question.n_answered }}</td>
+                  {% if is_lift %}
+                  <td>
+                    {% if sl.has_control %}
+                    {{ answer.p_control | format_percentage }}
+                    <span class="text-muted small d-block">
+                      {{ answer.ci_control[0] | format_percentage }}–{{ answer.ci_control[1] | format_percentage }}
+                    </span>
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>
+                    {% if sl.has_expose %}
+                    {{ answer.p_expose | format_percentage }}
+                    <span class="text-muted small d-block">
+                      {{ answer.ci_expose[0] | format_percentage }}–{{ answer.ci_expose[1] | format_percentage }}
+                    </span>
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>
+                    {% if sl.has_control and sl.has_expose %}
+                    {{ answer.lift | format_percentage }}
+                    {% else %}—{% endif %}
+                  </td>
+                  <td>
+                    {% if sl.has_control and sl.has_expose %}
+                    {{ answer.pvalue | format_pvalue }}
+                    {% else %}—{% endif %}
+                  </td>
+                  {% else %}
+                  <td>
+                    {{ answer.p | format_percentage }}
+                    <span class="text-muted small d-block">
+                      {{ answer.ci[0] | format_percentage }}–{{ answer.ci[1] | format_percentage }}
+                    </span>
+                  </td>
+                  {% endif %}
+                </tr>
+                {% endfor %}
+              {% endfor %}
+            {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
     {% endif %}
   {% endif %}
 </div>

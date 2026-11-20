@@ -88,12 +88,14 @@ _EMPTY_RESPONSES_COLUMNS = [
     'CreatedAt', 'Segmentation', 'Response', 'BomID',
     'RespondentID', 'RespondentIDSource',
     'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID',
+    'CreativeSize',
 ]
 CSV_CHUNK_ROWS = 500
 _RESPONSE_SELECT = """
         SELECT CreatedAt, Segmentation, Response, BomID,
                RespondentID, RespondentIDSource,
-               CampaignID, PlacementID, SiteID, AdCreativeID
+               CampaignID, PlacementID, SiteID, AdCreativeID,
+               CreativeSize
         FROM `{table}`
         WHERE ID = @survey_id
     """
@@ -903,6 +905,7 @@ def _csv_dataframe(surveyid, with_context=False):
         ('PlacementID', 'Placement ID'),
         ('SiteID', 'Site ID'),
         ('AdCreativeID', 'Creative ID'),
+        ('CreativeSize', 'Size'),
     ):
       if src in df.columns:
         series = df[src].fillna('').astype(str)
@@ -948,6 +951,12 @@ def download_responses(surveyid):
 def download_responses_with_context(surveyid):
   """Download survey responses in a CSV format file."""
   return ''.join(iter_response_csv(surveyid, with_context=True))
+
+
+def download_breakouts(surveyid, client=None):
+  """CSV of overall + per-slice lift / CIs (size, placement, creative, date, segment)."""
+  report = get_report(surveyid, client=client)
+  return reporting.breakouts_to_csv(report)
 
 
 #def get_thank_you_text(survey):

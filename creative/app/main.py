@@ -448,6 +448,18 @@ def download_responses_context(survey_id):
       })
 
 
+@app.route('/survey/download_breakouts/<string:survey_id>', methods=['GET'])
+def download_breakouts(survey_id):
+  """Download size/placement/creative/date/segment lift breakouts as CSV."""
+  return Response(
+      survey_service.download_breakouts(survey_id),
+      mimetype='text/csv',
+      headers={
+          'Content-disposition':
+              'attachment; filename=survey_breakouts.csv'
+      })
+
+
 @app.route('/survey/download_tags/<string:survey_id>', methods=['GET'])
 def download_tags(survey_id):
   """Trafficking tag sheet (CSV or XLSX) for one survey."""

@@ -213,7 +213,7 @@ Do **not** set `DISABLE_BASIC_AUTH` in App Engine, `app.yaml`, or `./deploy`. Pr
 
 Homepage **Copy / Archive / Delete** are POST forms with Flask-WTF CSRF (confirm still runs on delete). Stats cells stay GET `/index/stats-partial` (no CSRF). htmx non-GET requests send `X-CSRFToken` from the page meta tag. Saving a survey that someone else already saved returns **409** with “Someone else saved this survey, reload” (Firestore `last_update_time` precondition). Version numbers are assigned transactionally via `Surveys/{id}/versions/_seq`.
 
-Homepage: archived surveys are hidden unless you click **Show archived**. Copy opens the new survey in the editor. The stats button and `/survey/reporting/...` work for **Brand Lift and Brand Track**. Preview does not write to BigQuery (empty `receiver_url`); generate test rows with curl against the receiver as in [Generate test responses](#generate-test-responses).
+Homepage: archived surveys are hidden unless you click **Show archived**. Copy opens the new survey in the editor. The stats button and `/survey/reporting/...` work for **Brand Lift and Brand Track**, including size/placement/creative/date/segment breakouts and a breakouts CSV. Preview does not write to BigQuery (empty `receiver_url`); generate test rows with curl against the receiver as in [Generate test responses](#generate-test-responses).
 
 **Counts treat each COALESCE(RespondentID, BomID) as one respondent** (latest, most complete cumulative `Response`). Surveys set to submit after each question used to be counted once per question; those homepage and report numbers will drop. Submit-at-end rows with a blank BomID and no RespondentID stay as individual respondents.
 
@@ -574,6 +574,28 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, Web Preview port 8080). Then:
 2. Download zip: inner `index.html` `response_server` includes `&token=` when `RECEIVER_HMAC_SECRET` is set. Preview HTML must **not** include a token and must not post.
 3. After receiver redeploy: curl without token → 403; curl with token for a missing id → 404; omit `response` → 400; valid signed row → 204. `RandomTimeStamp` in BigQuery is a 64-char hex string that is **not** `sha256(ip)`.
 4. Thank-you screen in preview shows the privacy sentence after submit.
+
+# Phase 7c / 61 (reporting breakouts)
+
+The report page **Breakouts** section (and `/survey/download_breakouts/<id>`) recomputes the same Wilson 95% CIs and two-proportion z-test per slice of:
+
+* **Size** (`CreativeSize`)
+* **Placement** (`PlacementID`)
+* **Creative ID** (`AdCreativeID` — the expanded ad-server creative macro)
+* **Date** (`CreatedAt` UTC day)
+* **Segment** (`Segmentation`)
+
+A dimension is omitted when every row is blank. Slices with only one lift arm show counts/CIs for that arm and em-dash for lift. Small-n uses the same `MIN_N = 30` threshold as the overall table.
+
+CSV columns: `dimension,slice,question_index,question,answer_id,answer,n_answered,k,p,ci_lo,ci_hi,n_control,…,lift,pvalue,warning_n_small`. Proportions are 0–1. `overall,all` is the un-sliced table.
+
+`fetch_survey_response_rows` now SELECTs `CreativeSize` as well as the trafficking IDs. Response CSV includes a **Size** column.
+
+**Zip snapshot version is not stored on the pixel.** In-app version history is a Firestore snapshot of the survey at ZIP download time; live impressions do not send `ver=`. Trafficked creative identity is `AdCreativeID`. Adding a zip version column would need a schema ALTER, receiver write, and zip re-download — a product choice, not shipped.
+
+**`--app-only` is enough** (App Engine SELECT + report UI). No receiver deploy.
+
+Cloud Shell: open a Brand Lift report with mixed sizes (or curl two sizes into BQ) and confirm Breakouts lists each size with lift/CIs; download CSV and confirm `Size,` rows.
 
 # Phase 7c / 60 (authorized views + Looker Studio)
 

@@ -164,7 +164,7 @@ class RoleMatrixTest(unittest.TestCase):
             return_value={
                 'is_lift': False, 'n_total': 0, 'n_raw': 0,
                 'empty_reason': 'no_data', 'daily': [], 'questions': [],
-                'segments': [],
+                'breakouts': [], 'segments': [],
             }),
         mock.patch.object(
             survey_service, 'iter_response_csv',
@@ -221,6 +221,7 @@ class RoleMatrixTest(unittest.TestCase):
         ('get', '/survey/reporting/s1'),
         ('get', '/survey/download_responses/s1'),
         ('get', '/survey/download_responses_context/s1'),
+        ('get', '/survey/download_breakouts/s1'),
     )
     for role in ('admin', 'editor', 'viewer'):
       for method, path in reads:
@@ -299,6 +300,7 @@ class RoleMatrixTest(unittest.TestCase):
     self.assertNotIn(b'title="Delete Survey"', response.data)
     self.assertIn(b'title="View Survey"', response.data)
     self.assertIn(b'title="Download Responses"', response.data)
+    self.assertIn(b'title="Download breakouts CSV"', response.data)
     self.assertIn(b'>viewer</span>', response.data)
 
   def test_editor_ui_keeps_mutate_controls(self):
