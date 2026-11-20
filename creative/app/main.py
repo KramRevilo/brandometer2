@@ -46,6 +46,7 @@ import forms
 from forms import DEFAULT_CSS
 import google_auth
 import reporting_views
+import sample_size
 import survey_collection
 import survey_service
 from forms import RESPONSES_AT_END
@@ -560,6 +561,70 @@ def download_tags(survey_id):
       mimetype=mime,
       as_attachment=True,
       download_name=filename)
+
+
+def _planner_raw_from_request():
+  keys = (
+      'baseline', 'mde_mode', 'mde_relative', 'mde_absolute', 'confidence',
+      'power', 'comparisons', 'response_rate', 'control_share')
+  raw = {}
+  for key in keys:
+    value = request.values.get(key)
+    if value is not None and str(value).strip() != '':
+      raw[key] = value
+  return raw
+
+
+@app.route('/survey/sample-size', methods=['GET', 'POST'])
+@app.route('/survey/sample-size/<string:survey_id>', methods=['GET', 'POST'])
+def sample_size_planner(survey_id=None):
+  """Brand Lift sample-size planner. Viewers read; editors may save on a survey."""
+  survey = None
+  stored = None
+  if survey_id:
+    survey_doc = survey_service.get_doc_by_id(survey_id)
+    if not survey_doc or not getattr(survey_doc, 'exists', False):
+      flash('Survey not found')
+      return redirect(url_for('index'))
+    survey = survey_doc.to_dict() or {}
+    stored = survey.get('sample_plan') if isinstance(survey.get('sample_plan'), dict) else None
+
+  if request.method == 'POST':
+    google_auth.require_editor()
+    if not survey_id:
+      flash('Save a survey first, then attach a sample plan to it.')
+      return redirect(url_for('sample_size_planner'))
+    computed = sample_size.compute(_planner_raw_from_request())
+    if computed['result'].get('error'):
+      flash(computed['result']['error'])
+      return redirect(url_for('sample_size_planner', survey_id=survey_id))
+    survey_service.save_sample_plan(
+        survey_id, sample_size.storage_payload(
+            computed['inputs'], computed['result']))
+    flash('Sample plan saved on this survey. The report uses it for sequential status.')
+    return redirect(url_for('sample_size_planner', survey_id=survey_id))
+
+  raw = _planner_raw_from_request()
+  if not raw and stored:
+    raw = stored
+  computed = sample_size.compute(raw)
+  title = 'Sample-size planner'
+  if survey:
+    title = 'Sample size · %s' % (
+        survey.get('displayname') or survey.get('surveyname') or survey_id)
+  return render_template(
+      'sample_size.html',
+      title=title,
+      survey=survey,
+      survey_id=survey_id,
+      stored=stored,
+      inputs=computed['inputs'],
+      result=computed['result'],
+      table=computed['table'],
+      defaults=sample_size.DEFAULTS,
+      confidence_choices=sample_size.CONFIDENCE_CHOICES,
+      power_choices=sample_size.POWER_CHOICES,
+      min_n=30)
 
 
 @app.route('/survey/reporting/<string:survey_id>', methods=['GET'])

@@ -57,6 +57,11 @@ class ReportingMathTest(unittest.TestCase):
     p_same = reporting.two_proportion_pvalue(50, 100, 50, 100)
     self.assertAlmostEqual(p_same, 1.0, places=6)
     self.assertTrue(math.isnan(reporting.two_proportion_pvalue(1, 10, 0, 0)))
+    z = reporting.two_proportion_z(60, 100, 40, 100)
+    self.assertGreater(z, 0)
+    self.assertAlmostEqual(
+        reporting.two_proportion_pvalue(60, 100, 40, 100),
+        math.erfc(abs(z) / math.sqrt(2.0)), places=12)
 
   def test_lift_ratio_undefined_when_control_is_zero(self):
     self.assertEqual(reporting.lift_ratio(0.4, 0.2), 1.0)

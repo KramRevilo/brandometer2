@@ -61,7 +61,9 @@ class UiHelpCopyTest(unittest.TestCase):
   def test_report_help_ids_exist(self):
     for help_id in (
         'report.min_n', 'report.holm', 'report.ci', 'report.pvalue',
-        'report.no_control', 'report.no_expose', 'report.no_data'):
+        'report.no_control', 'report.no_expose', 'report.no_data',
+        'plan.baseline', 'plan.mde', 'plan.n', 'seq.status',
+        'seq.fixed_horizon', 'seq.progress'):
       self.assertIn(help_id, ui_help.ENTRIES)
 
 

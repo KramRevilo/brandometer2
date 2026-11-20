@@ -599,6 +599,8 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'Sample is small', response.data)
     self.assertIn(b'Wilson 95%', response.data)
     self.assertIn(b'vendor/chart.umd.min.js', response.data)
+    self.assertIn(b'Not enough data (n&lt;30)', response.data)
+    self.assertIn(b'Sequential:', response.data)
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   @mock.patch.object(survey_service, 'get_doc_by_id')

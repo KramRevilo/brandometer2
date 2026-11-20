@@ -16,7 +16,8 @@ Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250
 
 * A Bootstrap 5 survey editor (multi-size creatives, 2–8 answers, theme presets, wrapping text, disclosure badge, zip version history)
 * Homepage archive/copy, status chips, and client/agency/year/size filters
-* In-app reporting (Brand Lift with Wilson CIs and a z-test; Brand Track distributions) and streamed CSV, with one row per respondent (`COALESCE(RespondentID, BomID)`)
+* In-app reporting (Brand Lift with Wilson CIs, a z-test, Holm p-adj, and sequential early-stopping) and streamed CSV, with one row per respondent (`COALESCE(RespondentID, BomID)`)
+* A sample-size planner (respondents and impressions) that editors can save on a survey
 * Google Sign-In, an Admin page, and **admin / editor / viewer** roles (not IAP, not shared passwords)
 * HMAC-signed pixel links, a survey-scoped durable respondent ID, daily-rotating IP hashes, CSRF on mutating actions, and a 409 when two people save the same survey
 * Secret Manager, least-privilege service accounts, App Engine **python312**, a gen2 Cloud Function receiver, self-hosted front-end libraries, and an enforced Content-Security-Policy (avatars from `https://*.googleusercontent.com`; Google Sign-In endpoints; inline scripts for Alpine / Chart.js / creatives)
@@ -61,6 +62,7 @@ Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe 
 * **Versions:** each creative ZIP download stores an immutable snapshot **first**, then bakes that number into the pixel as HMAC-bound `ver=`. The edit page can re-download an old version (same `ver=`). Editing the live survey does not change past snapshots. Old responses without `ver=` have NULL `CreativeVersion`.
 * **HTML5 spec QA:** the editor lists IAB display / CM360 / DV360 checks for the current sizes (zip size, file count, clickTag, `ad.size` vs labelled size, no nested zip, no unexpected external requests). Warnings never block a download. The survey’s own response URL is an **info** note (required; some publishers need that domain allowlisted), not a warning. Other `https://` URLs stay warnings. Each line has a **What does this mean?** control that expands plain-English help in place (Bootstrap collapse; no extra script). The outer zip includes `html5_qa.txt` (`[info]` vs `[warning]`). Help copy lives in `creative/app/ui_help.py`.
 * **Bulk CSV:** editors can download a template, preview validation, and create up to 50 surveys at once (`/survey/bulk`). Invalid rows are listed and skipped. Default theme CSS is applied; change style in the editor afterwards.
+* **Sample-size planner:** navbar **Sample size**, a calculator on each survey row, and a link from the editor and report. Estimates Brand Lift respondents and impressions from baseline rate, minimum detectable lift (relative % or absolute pp), 95%/80% defaults, Holm/Bonferroni-style comparisons, response rate, and control:exposed split. Server-side two-proportion z-test (same as the report) with a 30-per-arm floor. Viewers calculate; editors save the plan on the survey. Help copy is in `ui_help.py`.
 
 Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (Brand Lift also splits Control and Expose) plus `html5_qa.txt` and the CM360/DV360 bulk-upload CSVs. Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip, `html5_qa.txt`, or the sidecar CSVs as a creative. Inner zips contain only `index.html`.
 
@@ -118,7 +120,7 @@ Natural-size captures of the `#master_container` from seeded sample surveys. The
 The stats button works for **Brand Lift and Brand Track**.
 
 * Counts, reports, and CSV treat each **respondent** as one person: `COALESCE(RespondentID, BomID)` (latest, most complete `Response`). New creatives send a durable `rid` (hashed ad-server user macro when the ad server expands it, otherwise `localStorage` / `sessionStorage` for this survey, otherwise a per-impression UUID). Existing rows without `RespondentID` still collapse by BomID. Surveys that submit after each question show fewer people than raw BigQuery row counts.
-* Brand Lift: control vs exposed, Wilson 95% CIs (not Wald), two-proportion z-test, Holm–Bonferroni p-adj (overall table; each breakout dimension is its own family), warning when an arm or question has fewer than 30 respondents. **What does this mean?** next to the methods line, the small-n warning, missing-segment alerts, and the empty-data note explains those terms in plain English (same copy module as HTML5 QA). Segments come from the stored `seg` value (`control` / `expos` in the string). Unadjusted breakout p-values are exploratory.
+* Brand Lift: control vs exposed, Wilson 95% CIs (not Wald), two-proportion z-test, Holm–Bonferroni p-adj (overall table; each breakout dimension is its own family), warning when an arm or question has fewer than 30 respondents. **Sequential status** (Collecting / conclusive positive or negative lift / futility / n&lt;30) uses an O’Brien–Fleming (Lan–DeMets) boundary against the saved sample plan, or an always-valid bound when there is no plan. Safe to peek anytime; fixed-horizon p-values and CIs are only valid at the planned end. Breakouts stay fixed-horizon. **What does this mean?** explains those terms (same `ui_help.py` module). Segments come from the stored `seg` value (`control` / `expos` in the string). Unadjusted breakout p-values are exploratory.
 * Brand Track: answer distributions and responses per day.
 * **Breakouts:** the report page slices the same lift / Wilson CIs / z-test by **size**, **placement**, **site**, **ad-server creative ID**, **zip snapshot version**, **date**, and **segment**. Dimensions that are blank on every row are omitted. Rows without `ver=` show as **Unknown / pre-version**. Download **Breakouts CSV** from the report or the homepage. Response CSV includes Size and Creative version.
 * Three response CSVs: responses, responses with question text (both stream), and breakouts (one table of overall + slices).
@@ -133,6 +135,14 @@ Preview **does not** post to BigQuery. To generate test rows, curl the receiver 
 ![Small-sample warning on a Brand Lift report with What does this mean? expanded](docs/images/report-min-n-help.png)
 
 *Small-n warning (n &lt; 30 in an arm): expand **What does this mean?** for when to treat lift as directional only.*
+
+![Sample-size planner with required n, impressions, and a lift table](docs/images/sample-size-planner.png)
+
+*Sample-size planner: baseline, MDE, confidence/power, comparisons, response rate, and split. Outputs responses and estimated survey impressions. Editors can save the plan on a survey.*
+
+![Brand Lift report sequential status with What does this mean? expanded](docs/images/report-sequential.png)
+
+*Sequential status on the Brand Lift report: progress toward the saved plan, and a bound that is safe to check before the planned end.*
 
 ### Admin, sign-in, and viewer 403
 

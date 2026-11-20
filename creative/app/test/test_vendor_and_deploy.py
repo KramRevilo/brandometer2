@@ -509,6 +509,8 @@ class ReadmeImagesTest(unittest.TestCase):
         'docs/images/report-lift.png',
         'docs/images/editor-html5-qa.png',
         'docs/images/report-min-n-help.png',
+        'docs/images/sample-size-planner.png',
+        'docs/images/report-sequential.png',
         'docs/images/admin.png',
         'docs/images/avatar-dropdown.png',
         'docs/images/login.png',

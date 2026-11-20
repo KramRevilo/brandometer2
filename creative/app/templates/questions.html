@@ -80,6 +80,18 @@
     {% endif %}
     {{ form.custom_css(id='custom_css', class='d-none') }}
 
+    {% if survey_id %}
+    <p class="small mb-3">
+      <a href="{{ url_for('sample_size_planner', survey_id=survey_id) }}">Sample-size planner</a>
+      — estimate respondents and impressions before launch (viewers can open it too).
+    </p>
+    {% else %}
+    <p class="small mb-3">
+      <a href="{{ url_for('sample_size_planner') }}">Sample-size planner</a>
+      — calculate now; save the survey first if you want the report to use the plan.
+    </p>
+    {% endif %}
+
     <section class="card mb-4">
       <div class="card-body">
         <h2 class="h5 mb-3">Identity</h2>

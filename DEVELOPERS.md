@@ -227,6 +227,8 @@ Reporting (parameterized `WHERE ID = @survey_id`):
 * Daily responses by stored `seg` (self-hosted Chart.js 4.4.6)
 * Per-question answer distributions
 * Brand Lift only: control vs exposed table, Wilson 95% CIs (not Wald), two-proportion z-test p-value plus Holm–Bonferroni p-adj (overall table = one family; each breakout dimension = its own family), n-too-small warning when an arm or question has fewer than 30 respondents. **What does this mean?** (Bootstrap collapse, copy in `ui_help.py`) sits on those warnings plus CI / p-value / Holm notes
+* Sequential status on Brand Lift (item 80): O’Brien–Fleming / Lan–DeMets vs a saved sample plan, or an always-valid bound with no plan. Overall and per question use answer A. Breakouts stay fixed-horizon.
+* Sample-size planner (item 78): `/survey/sample-size` and `/survey/sample-size/<id>`. Viewers GET; editors POST to save `sample_plan` on the survey.
 * Empty states when there is no data, no control, or no exposed segment (same help pattern)
 * CSV downloads stream in chunks after the same consolidation (not one in-memory string)
 
@@ -448,7 +450,7 @@ Web Preview → port 8080.
 2. Confirm preview still does not post (Network tab / BigQuery unchanged).
 3. Run the curl recipe above against those IDs.
 4. Homepage: counts should be respondents (BomID), not raw rows. Track and Lift both have a stats button.
-5. Open stats: daily chart, distributions; Lift also has control vs exposed, Wilson CIs, p-values, and a small-n warning until each arm has 30 respondents. Empty surveys show “No responses yet”.
+5. Open stats: daily chart, distributions; Lift also has control vs exposed, Wilson CIs, p-values, sequential status, and a small-n warning until each arm has 30 respondents. Empty surveys show “No responses yet”. Navbar **Sample size** calculates n and impressions; save on a Lift survey as an editor.
 6. Download CSV: one row per BomID; streaming (not a single buffered string).
 7. Optional: `bq query --nouse_legacy_sql "SELECT BomID, Response FROM \`$TABLE_ID\` WHERE ID='$SURVEY_ID' ORDER BY CreatedAt"` to compare raw vs consolidated.
 
@@ -609,9 +611,13 @@ The report page **Breakouts** section (and `/survey/download_breakouts/<id>`) re
 
 A dimension is omitted when every row is blank. Mixed NULL / numbered versions show **Unknown / pre-version** for old rows. Slices with only one lift arm show counts/CIs for that arm and em-dash for lift. Small-n uses the same `MIN_N = 30` threshold as the overall table (slice respondents or people who answered that question).
 
-CSV columns: `dimension,slice,question_index,question,answer_id,answer,n_answered,k,p,ci_lo,ci_hi,n_control,…,lift,pvalue,pvalue_adjusted,warning_n_small`. Proportions are 0–1. `overall,all` is the un-sliced table. `pvalue` is unadjusted; `pvalue_adjusted` is Holm–Bonferroni within that CSV dimension (`overall` or one breakout). Breakout unadjusted p &lt; 0.05 is exploratory.
+CSV columns: `dimension,slice,question_index,question,answer_id,answer,n_answered,k,p,ci_lo,ci_hi,n_control,…,lift,pvalue,pvalue_adjusted,warning_n_small,sequential_status`. Proportions are 0–1. `overall,all` is the un-sliced table. `pvalue` is unadjusted; `pvalue_adjusted` is Holm–Bonferroni within that CSV dimension (`overall` or one breakout). Breakout unadjusted p &lt; 0.05 is exploratory. `sequential_status` is filled on overall rows only.
 
 **Stats methods (Phase 7d / 66).** Wilson 95% CIs stay; Wald is not used near 0/1. The two-proportion z-test is two-sided with pooled SE. Holm is applied after every answer-level p-value is computed. Redeploy App Engine (`--app-only`).
+
+**Sample-size planner (Phase 7e / 78).** Standalone page (`/survey/sample-size`) so viewers can use it without the editor; per-survey URL saves onto that Firestore document. Inputs: baseline positive rate (default 20%), MDE relative 10% or absolute pp, confidence 95%, power 80%, comparisons (α/m, Holm first step), response rate 1%, control share 50%. Output: n per arm (ceil, then `MIN_N=30` floor), total n, impressions = n / rate. Table repeats a few lift values. Formula: two-sided two-proportion sample size with pooled-null / unpooled-alternative variances and allocation k = n_e / n_c — the same z-test as `reporting.two_proportion_z`. Calculation is server-side (GET form; no extra script). Editors POST to `survey_service.save_sample_plan`. Redeploy App Engine (`--app-only`).
+
+**Sequential reporting (Phase 7e / 80).** Why O’Brien–Fleming (Lan–DeMets) when a plan exists: the planner already names a final n, the continuous OF bound `z_{α/2}/√t` equals the usual critical value at t = 1, and information `t = I/I_plan` with `I = 1/(1/n_c+1/n_e)` handles unequal arms. Why an always-valid Robbins mixture bound (`√(2 log(1/α) + log(n_c+n_e))`) with no plan: there is no designed end, so a time-uniform bound is the honest peeking rule (more conservative than OF). Futility is declared only at t = 1 without an efficacy cross. Statuses: Collecting, Conclusive: positive lift, Conclusive: negative lift, Conclusive: no meaningful lift / futility, Not enough data (n&lt;30). Overall / per question = answer A. Breakouts remain fixed-horizon. Simulated null type I stays ≤ α within tolerance. Redeploy App Engine (`--app-only`). Item **79** (holdout control) is not built.
 
 `fetch_survey_response_rows` SELECTs `CreativeSize` and `CreativeVersion` as well as the trafficking IDs. Response CSV includes **Size** and **Creative version**.
 

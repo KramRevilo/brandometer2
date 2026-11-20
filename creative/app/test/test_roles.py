@@ -180,6 +180,7 @@ class RoleMatrixTest(unittest.TestCase):
         mock.patch.object(
             survey_service, 'copy_by_id', return_value=mock.Mock(id='new1')),
         mock.patch.object(survey_service, 'set_archived'),
+        mock.patch.object(survey_service, 'save_sample_plan', return_value={}),
         mock.patch.object(survey_service, 'list_versions', return_value=[]),
         mock.patch.object(
             survey_service, 'get_response_counts',
@@ -222,6 +223,8 @@ class RoleMatrixTest(unittest.TestCase):
         ('get', '/survey/download_responses/s1'),
         ('get', '/survey/download_responses_context/s1'),
         ('get', '/survey/download_breakouts/s1'),
+        ('get', '/survey/sample-size'),
+        ('get', '/survey/sample-size/s1'),
     )
     for role in ('admin', 'editor', 'viewer'):
       for method, path in reads:
@@ -244,6 +247,11 @@ class RoleMatrixTest(unittest.TestCase):
         ('get', '/survey/download_zip/s1/version/1'),
         ('get', '/survey/download_tags/s1'),
         ('get', '/survey/download_bulk_upload/s1'),
+        ('post', '/survey/sample-size/s1', {
+            'baseline': '0.2', 'mde_mode': 'relative', 'mde_relative': '0.1',
+            'confidence': '0.95', 'power': '0.8', 'comparisons': '1',
+            'response_rate': '0.01', 'control_share': '0.5',
+        }),
         ('get', '/admin'),
         ('post', '/admin', {'action': 'add_user', 'email': 'a@b.co', 'role': 'editor'}),
     )

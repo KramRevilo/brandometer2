@@ -211,6 +211,110 @@ ENTRIES = {
             'a curl to the receiver (see DEVELOPERS.md) to populate this page.'
         ),
     },
+    'plan.baseline': {
+        'title': 'Baseline positive rate',
+        'body': (
+            'This is the share of control respondents you expect to pick the '
+            '“positive” answer (often answer A: the advertised brand or Yes). '
+            '20% is a cautious default when you do not have a prior study. If '
+            'the true baseline is much higher or lower, re-run the planner.'
+        ),
+    },
+    'plan.mde': {
+        'title': 'Minimum detectable lift',
+        'body': (
+            'The smallest lift worth buying more media to find. Relative 10% '
+            'on a 20% baseline is 2 percentage points (20% → 22%). Absolute '
+            'pp is the same idea in points. Smaller MDEs need many more '
+            'respondents. The report’s lift column is relative.'
+        ),
+    },
+    'plan.confidence': {
+        'title': 'Confidence and power',
+        'body': (
+            '95% confidence is the usual two-sided false-positive rate (α = '
+            '0.05), the same family as the report’s z-test. 80% power means '
+            'you would detect the planned lift four times in five if it is '
+            'real. Raising either number grows the sample.'
+        ),
+    },
+    'plan.comparisons': {
+        'title': 'Comparisons / breakouts',
+        'body': (
+            'The report Holm-adjusts every answer in the overall table, and '
+            'separately every slice in a breakout. Planning uses α divided by '
+            'this count (Bonferroni / Holm’s first step) so the sample is '
+            'large enough for that family. Use 1 if you will only read Q1 '
+            'answer A. Use the number of answers (or more) if you will hunt '
+            'across the table.'
+        ),
+    },
+    'plan.response_rate': {
+        'title': 'Survey response rate',
+        'body': (
+            'Responses divided by ad impressions that could have shown the '
+            'survey. Display HTML5 often lands around 0.5–3% and varies by '
+            'size and placement. 1% is a cautious default. This only scales '
+            'impressions; it does not change the respondent math.'
+        ),
+    },
+    'plan.split': {
+        'title': 'Control : exposed split',
+        'body': (
+            'Share of survey respondents in control. 50/50 is usual when both '
+            'zips get similar weight. A smaller control arm needs more total '
+            'people for the same lift. This is not the media budget split '
+            'unless you traffic the two zips in the same proportion.'
+        ),
+    },
+    'plan.n': {
+        'title': 'Required responses',
+        'body': (
+            'Completed surveys per arm after consolidating each person once. '
+            'The formula is the same two-proportion z-test the report uses, '
+            'then a floor of 30 per arm. These are the numbers sequential '
+            'status counts as “planned end” when you save the plan.'
+        ),
+    },
+    'plan.impressions': {
+        'title': 'Estimated survey impressions',
+        'body': (
+            'Responses divided by the response rate, per arm and in total. '
+            'Treat it as an order of magnitude: frequency capping, viewability, '
+            'and size mix will move it. It is not CM360/DV360 booked units.'
+        ),
+    },
+    'seq.status': {
+        'title': 'Sequential status',
+        'body': (
+            'Safe to read every time you open the report. With a saved sample '
+            'plan this uses an O’Brien–Fleming (Lan–DeMets) boundary on the '
+            'same z-test as the table. Without a plan it uses a more cautious '
+            'always-valid bound. “Not enough data” until both arms have 30 '
+            'people. Overall and each question use answer A as the positive '
+            'metric.'
+        ),
+    },
+    'seq.fixed_horizon': {
+        'title': 'Fixed-horizon vs sequential',
+        'body': (
+            'The p-values, p-adj, and Wilson intervals in the table assume '
+            'you look once at the planned sample. Peeking at them early '
+            'inflates false positives. Sequential status is built for repeated '
+            'looks. At the planned end the two agree. Breakouts stay '
+            'fixed-horizon only (exploratory).'
+        ),
+    },
+    'seq.progress': {
+        'title': 'Progress to plan',
+        'body': (
+            'How far the smaller information in the two arms is toward the '
+            'saved n. 100% means you have the planned control and exposed '
+            'counts (or more). Saving a new plan on the sample-size page '
+            'resets this target. With no saved plan there is no bar — only '
+            'the always-valid status.'
+        ),
+    },
 }
 
 

@@ -92,8 +92,8 @@ def wilson_interval(successes, n, z=Z_95):
   return (max(0.0, center - margin), min(1.0, center + margin))
 
 
-def two_proportion_pvalue(successes_a, n_a, successes_b, n_b):
-  """Two-sided two-proportion z-test p-value (pooled)."""
+def two_proportion_z(successes_a, n_a, successes_b, n_b):
+  """Pooled two-proportion z for p_a − p_b (expose − control when a is expose)."""
   if not n_a or not n_b:
     return float('nan')
   p_a = successes_a / float(n_a)
@@ -101,8 +101,19 @@ def two_proportion_pvalue(successes_a, n_a, successes_b, n_b):
   p_pool = (successes_a + successes_b) / float(n_a + n_b)
   se = math.sqrt(p_pool * (1.0 - p_pool) * (1.0 / n_a + 1.0 / n_b))
   if se == 0:
-    return 1.0 if p_a == p_b else 0.0
-  z = (p_a - p_b) / se
+    if p_a == p_b:
+      return 0.0
+    return float('inf') if p_a > p_b else float('-inf')
+  return (p_a - p_b) / se
+
+
+def two_proportion_pvalue(successes_a, n_a, successes_b, n_b):
+  """Two-sided two-proportion z-test p-value (pooled)."""
+  z = two_proportion_z(successes_a, n_a, successes_b, n_b)
+  if z is None or (isinstance(z, float) and math.isnan(z)):
+    return float('nan')
+  if not math.isfinite(z):
+    return 0.0
   return math.erfc(abs(z) / math.sqrt(2.0))
 
 
@@ -184,6 +195,7 @@ BREAKOUT_CSV_HEADERS = (
     'n_control', 'k_control', 'p_control', 'ci_control_lo', 'ci_control_hi',
     'n_expose', 'k_expose', 'p_expose', 'ci_expose_lo', 'ci_expose_hi',
     'lift', 'pvalue', 'pvalue_adjusted', 'warning_n_small',
+    'sequential_status',
 )
 
 
@@ -399,6 +411,8 @@ def _csv_answer_row(dimension, slice_value, question, answer, warning_n_small):
       'pvalue': _csv_num(answer.get('pvalue')),
       'pvalue_adjusted': _csv_num(answer.get('pvalue_adjusted')),
       'warning_n_small': '1' if warning_n_small else '0',
+      'sequential_status': (
+          ((answer.get('sequential') or {}).get('status')) or ''),
   }
 
 
@@ -513,4 +527,7 @@ def build_report(df, survey_info, is_lift=False):
   report['questions'] = question_stats(work, survey_info)
   report['n_tests'] = apply_holm_to_questions(report['questions'])
   report['breakouts'] = build_breakouts(work, survey_info, is_lift=is_lift)
+  if is_lift:
+    import sequential as sequential_mod
+    sequential_mod.attach_to_report(report, survey_info.get('sample_plan'))
   return report

@@ -1,0 +1,240 @@
+{% extends "base.html" %}
+{% from 'help_toggle.html' import meaning with context %}
+{% block content %}
+{% set action = url_for('sample_size_planner', survey_id=survey_id) if survey_id else url_for('sample_size_planner') %}
+<div class="container pb-5" id="sample-size-page">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h1 class="h3 mb-1">Sample-size planner</h1>
+      <p class="text-muted mb-0">
+        Estimate Brand Lift respondents and impressions before launch.
+        Maths match the report’s two-proportion z-test, with a floor of {{ min_n }} per arm
+        and Holm/Bonferroni-style alpha when you plan several comparisons.
+        {% if survey %}
+        Plan for <strong>{{ survey.get('displayname') or survey.get('surveyname') or survey_id }}</strong>.
+        {% endif %}
+      </p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if survey_id %}
+      <a class="btn btn-outline-primary" href="{{ url_for('reporting', survey_id=survey_id) }}">Open report</a>
+      {% if can_edit %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('edit', survey_id=survey_id) }}">Edit survey</a>
+      {% endif %}
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
+    </div>
+  </div>
+
+  <p class="small text-muted">
+    Response rate varies by size and placement (a 970×250 is usually higher than a 160×600).
+    The split is the share of <em>survey respondents</em> in control vs exposed, not media spend.
+    Viewers can calculate; editors and admins can save the plan on a survey so the report can compare actual vs planned.
+  </p>
+
+  <div class="row g-4">
+    <div class="col-lg-5">
+      <form method="get" action="{{ action }}" class="card" id="planner-form">
+        <div class="card-body">
+          <h2 class="h5 mb-3">Inputs</h2>
+
+          <div class="mb-3">
+            <label class="form-label" for="baseline">Expected baseline positive rate (control) %</label>
+            <input class="form-control" type="number" step="0.1" min="1" max="99" id="baseline" name="baseline"
+                   value="{{ (inputs.baseline * 100)|round(2) }}">
+            {{ meaning('plan.baseline', 'help-plan-baseline') }}
+          </div>
+
+          <div class="mb-3">
+            <span class="form-label d-block">Minimum detectable lift</span>
+            <div class="form-check">
+              <input class="form-check-input" type="radio" name="mde_mode" id="mde-relative" value="relative"
+                     {% if inputs.mde_mode == 'relative' %}checked{% endif %}>
+              <label class="form-check-label" for="mde-relative">Relative %</label>
+            </div>
+            <div class="form-check mb-2">
+              <input class="form-check-input" type="radio" name="mde_mode" id="mde-absolute" value="absolute"
+                     {% if inputs.mde_mode == 'absolute' %}checked{% endif %}>
+              <label class="form-check-label" for="mde-absolute">Absolute percentage points</label>
+            </div>
+            <div class="row g-2">
+              <div class="col-6">
+                <label class="form-label small" for="mde_relative">Relative %</label>
+                <input class="form-control" type="number" step="0.1" min="0.5" max="200" id="mde_relative" name="mde_relative"
+                       value="{{ (inputs.mde_relative * 100)|round(2) }}">
+              </div>
+              <div class="col-6">
+                <label class="form-label small" for="mde_absolute">Absolute pp</label>
+                <input class="form-control" type="number" step="0.1" min="0.1" max="90" id="mde_absolute" name="mde_absolute"
+                       value="{{ (inputs.mde_absolute * 100)|round(2) }}">
+              </div>
+            </div>
+            {{ meaning('plan.mde', 'help-plan-mde') }}
+          </div>
+
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="form-label" for="confidence">Confidence</label>
+              <select class="form-select" id="confidence" name="confidence">
+                {% for value in confidence_choices %}
+                <option value="{{ value }}" {% if inputs.confidence == value %}selected{% endif %}>{{ (value * 100)|int }}%</option>
+                {% endfor %}
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="form-label" for="power">Power</label>
+              <select class="form-select" id="power" name="power">
+                {% for value in power_choices %}
+                <option value="{{ value }}" {% if inputs.power == value %}selected{% endif %}>{{ (value * 100)|int }}%</option>
+                {% endfor %}
+              </select>
+            </div>
+            {{ meaning('plan.confidence', 'help-plan-confidence') }}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="comparisons">Comparisons / breakouts</label>
+            <input class="form-control" type="number" min="1" max="100" step="1" id="comparisons" name="comparisons"
+                   value="{{ inputs.comparisons }}">
+            {{ meaning('plan.comparisons', 'help-plan-comparisons') }}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="response_rate">Survey response rate (responses per impression) %</label>
+            <input class="form-control" type="number" step="0.01" min="0.01" max="100" id="response_rate" name="response_rate"
+                   value="{{ (inputs.response_rate * 100)|round(3) }}">
+            <div class="form-text">Varies by size and placement. 1% is a cautious display default.</div>
+            {{ meaning('plan.response_rate', 'help-plan-response-rate') }}
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label" for="control_share">Control share of respondents %</label>
+            <input class="form-control" type="number" step="1" min="5" max="95" id="control_share" name="control_share"
+                   value="{{ (inputs.control_share * 100)|round(1) }}">
+            <div class="form-text">Exposed share is the remainder ({{ (100 - inputs.control_share * 100)|round(1) }}% with this value).</div>
+            {{ meaning('plan.split', 'help-plan-split') }}
+          </div>
+
+          <button type="submit" class="btn btn-primary">Calculate</button>
+        </div>
+      </form>
+    </div>
+
+    <div class="col-lg-7" id="planner-results">
+      {% if result.error %}
+      <div class="alert alert-warning" role="alert">{{ result.error }}</div>
+      {% else %}
+      <div class="card mb-4 border-primary">
+        <div class="card-body">
+          <h2 class="h5 mb-3">Required sample</h2>
+          <p class="small text-muted">
+            Exposed rate {{ (result.p_expose * 100)|round(2) }}%
+            ({{ (result.relative_lift * 100)|round(1) }}% relative,
+            {{ (result.absolute_lift * 100)|round(2) }} pp).
+            Alpha after comparisons: {{ result.alpha|round(4) }}.
+          </p>
+          <div class="table-responsive">
+            <table class="table table-sm align-middle mb-2">
+              <thead class="table-light">
+                <tr>
+                  <th></th>
+                  <th>Control</th>
+                  <th>Exposed</th>
+                  <th>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <th scope="row">Responses {{ meaning('plan.n', 'help-plan-n') }}</th>
+                  <td>{{ result.n_control }}</td>
+                  <td>{{ result.n_expose }}</td>
+                  <td>{{ result.n_total }}</td>
+                </tr>
+                <tr>
+                  <th scope="row">Survey impressions {{ meaning('plan.impressions', 'help-plan-impressions') }}</th>
+                  <td>{{ '{:,}'.format(result.impressions_control) }}</td>
+                  <td>{{ '{:,}'.format(result.impressions_expose) }}</td>
+                  <td>{{ '{:,}'.format(result.impressions_total) }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          {% if result.min_n_applied %}
+          <p class="small text-muted mb-0">At least one arm was raised to the {{ min_n }}-respondent floor.</p>
+          {% endif %}
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-body">
+          <h2 class="h5 mb-2">Across a few lift values</h2>
+          <p class="small text-muted">Same baseline, confidence, power, comparisons, response rate, and split. The highlighted row is your MDE.</p>
+          <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle mb-0">
+              <thead class="table-light">
+                <tr>
+                  <th>Lift</th>
+                  <th>Exposed %</th>
+                  <th>n / arm (C · E)</th>
+                  <th>Total n</th>
+                  <th>Impressions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for row in table %}
+                {% if not row.error %}
+                <tr {% if row.is_selected %}class="table-primary"{% endif %}>
+                  <td>
+                    {% if inputs.mde_mode == 'relative' %}
+                    {{ (row.grid_value * 100)|round(1) }}% rel
+                    ({{ (row.absolute_lift * 100)|round(2) }} pp)
+                    {% else %}
+                    {{ (row.grid_value * 100)|round(1) }} pp
+                    ({{ (row.relative_lift * 100)|round(1) }}% rel)
+                    {% endif %}
+                  </td>
+                  <td>{{ (row.p_expose * 100)|round(2) }}%</td>
+                  <td>{{ row.n_control }} · {{ row.n_expose }}</td>
+                  <td>{{ row.n_total }}</td>
+                  <td>{{ '{:,}'.format(row.impressions_total) }}</td>
+                </tr>
+                {% endif %}
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      {% endif %}
+
+      {% if survey_id and can_edit and not result.error %}
+      <form method="post" action="{{ action }}" class="mb-4">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="baseline" value="{{ inputs.baseline }}">
+        <input type="hidden" name="mde_mode" value="{{ inputs.mde_mode }}">
+        <input type="hidden" name="mde_relative" value="{{ inputs.mde_relative }}">
+        <input type="hidden" name="mde_absolute" value="{{ inputs.mde_absolute }}">
+        <input type="hidden" name="confidence" value="{{ inputs.confidence }}">
+        <input type="hidden" name="power" value="{{ inputs.power }}">
+        <input type="hidden" name="comparisons" value="{{ inputs.comparisons }}">
+        <input type="hidden" name="response_rate" value="{{ inputs.response_rate }}">
+        <input type="hidden" name="control_share" value="{{ inputs.control_share }}">
+        <button type="submit" class="btn btn-success">Save plan on this survey</button>
+        <span class="small text-muted ms-2">The report then shows progress and sequential status against these n’s.</span>
+      </form>
+      {% elif survey_id and not can_edit %}
+      <p class="small text-muted">View only — editors can save this plan on the survey.</p>
+      {% elif not survey_id %}
+      <p class="small text-muted">Open the planner from a survey (home or report) to save the plan on that document.</p>
+      {% endif %}
+
+      {% if stored and stored.get('n_total') %}
+      <p class="small text-muted mb-0">
+        Saved plan: {{ stored.n_control }} control + {{ stored.n_expose }} exposed
+        ({{ stored.n_total }} responses).
+      </p>
+      {% endif %}
+    </div>
+  </div>
+</div>
+{% endblock %}

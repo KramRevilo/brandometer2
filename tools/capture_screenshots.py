@@ -111,6 +111,20 @@ def seed(fs) -> None:
           question1='Which cola brand did you notice?',
           client='Acme',
           agency='Example Media',
+          sample_plan={
+              'baseline': 0.20,
+              'mde_mode': 'relative',
+              'mde_relative': 0.10,
+              'mde_absolute': 0.05,
+              'confidence': 0.95,
+              'power': 0.80,
+              'comparisons': 1,
+              'response_rate': 0.01,
+              'control_share': 0.50,
+              'n_control': 200,
+              'n_expose': 200,
+              'n_total': 400,
+          },
       ),
       _survey(
           'lift-small',
@@ -435,6 +449,26 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_selector('#dailyChart')
     page.wait_for_timeout(800)
     capture(page, out / 'report-lift.png', full_page=False)
+    seq = page.locator('#sequential-status')
+    if seq.count():
+      seq.scroll_into_view_if_needed()
+      toggle = page.locator('#sequential-status button.help-meaning-toggle')
+      if toggle.count():
+        toggle.first.click()
+        page.wait_for_selector('#sequential-status .help-meaning-body.show')
+      page.wait_for_timeout(200)
+      box = seq.bounding_box()
+      if box:
+        capture(
+            page, out / 'report-sequential.png', full_page=False, clip=box,
+            max_width=UI_MAX_WIDTH)
+
+    page.goto(base + '/survey/sample-size', wait_until='networkidle')
+    page.wait_for_selector('#sample-size-page')
+    page.locator('#planner-form button.help-meaning-toggle').first.click()
+    page.wait_for_selector('#planner-form .help-meaning-body.show')
+    page.wait_for_timeout(200)
+    capture(page, out / 'sample-size-planner.png', full_page=False)
 
     page.goto(base + '/survey/reporting/lift-small', wait_until='networkidle')
     page.wait_for_selector('#min-n-warning')

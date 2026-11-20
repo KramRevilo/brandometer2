@@ -444,6 +444,21 @@ def create(form):
   return create_from_payload(dict(form.data), flash_created=True)
 
 
+def save_sample_plan(survey_id, plan):
+  """Store planner inputs (and planned n) without rewriting the rest of the survey."""
+  payload = {'sample_plan': dict(plan or {})}
+  actor = access.actor_email()
+  payload['updated_at'] = survey_collection.utc_now_iso()
+  payload['updated_by'] = actor
+  survey_collection.update_by_id(survey_id, payload)
+  access.write_audit(
+      'sample_plan', actor, survey_id=survey_id,
+      detail='n_control=%s n_expose=%s' % (
+          payload['sample_plan'].get('n_control'),
+          payload['sample_plan'].get('n_expose')))
+  return payload['sample_plan']
+
+
 def update_by_id(survey_id, form, last_update_time=None):
   data, _ = creative_size.persist_sizes(
       brand.persist_badge(_strip_identity(form.data)))

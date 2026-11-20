@@ -35,6 +35,7 @@
       <a class="btn btn-outline-primary" href="{{ looker_studio_url }}" target="_blank" rel="noopener">Open in Looker Studio</a>
       {% endif %}
       <a class="btn btn-outline-primary" href="{{ url_for('download_breakouts', survey_id=survey_id) }}">Breakouts CSV</a>
+      <a class="btn btn-outline-secondary" href="{{ url_for('sample_size_planner', survey_id=survey_id) }}">Sample size</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
     </div>
   </div>
@@ -57,6 +58,44 @@
     {{ meaning('report.ci', 'help-methods-ci') }}
     {{ meaning('report.pvalue', 'help-methods-pvalue') }}
     {{ meaning('report.holm', 'help-methods-holm') }}
+    {{ meaning('seq.fixed_horizon', 'help-seq-fixed') }}
+  </div>
+  {% endif %}
+
+  {% if is_lift and report.sequential %}
+  {% set seq = report.sequential %}
+  {% set ns = namespace(seq_class='secondary') %}
+  {% if seq.status == 'conclusive_positive' %}{% set ns.seq_class = 'success' %}
+  {% elif seq.status == 'conclusive_negative' %}{% set ns.seq_class = 'danger' %}
+  {% elif seq.status == 'conclusive_futility' %}{% set ns.seq_class = 'warning' %}
+  {% elif seq.status == 'collecting' %}{% set ns.seq_class = 'info' %}{% endif %}
+  <div class="alert alert-{{ ns.seq_class }}" role="status" id="sequential-status">
+    <div class="d-flex flex-wrap justify-content-between align-items-start gap-2">
+      <div>
+        <strong>Sequential:</strong>
+        <span class="badge text-bg-{{ ns.seq_class }}">{{ seq.label }}</span>
+        <span class="small">{{ seq.method_label }}</span>
+        {{ meaning('seq.status', 'help-seq-status') }}
+      </div>
+      {% if seq.has_plan and seq.n_control_plan %}
+      <div class="small text-nowrap">
+        Plan {{ seq.n_control_plan }} / {{ seq.n_expose_plan }}
+        · now {{ report.control_n }} / {{ report.expose_n }}
+      </div>
+      {% endif %}
+    </div>
+    {% if seq.has_plan and seq.progress == seq.progress %}
+    <div class="progress mt-2" style="height: 0.6rem;" aria-label="Progress toward planned sample">
+      <div class="progress-bar" role="progressbar"
+           style="width: {{ ([seq.progress, 1]|min * 100)|round(0) }}%;"
+           aria-valuenow="{{ (seq.progress * 100)|round(0) }}"
+           aria-valuemin="0" aria-valuemax="100"></div>
+    </div>
+    <p class="small mb-0 mt-1">{{ (seq.progress * 100)|round(0) }}% of planned information.
+      {{ meaning('seq.progress', 'help-seq-progress') }}</p>
+    {% endif %}
+    <p class="small mb-0 mt-2">{{ seq.fixed_horizon_note }}
+      Overall uses question 1 answer A. Breakouts stay fixed-horizon only.</p>
   </div>
   {% endif %}
 
@@ -150,6 +189,9 @@
           Percentages are of respondents who answered this question
           (control n={{ question.n_control }}, exposed n={{ question.n_expose }}{% if question.warning_n_small %}; small n{% endif %}).
           Intervals are Wilson 95% CIs on each arm. p is unadjusted; p-adj is Holm–Bonferroni across this report’s overall answers.
+          {% if question.sequential %}
+          Sequential (answer A): <span class="badge text-bg-light border">{{ question.sequential.label }}</span>
+          {% endif %}
         </p>
         <div class="table-responsive">
         <table class="table table-bordered table-striped table-sm align-middle">
@@ -163,6 +205,7 @@
               <th scope="col">Lift</th>
               <th scope="col">p-value</th>
               <th scope="col">p-adj (Holm)</th>
+              <th scope="col">Sequential</th>
             </tr>
           </thead>
           <tbody>
@@ -188,6 +231,7 @@
               </td>
               <td>{{ answer.pvalue | format_pvalue }}</td>
               <td>{{ answer.pvalue_adjusted | format_pvalue }}</td>
+              <td class="small">{% if answer.sequential %}{{ answer.sequential.label }}{% else %}—{% endif %}</td>
             </tr>
             {% endfor %}
           </tbody>
@@ -213,8 +257,10 @@
           Old rows without <code>ver=</code> show as Unknown / pre-version. Creative ID is still the trafficked ad-server creative.
           {% if is_lift %}Slices with only one lift arm omit lift. Small-n warnings use the same threshold (n &lt; {{ report.min_n }}).
           p-adj is Holm–Bonferroni <em>within this dimension</em> (every slice × answer); do not compare unadjusted breakout p-values as if they were a single test.
+          Sequential early-stopping applies to the overall table only; treat breakout p-values as fixed-horizon and exploratory.
           {{ meaning('report.min_n', 'help-breakout-min-n') }}
-          {{ meaning('report.holm', 'help-breakout-holm') }}{% endif %}
+          {{ meaning('report.holm', 'help-breakout-holm') }}
+          {{ meaning('seq.fixed_horizon', 'help-breakout-seq') }}{% endif %}
         </p>
         {% for dim in report.breakouts %}
         <h3 class="h6 mt-4">{{ dim.label }}{% if is_lift and dim.n_tests %} <span class="text-muted fw-normal small">({{ dim.n_tests }} Holm test{% if dim.n_tests != 1 %}s{% endif %})</span>{% endif %}</h3>
