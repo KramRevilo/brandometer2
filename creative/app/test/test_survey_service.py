@@ -180,6 +180,8 @@ class TestSurveyService(unittest.TestCase):
   def test_write_html_template(self):
     segments = ['segment1', 'segment2', 'segment3']
     survey_dict = {'question1': 'q1 text', 'answer1a': 'a1a test'}
+    original_render = survey_service.render_template
+    self.addCleanup(setattr, survey_service, 'render_template', original_render)
     survey_service.render_template = mock.Mock(
         return_value='<html>placeholder</html>')
 
@@ -192,6 +194,8 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(zips[2].filename, '/tmp/test_prefix_segment3.zip')
 
   def test_write_html_template_empty_seg_uses_creative_suffix(self):
+    original_render = survey_service.render_template
+    self.addCleanup(setattr, survey_service, 'render_template', original_render)
     survey_service.render_template = mock.Mock(
         return_value='<html>placeholder</html>')
 

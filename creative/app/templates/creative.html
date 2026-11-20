@@ -20,10 +20,6 @@
         var BV2_US_PRIVACY = {{ (us_privacy_macro or '')|tojson }};
         var BV2_SURVEY_CAMPAIGN_ID = {{ (survey_campaign_id or '')|tojson }};
         var BV2_SURVEY_PLACEMENT_ID = {{ (survey_placement_id or '')|tojson }};
-
-        // define a 'global' for the cookie - we'll possibly need to reuse it
-        // if we're making multiple responses
-        var window.cookie = "";
     </script>
     <script>
         var fullConfiguration = {
@@ -132,7 +128,8 @@
                         .innerText = this.uiConfig.component_selectors.next_button.text;
 
                     if (this.surveyConfig.overwrite_click_tag) {
-                        clickTag = this.surveyConfig.exit_url || clickTag;
+                        var currentTag = (typeof clickTag === 'undefined') ? '' : clickTag;
+                        clickTag = this.surveyConfig.exit_url || currentTag;
                     }
 
                     // Measure render time
@@ -188,15 +185,17 @@
                 },
 
                 cachebusterValue: function() {
-                    if (BV2_CACHEBUSTER && !this.isUnexpandedMacro(BV2_CACHEBUSTER)) {
-                        return String(BV2_CACHEBUSTER);
+                    var macro = (typeof BV2_CACHEBUSTER === 'undefined') ? '' : BV2_CACHEBUSTER;
+                    if (macro && !this.isUnexpandedMacro(macro)) {
+                        return String(macro);
                     }
                     return this.getRandomTimestamp();
                 },
 
                 openClickTag: function() {
-                    if (clickTag && !this.isUnexpandedMacro(clickTag)) {
-                        window.open(clickTag, '_blank');
+                    var tag = (typeof clickTag === 'undefined') ? '' : clickTag;
+                    if (tag && !this.isUnexpandedMacro(tag)) {
+                        window.open(tag, '_blank');
                     }
                 },
 
@@ -429,21 +428,27 @@
                     if (this.renderedQuestionId == -1) {
                         this.renderedQuestionId = this.surveyConfig.questions[0].id;
                     } else {
-                        this.renderedQuestionId =
-                            this.questionMap[this.renderedQuestionId]
-                            .next_question[this.collectedResponses[this.renderedQuestionId]
-                                [0]];
+                        var current = this.questionMap[this.renderedQuestionId];
+                        var answers = this.collectedResponses[this.renderedQuestionId] || [];
+                        this.renderedQuestionId = (
+                            current && current.next_question)
+                            ? current.next_question[answers[0]]
+                            : 'end';
                     }
 
                     // Return if all questions rendered OR decision tree based end
                     // if (this.renderedQuestionId > this.surveyConfig.questions.length ||
                     //     this.renderedQuestionId == 'end')
 
-                    var questionIdAsString = '';
-                    questionIdAsString = String(this.renderedQuestionId).toLowerCase()
+                    var questionIdAsString = String(this.renderedQuestionId).toLowerCase();
+                    var nextQuestion = this.questionMap[this.renderedQuestionId];
 
-                    if (this.renderedQuestionId > this.surveyConfig.questions.length ||
-                        questionIdAsString == 'end') {
+                    if (this.renderedQuestionId == null ||
+                        this.renderedQuestionId > this.surveyConfig.questions.length ||
+                        questionIdAsString == 'end' ||
+                        questionIdAsString == 'undefined' ||
+                        questionIdAsString == 'null' ||
+                        !nextQuestion) {
                         // Record time of last response
                         this.time_measurement.question_end_time = new Date();
                         return false;
@@ -541,7 +546,17 @@
                 },
 
                 handleOptionSelection: function(event) {
-                    var optionContainer = event.target.parentElement;
+                    var optionContainer = event.target;
+                    if (optionContainer && optionContainer.closest) {
+                        optionContainer = optionContainer.closest('.Abox') ||
+                            optionContainer.parentElement;
+                    } else if (optionContainer) {
+                        optionContainer = optionContainer.parentElement;
+                    }
+                    if (!optionContainer || !optionContainer.getAttribute ||
+                        !optionContainer.getAttribute('oid')) {
+                        return;
+                    }
 
                     // Toggle Selected Attribute
                     if (optionContainer.getAttribute('selected') == null) {
@@ -579,9 +594,9 @@
 
                 isCurrentQuestionSingleOption: function() {
                     if (this.questionMap[this.renderedQuestionId] != undefined) {
-
                         var question = this.questionMap[this.renderedQuestionId];
-                        return (question.type == 'SINGLE_OPTION' || question.type == 'ORDERED');
+                        // Missing type (old surveys) behaves as single-option.
+                        return question.type != 'MULTIPLE_OPTION';
                     }
                 },
 
@@ -593,19 +608,15 @@
                 },
 
                 renderThankyou: function() {
-                    // document.getElementById("carousel_container").setAttribute("class",
-                    // "invisible");
-
                     document
                         .getElementById(this.uiConfig.component_selectors.survey.container)
                         .setAttribute('class', 'invisible');
 
-                    document
-                        .getElementById(this.uiConfig.component_selectors.thankyou.container)
-                        .setAttribute('class', 'thankyoucontainer');
-
-                    document.getElementById(this.uiConfig.component_selectors.thankyou.container)
-                        .textContent = this.uiConfig.component_selectors.thankyou.text;
+                    var thanks = document.getElementById(
+                        this.uiConfig.component_selectors.thankyou.container);
+                    thanks.setAttribute('class', 'thankyoucontainer');
+                    var thanksText = document.getElementById('thankyou_text') || thanks;
+                    thanksText.textContent = this.uiConfig.component_selectors.thankyou.text;
                     var privacyNote = document.getElementById('privacy_note');
                     if (privacyNote) {
                         privacyNote.className = 'privacy-note';
@@ -652,11 +663,16 @@
                 },
 
                 fireTrackingPixel: function() {
-                    this.surveyConfig.trackers.forEach(function(pixelUrl) {
-                        this.insertPixel(pixelUrl);
-                    }.bind(this));
-
-                    this.fireGlobalTagsEvents();
+                    try {
+                        var trackers = this.surveyConfig.trackers || [];
+                        for (var i = 0; i < trackers.length; i++) {
+                            if (!trackers[i]) {
+                                continue;
+                            }
+                            this.insertPixel(trackers[i]);
+                        }
+                        this.fireGlobalTagsEvents();
+                    } catch (e) {}
                 },
 
                 setupGlobalTags: function() {
@@ -700,9 +716,19 @@
                         return;
                     }
                     var self = this;
-                    this.resolveRespondentId().then(function() {
-                        self.insertPixel(self.surveyConfig.response_server);
-                    });
+                    var fire = function() {
+                        try {
+                            self.insertPixel(self.surveyConfig.response_server);
+                        } catch (e) {}
+                    };
+                    try {
+                        var pending = this.resolveRespondentId();
+                        if (pending && typeof pending.then === 'function') {
+                            pending.then(fire, fire);
+                            return;
+                        }
+                    } catch (e2) {}
+                    fire();
                 },
 
                 insertScript: function(scriptString, srcString, position) {
@@ -721,7 +747,15 @@
                 },
 
                 insertPixel: function(url) {
-                    var macroFilledUrl = this.fillMacrosInUrl(url);
+                    if (!url) {
+                        return;
+                    }
+                    var macroFilledUrl;
+                    try {
+                        macroFilledUrl = this.fillMacrosInUrl(url);
+                    } catch (e) {
+                        return;
+                    }
 
                     if (macroFilledUrl) {
                         var pixelFrame = document.createElement('iframe');
@@ -750,8 +784,17 @@
                 },
 
                 fillMacrosInUrl: function(url) {
+                    if (!url) {
+                        return '';
+                    }
                     var rid = this.getOrGenerateCookieId();
                     var rsrc = this.respondentSource || 'impression';
+                    var campaignMacro = (typeof BV2_CAMPAIGN_MACRO === 'undefined') ? '' : BV2_CAMPAIGN_MACRO;
+                    var surveyCampaign = (typeof BV2_SURVEY_CAMPAIGN_ID === 'undefined') ? '' : BV2_SURVEY_CAMPAIGN_ID;
+                    var placementMacro = (typeof BV2_PLACEMENT_MACRO === 'undefined') ? '' : BV2_PLACEMENT_MACRO;
+                    var surveyPlacement = (typeof BV2_SURVEY_PLACEMENT_ID === 'undefined') ? '' : BV2_SURVEY_PLACEMENT_ID;
+                    var siteMacro = (typeof BV2_SITE_MACRO === 'undefined') ? '' : BV2_SITE_MACRO;
+                    var creativeMacro = (typeof BV2_CREATIVE_MACRO === 'undefined') ? '' : BV2_CREATIVE_MACRO;
                     return url
                         .replace(
                             /\{bomid\}/g, encodeURIComponent(rid))
@@ -762,19 +805,19 @@
                         .replace(
                             /\{camp\}/g,
                             encodeURIComponent(this.expandedOrFallback(
-                                BV2_CAMPAIGN_MACRO, BV2_SURVEY_CAMPAIGN_ID)))
+                                campaignMacro, surveyCampaign)))
                         .replace(
                             /\{plc\}/g,
                             encodeURIComponent(this.expandedOrFallback(
-                                BV2_PLACEMENT_MACRO, BV2_SURVEY_PLACEMENT_ID)))
+                                placementMacro, surveyPlacement)))
                         .replace(
                             /\{site\}/g,
                             encodeURIComponent(this.expandedOrFallback(
-                                BV2_SITE_MACRO, '')))
+                                siteMacro, '')))
                         .replace(
                             /\{crid\}/g,
                             encodeURIComponent(this.expandedOrFallback(
-                                BV2_CREATIVE_MACRO, '')))
+                                creativeMacro, '')))
                         .replace(
                             /\{cb\}/g, encodeURIComponent(this.cachebusterValue()))
                         .replace(/\{survey_id\}/g, encodeURIComponent(surveyConfig.id))
@@ -836,8 +879,12 @@
                     }
 
                 case "THANK_YOU":
-                    controller.fireTrackingPixel();
-                    controller.sendCollectedResponseToServer();
+                    try {
+                        controller.fireTrackingPixel();
+                    } catch (e1) {}
+                    try {
+                        controller.sendCollectedResponseToServer();
+                    } catch (e2) {}
                     controller.creativeState = "THANK_YOU";
                     controller.renderThankyou();
                     break;

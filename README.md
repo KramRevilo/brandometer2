@@ -68,7 +68,7 @@ Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (
 
 ![Standalone live preview of a 300×250 creative with size switcher](docs/images/preview-300x250.png)
 
-*Preview (`/survey/preview/<id>`): unsigned, does not post to BigQuery. Size links switch among the survey’s selected sizes.*
+*Preview (`/survey/preview/<id>`): unsigned, does not post to BigQuery. Size links switch among the survey’s selected sizes. The **Thank You** end screen is local UI: it always appears after the last answer. The measurement pixel is fire-and-forget (skipped in preview because `receiver_url` is empty) and must not block that screen. Re-download HTML5 zips after this fix — copies trafficked before it can miss the end screen.*
 
 ### Creatives
 
