@@ -99,6 +99,75 @@ def load_secret(env_key, secret_id, environ=None, default=None, required=False):
   return default
 
 
+def csp_report_only(environ=None):
+  """CSP_REPORT_ONLY=1 sends Content-Security-Policy-Report-Only instead."""
+  env = environ if environ is not None else os.environ
+  return (env.get('CSP_REPORT_ONLY') or '').strip().lower() in (
+      '1', 'true', 'yes', 'on')
+
+
+def content_security_policy(environ=None):
+  """Enforced CSP for the Flask app (self-hosted assets + Google avatars/OIDC).
+
+  Inline scripts/styles stay allowed: Alpine x-data uses Function(), Chart.js
+  and the creative HTML are inline, and editor preview uses iframe srcdoc of
+  that creative. Zip downloads are attachments and are not governed by this
+  header once they leave the app. Set GTAG_ID to also allow Tag Manager.
+  """
+  env = environ if environ is not None else os.environ
+  script = ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
+  style = ["'self'", "'unsafe-inline'"]
+  img = ["'self'", 'data:', 'blob:', 'https://*.googleusercontent.com']
+  font = ["'self'"]
+  connect = [
+      "'self'",
+      'https://accounts.google.com',
+      'https://oauth2.googleapis.com',
+      'https://www.googleapis.com',
+  ]
+  frame = ["'self'", 'blob:']
+  form = ["'self'", 'https://accounts.google.com']
+  if (env.get('GTAG_ID') or '').strip():
+    script.append('https://www.googletagmanager.com')
+    script.append('https://www.google-analytics.com')
+    connect.append('https://www.googletagmanager.com')
+    connect.append('https://www.google-analytics.com')
+    img.append('https://www.googletagmanager.com')
+    img.append('https://www.google-analytics.com')
+  return '; '.join((
+      "default-src 'self'",
+      'script-src ' + ' '.join(script),
+      'style-src ' + ' '.join(style),
+      'img-src ' + ' '.join(img),
+      'font-src ' + ' '.join(font),
+      'connect-src ' + ' '.join(connect),
+      'frame-src ' + ' '.join(frame),
+      'form-action ' + ' '.join(form),
+      "base-uri 'self'",
+      "object-src 'none'",
+      "frame-ancestors 'none'",
+  ))
+
+
+def install_security_headers(app, environ=None):
+  """Attach CSP (enforced unless CSP_REPORT_ONLY=1) on every response."""
+
+  @app.after_request
+  def add_content_security_policy(response):
+    env = environ if environ is not None else os.environ
+    header = (
+        'Content-Security-Policy-Report-Only' if csp_report_only(env)
+        else 'Content-Security-Policy')
+    other = (
+        'Content-Security-Policy' if header.endswith('Report-Only')
+        else 'Content-Security-Policy-Report-Only')
+    response.headers.pop(other, None)
+    response.headers[header] = content_security_policy(env)
+    return response
+
+  return app
+
+
 def configure_app(app, environ=None):
   env = environ if environ is not None else os.environ
   on_gae = running_on_app_engine(env)
@@ -128,6 +197,7 @@ def configure_app(app, environ=None):
     os.environ.setdefault('AUTHLIB_INSECURE_TRANSPORT', '1')
   app.config.setdefault('WTF_CSRF_TIME_LIMIT', None)
   apply_runtime_guards(app, environ=env)
+  install_security_headers(app, environ=env)
   return app
 
 

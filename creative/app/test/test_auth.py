@@ -12,6 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import os
 import unittest
 from unittest import mock
 
@@ -387,3 +388,50 @@ class AccessControlTest(unittest.TestCase):
     self.assertTrue(rows)
     self.assertEqual(rows[0]['action'], 'admin_user_upsert')
     self.assertEqual(rows[0]['actor'], 'admin@x')
+
+
+class ContentSecurityPolicyTest(unittest.TestCase):
+
+  def tearDown(self):
+    main.app.config['AUTH_BYPASS'] = False
+
+  def test_policy_allows_self_avatars_and_google_signin(self):
+    policy = app_security.content_security_policy({})
+    self.assertIn("default-src 'self'", policy)
+    self.assertIn("script-src 'self' 'unsafe-inline' 'unsafe-eval'", policy)
+    self.assertIn('img-src', policy)
+    self.assertIn('https://*.googleusercontent.com', policy)
+    self.assertIn('https://accounts.google.com', policy)
+    self.assertIn('https://oauth2.googleapis.com', policy)
+    self.assertIn("object-src 'none'", policy)
+    self.assertNotIn('cdn.jsdelivr', policy)
+    self.assertNotIn('googletagmanager', policy)
+
+  def test_gtag_origins_only_when_gtag_id_set(self):
+    policy = app_security.content_security_policy({'GTAG_ID': 'G-TEST'})
+    self.assertIn('https://www.googletagmanager.com', policy)
+    self.assertIn('https://www.google-analytics.com', policy)
+
+  def test_login_sends_enforced_csp(self):
+    main.app.config['AUTH_BYPASS'] = False
+    main.app.config['GOOGLE_OAUTH_CLIENT_ID'] = ''
+    response = main.app.test_client().get('/login')
+    self.assertEqual(response.status_code, 200)
+    csp = response.headers.get('Content-Security-Policy', '')
+    self.assertIn("default-src 'self'", csp)
+    self.assertIn('https://*.googleusercontent.com', csp)
+    self.assertIn('https://accounts.google.com', csp)
+    self.assertIsNone(response.headers.get('Content-Security-Policy-Report-Only'))
+    self.assertIn(b'Brandometer2', response.data)
+
+  def test_report_only_escape_hatch(self):
+    main.app.config['AUTH_BYPASS'] = False
+    main.app.config['GOOGLE_OAUTH_CLIENT_ID'] = ''
+    with mock.patch.dict(os.environ, {'CSP_REPORT_ONLY': '1'}):
+      response = main.app.test_client().get('/login')
+    self.assertTrue(
+        response.headers.get('Content-Security-Policy-Report-Only'))
+    self.assertIsNone(response.headers.get('Content-Security-Policy'))
+    self.assertIn(
+        "default-src 'self'",
+        response.headers.get('Content-Security-Policy-Report-Only'))

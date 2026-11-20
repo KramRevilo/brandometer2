@@ -19,7 +19,7 @@ Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250
 * In-app reporting (Brand Lift with Wilson CIs and a z-test; Brand Track distributions) and streamed CSV, with one row per respondent (`COALESCE(RespondentID, BomID)`)
 * Google Sign-In, an Admin page, and **admin / editor / viewer** roles (not IAP, not shared passwords)
 * HMAC-signed pixel links, a survey-scoped durable respondent ID, daily-rotating IP hashes, CSRF on mutating actions, and a 409 when two people save the same survey
-* Secret Manager, least-privilege service accounts, App Engine **python312**, a gen2 Cloud Function receiver, and self-hosted front-end libraries
+* Secret Manager, least-privilege service accounts, App Engine **python312**, a gen2 Cloud Function receiver, self-hosted front-end libraries, and an enforced Content-Security-Policy (avatars from `https://*.googleusercontent.com`; Google Sign-In endpoints; inline scripts for Alpine / Chart.js / creatives)
 * A **Bv2** favicon and a Google-account avatar in the navbar
 
 ## Features
@@ -204,7 +204,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 
 ### Known limitations / remaining work
 
-* **No Content-Security-Policy yet.** Templates do not emit a CSP header. Adding a strict CSP (and nonce/hash for the small inline editor and Chart.js bootstraps) is backlog, not shipped.
+* **CSP allows inline script and `unsafe-eval`.** Alpine `x-data`, Chart.js bootstraps, and creative HTML (including editor `srcdoc` preview) are inline. A nonce/hash CSP is not shipped. `CSP_REPORT_ONLY=1` switches the header to report-only.
 * **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
 * **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
@@ -383,7 +383,6 @@ Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server
 * Stats-method corrections beyond current Wilson / z-test
 * CM360 / DV360 cost/impressions join
 * Shared stats cache (today each App Engine instance caches for 90 seconds)
-* Content-Security-Policy header
 
 Also not built: free-form write-in answers, in-stream video/VAST creatives, and a cost/impressions join. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
