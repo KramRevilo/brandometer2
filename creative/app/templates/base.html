@@ -55,6 +55,7 @@
         <li class="nav-item"><a class="nav-link" href="{{ url_for('index') }}">Home</a></li>
         {% if can_edit %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('create') }}">Create survey</a></li>
+        <li class="nav-item"><a class="nav-link" href="{{ url_for('bulk_create') }}">Bulk CSV</a></li>
         {% endif %}
         {% if is_admin %}
         <li class="nav-item"><a class="nav-link" href="{{ url_for('admin') }}">Admin</a></li>

@@ -1,0 +1,91 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container pb-5">
+  <h1 class="h3 mb-3">Bulk create surveys</h1>
+  <p class="text-muted">
+    Upload a CSV of surveys (max {{ max_rows }} rows). Preview validates each row.
+    Only valid rows are created. Editors and admins only. Custom CSS is the default theme;
+    edit a survey afterwards if you need a preset.
+  </p>
+  <p>
+    <a href="{{ url_for('bulk_template') }}">Download template CSV</a>
+    (header plus one example row).
+  </p>
+
+  {% if file_errors %}
+  <div class="alert alert-danger" role="alert">
+    <ul class="mb-0">
+      {% for err in file_errors %}
+      <li>{{ err }}</li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+
+  <form method="post" enctype="multipart/form-data" class="card mb-4">
+    <div class="card-body">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="action" value="preview">
+      <label class="form-label" for="csv_file">CSV file</label>
+      <input class="form-control" type="file" id="csv_file" name="csv_file" accept=".csv,text/csv" required>
+      <button type="submit" class="btn btn-primary mt-3">Preview</button>
+      <a class="btn btn-outline-secondary mt-3" href="{{ url_for('index') }}">Cancel</a>
+    </div>
+  </form>
+
+  {% if rows is not none %}
+  <section class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5 mb-3">Preview</h2>
+      <p class="form-text">{{ valid_count }} valid of {{ rows|length }} row(s). Invalid rows are skipped on create.</p>
+      <div class="table-responsive">
+      <table class="table table-sm table-bordered align-middle">
+        <thead class="table-light">
+          <tr>
+            <th scope="col">Line</th>
+            <th scope="col">Survey name</th>
+            <th scope="col">Status</th>
+            <th scope="col">Notes</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in rows %}
+          <tr>
+            <td>{{ row.line }}</td>
+            <td>{{ row.surveyname or '—' }}</td>
+            <td>
+              {% if row.ok %}
+              <span class="badge text-bg-success">Valid</span>
+              {% else %}
+              <span class="badge text-bg-danger">Invalid</span>
+              {% endif %}
+            </td>
+            <td class="small">
+              {% if row.errors %}
+              <ul class="mb-0">
+                {% for err in row.errors %}
+                <li>{{ err }}</li>
+                {% endfor %}
+              </ul>
+              {% else %}
+              Ready to create.
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      {% if valid_count %}
+      <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="action" value="commit">
+        <textarea class="d-none" name="payloads_json" readonly>{{ payloads_json }}</textarea>
+        <button type="submit" class="btn btn-success">Create {{ valid_count }} survey{{ 's' if valid_count != 1 else '' }}</button>
+      </form>
+      {% endif %}
+    </div>
+  </section>
+  {% endif %}
+</div>
+{% endblock %}

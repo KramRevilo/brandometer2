@@ -284,6 +284,7 @@ class AuthAndRedirectTest(unittest.TestCase):
     self.assertIn(b'Sign out', response.data)
     self.assertIn(b'>editor</span>', response.data)
     self.assertIn(b'>Create survey</a>', response.data)
+    self.assertIn(b'>Bulk CSV</a>', response.data)
     self.assertNotIn(b'>Admin</a>', response.data)
     self.assertNotIn(b'navbar-text', response.data)
     self.assertIn(b'navbar-avatar-fallback', response.data)

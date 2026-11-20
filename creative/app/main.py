@@ -38,6 +38,7 @@ from markupsafe import Markup
 # local file imports
 import app_security
 import brand
+import bulk_surveys
 import creative_size
 import css_theme
 import forms
@@ -256,6 +257,62 @@ def create():
     survey_service.create(form)
     return redirect(url_for('index'))
   return _render_editor(form, 'Create survey')
+
+
+@app.route('/survey/bulk/template.csv', methods=['GET'])
+def bulk_template():
+  """CSV header + one example row for bulk survey create."""
+  google_auth.require_editor()
+  return send_file(
+      io.BytesIO(bulk_surveys.template_csv()),
+      mimetype='text/csv',
+      as_attachment=True,
+      download_name='survey_bulk_template.csv')
+
+
+@app.route('/survey/bulk', methods=['GET', 'POST'])
+def bulk_create():
+  """Preview and commit a CSV of new surveys. Editor / admin only."""
+  google_auth.require_editor()
+  rows = None
+  file_errors = []
+  valid_count = 0
+  payloads_json = ''
+  if request.method == 'POST':
+    action = (request.form.get('action') or 'preview').strip().lower()
+    if action == 'commit':
+      rows, file_errors = bulk_surveys.loads_payloads(
+          request.form.get('payloads_json'))
+      created = []
+      for row in rows:
+        if not row.get('ok') or not row.get('payload'):
+          continue
+        ref = survey_service.create_from_payload(
+            row['payload'], flash_created=False)
+        created.append((row.get('surveyname') or ref.id, ref.id))
+      if created:
+        flash(
+            'Created %s survey(s): %s' % (
+                len(created),
+                ', '.join('%s (%s)' % item for item in created)),
+            'success')
+        return redirect(url_for('index'))
+      if not file_errors:
+        file_errors = ['No valid surveys to create. Fix the CSV and preview again.']
+    else:
+      uploaded = request.files.get('csv_file')
+      raw = uploaded.read() if uploaded and uploaded.filename else None
+      rows, file_errors = bulk_surveys.parse_csv(raw)
+    valid_count = len([row for row in (rows or []) if row.get('ok')])
+    payloads_json = bulk_surveys.dumps_payloads(rows or [])
+  return render_template(
+      'bulk_create.html',
+      title='Bulk create surveys',
+      rows=rows,
+      file_errors=file_errors,
+      valid_count=valid_count,
+      payloads_json=payloads_json,
+      max_rows=bulk_surveys.MAX_ROWS)
 
 
 @app.route('/survey/preview/<string:survey_id>', methods=['GET'])

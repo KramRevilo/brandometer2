@@ -232,6 +232,9 @@ class RoleMatrixTest(unittest.TestCase):
     blocked = (
         ('get', '/survey/create'),
         ('post', '/survey/create'),
+        ('get', '/survey/bulk'),
+        ('post', '/survey/bulk'),
+        ('get', '/survey/bulk/template.csv'),
         ('get', '/survey/edit?survey_id=s1'),
         ('post', '/survey/edit?survey_id=s1'),
         ('post', '/survey/delete', {'survey_id': 's1'}),
@@ -254,6 +257,8 @@ class RoleMatrixTest(unittest.TestCase):
 
   def test_editor_can_mutate_but_not_admin(self):
     self.assertEqual(self._status('editor', 'get', '/survey/create'), 200)
+    self.assertEqual(self._status('editor', 'get', '/survey/bulk'), 200)
+    self.assertEqual(self._status('editor', 'get', '/survey/bulk/template.csv'), 200)
     self.assertEqual(
         self._status(
             'editor', 'post', '/survey/delete',
@@ -291,6 +296,7 @@ class RoleMatrixTest(unittest.TestCase):
     response = self._client('viewer').get('/index')
     self.assertEqual(response.status_code, 200)
     self.assertNotIn(b'>Create survey</a>', response.data)
+    self.assertNotIn(b'>Bulk CSV</a>', response.data)
     self.assertNotIn(b'>Admin</a>', response.data)
     self.assertNotIn(b'Download Creative Zip', response.data)
     self.assertNotIn(b'tag sheet', response.data)
@@ -307,6 +313,7 @@ class RoleMatrixTest(unittest.TestCase):
     response = self._client('editor').get('/index')
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'>Create survey</a>', response.data)
+    self.assertIn(b'>Bulk CSV</a>', response.data)
     self.assertNotIn(b'>Admin</a>', response.data)
     self.assertIn(b'Download Creative Zip', response.data)
     self.assertIn(b'tag sheet', response.data)

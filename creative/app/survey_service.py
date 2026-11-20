@@ -418,22 +418,29 @@ def classify_status(days_since_response):
   return 'Timed out', 'danger'
 
 
-def create(form):
-  data = brand.persist_badge(_strip_identity(dict(form.data)))
-  data, _ = creative_size.persist_sizes(data)
-  data['archived'] = False
+def create_from_payload(data, flash_created=True):
+  """Persist a survey dict (editor form or bulk CSV)."""
+  payload = brand.persist_badge(_strip_identity(dict(data or {})))
+  payload, _ = creative_size.persist_sizes(payload)
+  payload['archived'] = False
   actor = access.actor_email()
   now = survey_collection.utc_now_iso()
-  if not data.get('created_at'):
-    data['created_at'] = now
-  data['created_by'] = actor
-  data['updated_at'] = now
-  data['updated_by'] = actor
-  doc_ref = survey_collection.create(data)
+  if not payload.get('created_at'):
+    payload['created_at'] = now
+  payload['created_by'] = actor
+  payload['updated_at'] = now
+  payload['updated_by'] = actor
+  doc_ref = survey_collection.create(payload)
+  name = payload.get('surveyname') or doc_ref.id
   access.write_audit(
-      'create', actor, survey_id=doc_ref.id, detail=form.surveyname.data)
-  flash(f'{form.surveyname.data} created as {doc_ref.id}')
+      'create', actor, survey_id=doc_ref.id, detail=name)
+  if flash_created:
+    flash('%s created as %s' % (name, doc_ref.id))
   return doc_ref
+
+
+def create(form):
+  return create_from_payload(dict(form.data), flash_created=True)
 
 
 def update_by_id(survey_id, form, last_update_time=None):

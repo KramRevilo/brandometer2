@@ -59,6 +59,7 @@ Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe 
 * **Tag sheet:** editors download CSV or XLSX listing each inner zip (size × Brand Lift segment), filenames, survey campaign/placement IDs, macros, the next zip snapshot version (`ver=`), and trafficking notes.
 * **Versions:** each creative ZIP download stores an immutable snapshot **first**, then bakes that number into the pixel as HMAC-bound `ver=`. The edit page can re-download an old version (same `ver=`). Editing the live survey does not change past snapshots. Old responses without `ver=` have NULL `CreativeVersion`.
 * **HTML5 spec QA:** the editor lists IAB display / CM360 / DV360 warnings for the current sizes (zip size, file count, clickTag, `ad.size` vs labelled size, no nested zip, no unexpected external requests). Warnings never block a download. The outer zip includes `html5_qa.txt` (a report, not a creative).
+* **Bulk CSV:** editors can download a template, preview validation, and create up to 50 surveys at once (`/survey/bulk`). Invalid rows are listed and skipped. Default theme CSS is applied; change style in the editor afterwards.
 
 Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (Brand Lift also splits Control and Expose) plus `html5_qa.txt`. Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip or `html5_qa.txt` as a creative. Inner zips contain only `index.html`.
 
@@ -209,7 +210,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 * **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
 * **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
-* **Phase 7d leftover** (not built): bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join; shared stats cache. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
+* **Phase 7d leftover** (not built): stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join; shared stats cache. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -377,9 +378,8 @@ ORDER BY CreatedAt;
 
 ## Roadmap (not built)
 
-Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). **7d** HTML5 spec QA (item 64) is shipped. Remaining **7d** — do not treat these as shipped:
+Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). **7d** HTML5 spec QA (item 64) and bulk CSV survey create (item 65) are shipped. Remaining **7d** — do not treat these as shipped:
 
-* Bulk CSV survey import
 * Stats-method corrections beyond current Wilson / z-test
 * CM360 / DV360 cost/impressions join
 * Shared stats cache (today each App Engine instance caches for 90 seconds)
