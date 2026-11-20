@@ -613,6 +613,29 @@ class MainRoutesTest(unittest.TestCase):
 
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'No responses yet', response.data)
+    self.assertNotIn(b'Open in Looker Studio', response.data)
+
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_reporting_looker_studio_link(self, doc_mock, responses_mock):
+    doc_mock.return_value = self._survey('abc', {
+        'surveytype': 'brand_track',
+        'surveyname': 'Track',
+        'question1': 'Aware?',
+    })
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [],
+        'Segmentation': [],
+        'Response': [],
+        'BomID': [],
+    })
+    with mock.patch.dict(os.environ, {'PROJECT_ID': 'brandometer2'}):
+      response = self.client.get('/survey/reporting/abc')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'Open in Looker Studio', response.data)
+    self.assertIn(b'lookerstudio.google.com/reporting/create', response.data)
+    self.assertIn(b'brandometer_reporting', response.data)
+    self.assertIn(b'deduped_responses', response.data)
 
   @mock.patch.object(survey_service, 'iter_response_csv')
   def test_download_responses_streams_chunks(self, iter_mock):

@@ -141,7 +141,7 @@ The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), da
 
 `app.yaml.template` is App Engine **standard** python312: `automatic_scaling.max_instances` (deploy env `MAX_INSTANCES`, default **5**) and only non-secret `env_variables` (`PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`). Standard `app.yaml` does **not** support `secret_environment_variables`. The App Engine app loads OAuth id/secret, `SECRET_KEY`, and `RECEIVER_HMAC_SECRET` from Secret Manager at startup (module-level cache, App Engine SA `secretAccessor`) and refuses to start if a required secret is missing. The receiver still gets HMAC secrets via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
 
-**Re-running `./deploy`.** Safe end to end, or App Engine only with `--app-only`. Firestore Native, the `responses` dataset, the `responses.responses` table, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not dropped or recreated. `ensure_respondent_columns` runs on every deploy (including `--app-only`) and `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for `RespondentID` / `RespondentIDSource` only. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret: paste to rotate, or press Enter / pass `--skip-oauth-prompts` to keep existing; `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL` skip the prompts when set. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries **transient** IAM errors only (SA “does not exist” / NOT_FOUND / INVALID_ARGUMENT, 409 concurrent policy). Usage errors (`Invalid choice`, `PERMISSION_DENIED`) fail immediately. Dataset IAM uses `bq --quiet show --dataset` to a file + `bq update --source` (not `gcloud bigquery`, which Cloud Shell gcloud does not have, and not `bq add-iam-policy-binding`, which requires allowlisting). Python warnings on stdout are ignored; JSON is parsed from the first `{`. A success line confirms each SA’s access entry. Verified dataset grants drop the project-level `roles/bigquery.dataEditor` fallback from a previous run. Dataset IAM for **both** the receiver SA and the App Engine SA runs on `--app-only`. `--condition=None` avoids the conditional-binding prompt. The same wait/retry applies to the App Engine default SA. If a previous run died on IAM lag, the old `gcloud bigquery` command, or `secret_environment_variables`, run `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
+**Re-running `./deploy`.** Safe end to end, or App Engine only with `--app-only`. Firestore Native, the `responses` dataset, the `responses.responses` table, the `brandometer_reporting` dataset, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not dropped or recreated. `ensure_respondent_columns` and `ensure_reporting_dataset` run on every deploy (including `--app-only`): `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for `RespondentID` / `RespondentIDSource` / trafficking IDs, then `CREATE OR REPLACE VIEW` for `deduped_responses` and `survey_summaries`. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret: paste to rotate, or press Enter / pass `--skip-oauth-prompts` to keep existing; `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL` skip the prompts when set. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries **transient** IAM errors only (SA “does not exist” / NOT_FOUND / INVALID_ARGUMENT, 409 concurrent policy). Usage errors (`Invalid choice`, `PERMISSION_DENIED`) fail immediately. Dataset IAM uses `bq --quiet show --dataset` to a file + `bq update --source` (not `gcloud bigquery`, which Cloud Shell gcloud does not have, and not `bq add-iam-policy-binding`, which requires allowlisting). Python warnings on stdout are ignored; JSON is parsed from the first `{`. A success line confirms each SA’s access entry. Verified dataset grants drop the project-level `roles/bigquery.dataEditor` fallback from a previous run. Dataset IAM for **both** the receiver SA and the App Engine SA runs on `--app-only`. `--condition=None` avoids the conditional-binding prompt. The same wait/retry applies to the App Engine default SA. If a previous run died on IAM lag, the old `gcloud bigquery` command, or `secret_environment_variables`, run `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
 
 The App Engine service is only required for hosting, not for running Flask on your laptop.
 
@@ -574,6 +574,46 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, Web Preview port 8080). Then:
 2. Download zip: inner `index.html` `response_server` includes `&token=` when `RECEIVER_HMAC_SECRET` is set. Preview HTML must **not** include a token and must not post.
 3. After receiver redeploy: curl without token → 403; curl with token for a missing id → 404; omit `response` → 400; valid signed row → 204. `RandomTimeStamp` in BigQuery is a 64-char hex string that is **not** `sha256(ip)`.
 4. Thank-you screen in preview shows the privacy sentence after submit.
+
+# Phase 7c / 60 (authorized views + Looker Studio)
+
+`./deploy` (including **`--app-only`**) creates dataset `$PROJECT_ID:brandometer_reporting` in the same location as the rest of the project, then:
+
+1. `CREATE OR REPLACE VIEW …deduped_responses` — one row per survey + respondent (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`). Columns include campaign/placement/site/creative ids and `CreativeSize`. Does **not** expose `RandomTimeStamp` / IP hashes.
+2. `CREATE OR REPLACE VIEW …survey_summaries` — `survey_id`, `Segmentation`, respondent count, first/last `CreatedAt`.
+3. Authorizes the **reporting dataset** (`targetTypes: VIEWS`) on `responses` via `bq show` + `bq_dataset_iam.py authorize-dataset` + `bq update --source`. Analysts with `READER` on `brandometer_reporting` can query the views without access to the raw table.
+
+The report page **Open in Looker Studio** uses the [Looker Studio Linking API](https://developers.google.com/looker-studio/integrate/linking-api) against `deduped_responses`. Each click starts a **new** untitled report. Save and share that report in Looker Studio if you want a stable dashboard URL.
+
+**Grant a user or Google group** (do this once per analyst; `./deploy` does not guess emails):
+
+```shell
+# 1. Project-level jobs (required to run queries / Looker Studio).
+gcloud projects add-iam-policy-binding "$PROJECT_ID" \
+  --member="user:ana@dentsu.com" \
+  --role="roles/bigquery.jobUser" \
+  --condition=None
+
+# Group instead of a user:
+#   --member="group:dentsu-bq@example.com"
+
+# 2. READER on the reporting dataset only (not responses).
+PYTHONWARNINGS=ignore bq --format=prettyjson --quiet show --dataset \
+  "$PROJECT_ID:brandometer_reporting" > /tmp/brandometer-reporting.json
+python3 creative/app/bq_dataset_iam.py merge-reader \
+  /tmp/brandometer-reporting.json user:ana@dentsu.com
+# or: ... merge-reader /tmp/brandometer-reporting.json group:dentsu-bq@example.com
+bq --quiet update --source /tmp/brandometer-reporting.json \
+  "$PROJECT_ID:brandometer_reporting"
+python3 creative/app/bq_dataset_iam.py verify-reader \
+  /tmp/brandometer-reporting.json user:ana@dentsu.com
+```
+
+**Connect Looker Studio manually:** Create → Data source → BigQuery → project `$PROJECT_ID` → dataset `brandometer_reporting` → table `deduped_responses` (or `survey_summaries`). Filter `survey_id` to one study. Do not add the `responses.responses` table to a Dentsu-shared report.
+
+Do **not** grant `READER` / `dataViewer` on `responses`. If an analyst can `SELECT` from `responses.responses` directly, the authorized-view boundary is bypassed.
+
+Receiver code is unchanged. **`--app-only` is enough** after App Engine is already up.
 
 # Phase 7c / 59 (ad-server macros + tag sheet)
 

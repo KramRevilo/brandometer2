@@ -43,6 +43,7 @@ import css_theme
 import forms
 from forms import DEFAULT_CSS
 import google_auth
+import reporting_views
 import survey_collection
 import survey_service
 from forms import RESPONSES_AT_END
@@ -481,6 +482,8 @@ def reporting(survey_id):
         report=report,
         survey=survey_info,
         survey_id=survey_id,
+        looker_studio_url=reporting_views.looker_studio_url(
+            os.environ.get('PROJECT_ID')),
         title=page_title)
   else:
     flash('Survey not found')

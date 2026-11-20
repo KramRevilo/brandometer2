@@ -114,6 +114,7 @@ The stats button works for **Brand Lift and Brand Track**.
 * Brand Lift: control vs exposed, Wilson 95% CIs, two-proportion z-test, warning when an arm has fewer than 30 respondents. Segments come from the stored `seg` value (`control` / `expos` in the string).
 * Brand Track: answer distributions and responses per day.
 * Two CSVs: responses, and responses with question text. Both stream; they are not built as one in-memory string.
+* **Looker Studio / BigQuery analysts:** `./deploy` creates dataset `brandometer_reporting` with authorized views `deduped_responses` (one row per respondent) and `survey_summaries`. Grant `READER` on that dataset only — not on `responses`. The report page has **Open in Looker Studio** (Looker Studio Linking API; each click starts a new report on the deduped view). Granting a user or group is documented in DEVELOPERS.md.
 
 Preview **does not** post to BigQuery. To generate test rows, curl the receiver (see DEVELOPERS.md).
 
@@ -169,6 +170,7 @@ The table is what changed versus upstream Brandometer / the old Sonar tree. Deta
 | One row per impression (BomID was in-memory UUID only) | Durable survey-scoped `RespondentID`: hashed expanded ad-server user macro, else partitioned storage, else per-impression UUID. Raw user ids never on the pixel URL or in BQ. Old rows keep BomID | `creative.html` `resolveRespondentId`, `receiver` `rid`/`rsrc`, `respondent.session_keys` |
 | Secrets in `app.yaml` / env / deploy prompts echoed | Secret Manager only. App Engine loads at startup via the SM client (`secret_environment_variables` is not valid on standard). `./deploy` prints `stored N chars`, never the value | `app_security.load_secret`, `app.yaml.template`, `./deploy` |
 | App Engine SA had `roles/editor` | Least privilege: GAE SA is datastore user, BQ **jobUser** + dataset **WRITER**, secret accessor. Receiver SA is **datastore.viewer** only (plus BQ write + HMAC secrets). `roles/editor` is removed | `./deploy` |
+| Analysts needed raw `responses` table access for Looker | Dataset `brandometer_reporting` with authorized views (deduped + per-survey summaries). Views are authorized on `responses`; analysts get `READER` on `brandometer_reporting` plus project `roles/bigquery.jobUser` | `./deploy` `ensure_reporting_dataset`, `bq_dataset_iam.py` `merge-reader` |
 | Front-end from public CDNs | Self-hosted under `creative/app/static/vendor/` (Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12, Alpine.js 3.14.3, Chart.js 4.4.6) | `static/vendor/`, tests fail if templates load jsDelivr / cdnjs / unpkg |
 | Loose / un-audited Python deps | Pins in `creative/app/requirements.txt` and `receiver/requirements.txt`. `pip-audit` in `requirements-dev.txt` | See **pyarrow** note below |
 | `DISABLE_BASIC_AUTH=1` could ship to App Engine and skip login | Refused when `GAE_ENV` is set. `app.yaml` check rejects the flag. Never written by `./deploy` | `app_security.apply_runtime_guards`, `app_yaml_check.py` |
@@ -206,7 +208,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 * **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
 * **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
-* **Phase 7c / 7d leftover** (not built): BigQuery authorized views and Looker; reporting breakouts; HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
+* **Phase 7c / 7d leftover** (not built): reporting breakouts; HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -214,7 +216,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 | --- | --- |
 | App | App Engine **standard python312**, Flask 3, instance class F4, `automatic_scaling.max_instances` (deploy env `MAX_INSTANCES`, default **5**) |
 | Surveys | Firestore Native `(default)` — survey docs, versions, allowlist, audit log |
-| Responses | BigQuery dataset `responses`, table `responses` (`$PROJECT_ID.responses.responses`) |
+| Responses | BigQuery dataset `responses`, table `responses` (`$PROJECT_ID.responses.responses`). Authorized views in `$PROJECT_ID.brandometer_reporting` (`deduped_responses`, `survey_summaries`) |
 | Pixel | Gen2 Cloud Function `receiver` (python312, HTTP, unauthenticated, dedicated SA, `--max-instances=20`) |
 | UI assets | `/static` on App Engine; `/favicon.ico` is a static file |
 
@@ -363,11 +365,19 @@ ORDER BY CreatedAt;
 
 Replace `PROJECT_ID` and `SURVEY_ID`. For production tables that are partitioned on `CreatedAt`, add a date filter.
 
+Analysts with Looker / reporting-dataset access should query the authorized views instead of the raw table:
+
+```sql
+SELECT *
+FROM `PROJECT_ID.brandometer_reporting.deduped_responses`
+WHERE survey_id = 'SURVEY_ID'
+ORDER BY CreatedAt;
+```
+
 ## Roadmap (not built)
 
-Phase **7c** items **58** (durable respondent ID) and **59** (ad-server macros + tag sheet) are shipped. Remaining **7c / 7d** — do not treat these as shipped:
+Phase **7c** items **58** (durable respondent ID), **59** (ad-server macros + tag sheet), and **60** (authorized views + Looker Studio) are shipped. Remaining **7c / 7d** — do not treat these as shipped:
 
-* BigQuery authorized views and Looker
 * Reporting breakouts (beyond current Lift / Track views)
 * HTML5 spec QA automation
 * Bulk CSV survey import

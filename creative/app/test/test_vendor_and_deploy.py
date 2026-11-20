@@ -163,6 +163,11 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('bq --quiet update --source', script)
     self.assertIn('bq_dataset_iam.py', script)
     self.assertIn('ensure_respondent_columns()', script)
+    self.assertIn('ensure_reporting_dataset()', script)
+    self.assertIn('authorize_reporting_views()', script)
+    self.assertIn('brandometer_reporting', script)
+    self.assertIn('reporting_views.py', script)
+    self.assertIn('authorize-dataset', script)
     self.assertIn('ADD COLUMN IF NOT EXISTS RespondentID STRING', script)
     self.assertIn('ADD COLUMN IF NOT EXISTS RespondentIDSource STRING', script)
     self.assertIn('ADD COLUMN IF NOT EXISTS PlacementID STRING', script)
@@ -334,6 +339,62 @@ class DeployIamTest(unittest.TestCase):
       verified = subprocess.check_output(
           [sys.executable, helper, 'verify', path, email], text=True)
       self.assertEqual(verified.strip(), 'WRITER')
+
+  def test_dataset_iam_authorize_reporting_dataset_once(self):
+    payload = json.dumps({
+        'access': [
+            {'role': 'OWNER', 'specialGroup': 'projectOwners'},
+        ],
+    })
+    with tempfile.TemporaryDirectory() as tmp:
+      path = os.path.join(tmp, 'ds.json')
+      open(path, 'w', encoding='utf-8').write(payload)
+      helper = os.path.join(_APP_DIR, 'bq_dataset_iam.py')
+      first = subprocess.run(
+          [sys.executable, helper, 'authorize-dataset', path, 'proj',
+           'brandometer_reporting'],
+          capture_output=True, text=True)
+      self.assertEqual(first.returncode, 2, first.stderr)
+      data = json.loads(open(path, encoding='utf-8').read())
+      self.assertTrue(
+          bq_dataset_iam.authorized_dataset_present(
+              data, 'proj', 'brandometer_reporting'))
+      types = data['access'][1]['dataset']['targetTypes']
+      self.assertEqual(types, ['VIEWS'])
+      second = subprocess.run(
+          [sys.executable, helper, 'authorize-dataset', path, 'proj',
+           'brandometer_reporting'],
+          capture_output=True, text=True)
+      self.assertEqual(second.returncode, 0, second.stderr)
+
+  def test_dataset_iam_merge_reader_user_and_group(self):
+    payload = json.dumps({'access': []})
+    with tempfile.TemporaryDirectory() as tmp:
+      path = os.path.join(tmp, 'ds.json')
+      open(path, 'w', encoding='utf-8').write(payload)
+      helper = os.path.join(_APP_DIR, 'bq_dataset_iam.py')
+      first = subprocess.run(
+          [sys.executable, helper, 'merge-reader', path, 'ana@dentsu.com'],
+          capture_output=True, text=True)
+      self.assertEqual(first.returncode, 2, first.stderr)
+      data = json.loads(open(path, encoding='utf-8').read())
+      self.assertEqual(data['access'][0]['role'], 'READER')
+      self.assertEqual(data['access'][0]['userByEmail'], 'ana@dentsu.com')
+      group = subprocess.run(
+          [sys.executable, helper, 'merge-reader', path,
+           'group:dentsu-bq@example.com'],
+          capture_output=True, text=True)
+      self.assertEqual(group.returncode, 2, group.stderr)
+      data = json.loads(open(path, encoding='utf-8').read())
+      self.assertEqual(data['access'][1]['groupByEmail'], 'dentsu-bq@example.com')
+      verified = subprocess.check_output(
+          [sys.executable, helper, 'verify-reader', path, 'ana@dentsu.com'],
+          text=True)
+      self.assertEqual(verified.strip(), 'READER')
+      again = subprocess.run(
+          [sys.executable, helper, 'merge-reader', path, 'ana@dentsu.com'],
+          capture_output=True, text=True)
+      self.assertEqual(again.returncode, 0, again.stderr)
 
   def test_dataset_iam_strips_stdout_noise_before_json(self):
     noisy = (

@@ -29,6 +29,9 @@
       <a class="btn btn-outline-primary" href="{{ url_for('download_tags', survey_id=survey_id) }}">Tag sheet CSV</a>
       <a class="btn btn-outline-primary" href="{{ url_for('download_tags', survey_id=survey_id, format='xlsx') }}">Tag sheet XLSX</a>
       {% endif %}
+      {% if looker_studio_url %}
+      <a class="btn btn-outline-primary" href="{{ looker_studio_url }}" target="_blank" rel="noopener">Open in Looker Studio</a>
+      {% endif %}
       <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
     </div>
   </div>
@@ -37,6 +40,7 @@
     Each respondent is counted once (RespondentID, falling back to BomID): the latest, most complete cumulative response is kept.
     Surveys that submit after each question therefore show fewer people than raw row counts.
     Segments are the values stored on the response (<code>seg</code>), not renamed labels.
+    Looker Studio uses the authorized views in dataset <code>brandometer_reporting</code> (not the raw <code>responses</code> table). Granting access is documented in DEVELOPERS.md.
   </p>
 
   {% if report.empty_reason == 'no_data' %}

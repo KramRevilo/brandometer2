@@ -184,11 +184,14 @@ dataset_member_email() {
 # requires allowlisting and is not used. Write `bq show` to a file (never a
 # pipe): warnings on stdout used to JSONDecodeError / BrokenPipe.
 BQ_DATASET_IAM_PY="$DEPLOY_ROOT/creative/app/bq_dataset_iam.py"
+REPORTING_VIEWS_PY="$DEPLOY_ROOT/creative/app/reporting_views.py"
+REPORTING_DATASET="brandometer_reporting"
 
 show_dataset_json() {
     dest="$1"
+    dataset_id="${2:-responses}"
     PYTHONWARNINGS=ignore bq --format=prettyjson --quiet show --dataset \
-        "$PROJECT_ID:responses" >"$dest" 2>/dev/null
+        "$PROJECT_ID:$dataset_id" >"$dest" 2>/dev/null
 }
 
 remove_project_role() {
@@ -305,6 +308,60 @@ ensure_respondent_columns() {
         "ALTER TABLE \`$PROJECT_ID.responses.responses\` ADD COLUMN IF NOT EXISTS SiteID STRING"
     bq query --use_legacy_sql=false --project_id="$PROJECT_ID" --nouse_cache --quiet \
         "ALTER TABLE \`$PROJECT_ID.responses.responses\` ADD COLUMN IF NOT EXISTS AdCreativeID STRING"
+}
+
+authorize_reporting_views() {
+    tmp=$(mktemp)
+    if ! show_dataset_json "$tmp" responses; then
+        rm -f "$tmp"
+        echo "WARNING: could not load $PROJECT_ID:responses ACL; skip authorizing reporting views"
+        return 0
+    fi
+    py_status=0
+    python3 "$BQ_DATASET_IAM_PY" authorize-dataset "$tmp" "$PROJECT_ID" \
+        "$REPORTING_DATASET" || py_status=$?
+    if [ "$py_status" -eq 0 ]; then
+        echo "Reporting dataset already authorized on responses"
+        rm -f "$tmp"
+        return 0
+    fi
+    if [ "$py_status" -ne 2 ]; then
+        rm -f "$tmp"
+        echo "WARNING: could not merge reporting authorized dataset"
+        return 0
+    fi
+    if retry_gcloud env PYTHONWARNINGS=ignore bq --quiet update --source "$tmp" \
+            "$PROJECT_ID:responses"; then
+        echo "Authorized $PROJECT_ID:$REPORTING_DATASET views on responses"
+        rm -f "$tmp"
+        return 0
+    fi
+    echo "WARNING: bq update failed while authorizing reporting views"
+    rm -f "$tmp"
+    return 0
+}
+
+ensure_reporting_dataset() {
+    table="$PROJECT_ID:responses.responses"
+    if ! bq show --format=none "$table" >/dev/null 2>&1; then
+        echo "Table $table missing; skip reporting dataset"
+        return 0
+    fi
+    dataset="$PROJECT_ID:$REPORTING_DATASET"
+    if bq show --format=none "$dataset" >/dev/null 2>&1; then
+        echo "Dataset $dataset already exists (not modified)"
+    else
+        bq --location=$LOCATION mk \
+            --dataset \
+            --description "Authorized Brandometer reporting views for Looker Studio (no raw responses table)" \
+            "$dataset"
+    fi
+    echo "-- Create authorized reporting views on $dataset"
+    bq query --use_legacy_sql=false --project_id="$PROJECT_ID" --nouse_cache --quiet \
+        "$(python3 "$REPORTING_VIEWS_PY" deduped "$PROJECT_ID")"
+    bq query --use_legacy_sql=false --project_id="$PROJECT_ID" --nouse_cache --quiet \
+        "$(python3 "$REPORTING_VIEWS_PY" summary "$PROJECT_ID")"
+    authorize_reporting_views
 }
 
 grant_sa_user() {
@@ -594,6 +651,7 @@ grant_gae_build_roles
 grant_dataset_editor "serviceAccount:$RECEIVER_SA"
 grant_dataset_editor "serviceAccount:$GAE_SA"
 ensure_respondent_columns
+ensure_reporting_dataset
 # HMAC secrets were created before App Engine existed; bind GAE now.
 bind_secret_member brandometer-receiver-hmac "serviceAccount:$GAE_SA"
 if gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
