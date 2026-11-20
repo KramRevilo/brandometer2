@@ -172,6 +172,9 @@
                     <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_tags', survey_id=survey.id) }}" title="Download trafficking tag sheet (CSV)">
                         <i class="bi bi-tags"></i>
                     </a>
+                    <a class="btn btn-sm btn-outline-primary" href="{{ url_for('download_bulk_upload', survey_id=survey.id) }}" title="Download CM360/DV360 bulk-upload files">
+                        <i class="bi bi-upload"></i>
+                    </a>
                     {% endif %}
                     <a class="btn btn-sm btn-info" href="{{ url_for('download_responses', survey_id=survey.id) }}" title="Download Responses">
                         <i class="bi bi-download"></i>

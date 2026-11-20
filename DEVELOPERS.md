@@ -243,7 +243,7 @@ The admin UI is self-hosted Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12
 
 **Thank You screen.** `renderThankyou` always runs after the last answer. Tracking pixels and the receiver POST are fire-and-forget (`try/catch`, empty tracker URLs skipped, `resolveRespondentId` failures do not gate the UI). Preview and live zips share `creative.html`; preview only clears `receiver_url`. A 2023 `var window.cookie = ""` syntax error sat in the first `<script>` next to clickTag. Phase 7c item **59** (`52796e5`) added `BV2_*` macros to that same block and read them from `fillMacrosInUrl`, so the empty `trackers: [""]` pixel threw `ReferenceError` *before* thank-you — preview and already-downloaded zips. Redeploy App Engine (`--app-only`) and **re-download zips**.
 
-**Creative sizes.** 300×250 (default for old docs), 160×600, 300×600, 336×280, 970×250. Not 728×90 / 320×50 / 320×100. Stored as `creativesizes` (list) plus `creativesize` (single string when there is one size, otherwise the list) so old docs still load. 970×250 lays answers out in a wrapping grid. Download is an **outer ZIP** of one HTML5 inner ZIP per size (and per Brand Lift segment: `default_control` / `default_expose`) plus `html5_qa.txt`. Inner ZIPs contain only `index.html` (never a nested zip), `ad.size` for that size, filename ≤ 50 characters, well under 5 MB. clickTag/exit is unchanged.
+**Creative sizes.** 300×250 (default for old docs), 160×600, 300×600, 336×280, 970×250. Not 728×90 / 320×50 / 320×100. Stored as `creativesizes` (list) plus `creativesize` (single string when there is one size, otherwise the list) so old docs still load. 970×250 lays answers out in a wrapping grid. Download is an **outer ZIP** of one HTML5 inner ZIP per size (and per Brand Lift segment: `default_control` / `default_expose`) plus `html5_qa.txt` and CM360/DV360 bulk-upload sidecars. Inner ZIPs contain only `index.html` (never a nested zip), `ad.size` for that size, filename ≤ 50 characters, well under 5 MB. clickTag/exit is unchanged.
 
 **HTML5 spec QA.** `html5_qa.py` checks IAB display (200 KB initial / 2.2 MB polite, ~10 host-initiated files), CM360 HTML5 (10 MB / 100 files), clickTag, `ad.size` vs the labelled size, no nested zip, and no unexpected external `https://` (macros, the receiver host, `google.com` clickTag, and `*.googleusercontent.com` are allowed). Findings are warnings only — they never block a download. The editor shows them per selected size; zip download flashes a count and writes `html5_qa.txt` in the outer archive (do not upload that file as a creative). Redeploy App Engine (`--app-only`).
 
@@ -502,10 +502,12 @@ Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --p
 # CM360 batch upload (Phase 6)
 
 1. Download the survey zip from the homepage.
-2. Unzip the **outer** archive on your machine. You should see one `.zip` per size (Brand Lift: two per size, `default_control` and `default_expose`) and `html5_qa.txt` (a report — do not upload it).
-3. In Campaign Manager 360 → Creatives → **New** → **Display** → upload each **inner** zip as HTML5. The `ad.size` meta inside `index.html` must match the placement.
-4. Do not put a zip inside a zip when uploading; each inner file is already a legal HTML5 creative (`index.html` only).
+2. Unzip the **outer** archive on your machine. You should see one `.zip` per size (Brand Lift: two per size, `default_control` and `default_expose`), `html5_qa.txt` (a report — do not upload it), and bulk-upload sidecars (`cm360_html5_bulk.csv`, `dv360_html5_bulk.csv`, `HOW_TO_UPLOAD.txt`).
+3. In Campaign Manager 360 → Creatives → **New** → **Display** → upload each **inner** zip as HTML5. The `ad.size` meta inside `index.html` must match the placement. Optional: fill **Advertiser ID** on the CM360 CSV and use CM360 bulk upload, mapping `HTML5 zip filename` to the inner zip on that row.
+4. Do not put a zip inside a zip when uploading; each inner file is already a legal HTML5 creative (`index.html` only). Do not upload the sidecar CSVs as creatives.
 5. Brand Lift: assign `…_default_control.zip` to the Control audience ad and `…_default_expose.zip` to the Expose audience ad. Both files are the same survey labelled by `seg`. The app does not ship a PSA/house ad.
+
+**Phase 7d / 67 bulk-upload files.** Editors can also download only the sidecars from the homepage or report (`/survey/download_bulk_upload/<id>`). Advertiser ID is blank on purpose. This app does **not** call the CM360 or DV360 APIs and does not store OAuth or service-account credentials. Stopped before anything Mark would have to mint in Cloud Console. Redeploy App Engine (`--app-only`).
 
 Redeploy **App Engine** for Phase 6. Receiver redeploy is not required for sizes/answers (`Response` already stores `1:H`). Optional env: `APP_BRAND_NAME`, `APP_BRAND_BADGE_LETTER`, `APP_BRAND_BADGE_TOOLTIP`.
 

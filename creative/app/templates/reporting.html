@@ -28,6 +28,7 @@
       {% if can_edit %}
       <a class="btn btn-outline-primary" href="{{ url_for('download_tags', survey_id=survey_id) }}">Tag sheet CSV</a>
       <a class="btn btn-outline-primary" href="{{ url_for('download_tags', survey_id=survey_id, format='xlsx') }}">Tag sheet XLSX</a>
+      <a class="btn btn-outline-primary" href="{{ url_for('download_bulk_upload', survey_id=survey_id) }}">CM360/DV360 bulk files</a>
       {% endif %}
       {% if looker_studio_url %}
       <a class="btn btn-outline-primary" href="{{ looker_studio_url }}" target="_blank" rel="noopener">Open in Looker Studio</a>

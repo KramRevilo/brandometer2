@@ -526,6 +526,23 @@ def download_breakouts(survey_id):
       })
 
 
+@app.route('/survey/download_bulk_upload/<string:survey_id>', methods=['GET'])
+def download_bulk_upload(survey_id):
+  """CM360/DV360 bulk-upload CSVs (sidecar files; no API)."""
+  google_auth.require_editor()
+  survey_doc = survey_service.get_doc_by_id(survey_id)
+  if not survey_doc or not getattr(survey_doc, 'exists', False):
+    flash('Survey not found')
+    return redirect(url_for('index'))
+  filename, payload = survey_service.bulk_upload_payload(
+      survey_id, survey_doc.to_dict() or {})
+  return send_file(
+      io.BytesIO(payload),
+      mimetype='application/zip',
+      as_attachment=True,
+      download_name=filename)
+
+
 @app.route('/survey/download_tags/<string:survey_id>', methods=['GET'])
 def download_tags(survey_id):
   """Trafficking tag sheet (CSV or XLSX) for one survey."""

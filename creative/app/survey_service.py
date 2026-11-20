@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 import creative_size
 import ad_macros
+import bulk_upload
 import html5_qa
 import reporting
 import respondent
@@ -471,7 +472,8 @@ def set_form_data(form, edit_doc):
 
 def zip_file(survey_id, survey_dict, record_version=True):
   """Outer ZIP of one HTML5 inner ZIP per size (and per Brand Lift segment)."""
-  current_datetime = datetime.datetime.now().strftime('%Y%m%d')
+  when = datetime.datetime.now()
+  current_datetime = when.strftime('%Y%m%d')
   surveyname = (survey_dict.get('surveyname') or 'survey').replace(' ', '-')
   size_keys = creative_size.selected_keys(survey_dict)
   survey_type = survey_dict.get('surveytype', BRAND_TRACK)
@@ -512,9 +514,11 @@ def zip_file(survey_id, survey_dict, record_version=True):
   outer_name = creative_size.outer_zip_basename(
       current_datetime, surveyname, size_keys)
   outer_stem = outer_name[:-4] if outer_name.endswith('.zip') else outer_name
+  extra_files = [('html5_qa.txt', html5_qa.format_report(findings))]
+  extra_files.extend(bulk_upload.sidecar_files(
+      survey_id, survey_dict, when=when, creative_version=creative_version))
   combined_zip = zip_dir(
-      outer_stem, template_zips,
-      extra_files=[('html5_qa.txt', html5_qa.format_report(findings))])
+      outer_stem, template_zips, extra_files=extra_files)
 
   with open(combined_zip.filename, 'rb') as file:
     file_data = io.BytesIO(file.read())
@@ -1252,6 +1256,17 @@ def get_comment_text(survey):
   language_code = survey.get('language')
   comment_text = language_codes.get(language_code) or 'Choose all applicable'
   return comment_text
+
+
+def bulk_upload_payload(survey_id, survey):
+  """Sidecar CM360/DV360 bulk-upload CSVs (no API, no credentials)."""
+  version = None
+  try:
+    version = survey_collection.peek_next_version(survey_id)
+  except Exception:
+    version = None
+  return bulk_upload.download_zip(
+      survey_id, survey, creative_version=version)
 
 
 def tag_sheet_payload(survey_id, survey, fmt='csv'):
