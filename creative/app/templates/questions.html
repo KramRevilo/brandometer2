@@ -161,6 +161,26 @@
       </div>
     </section>
 
+    <section class="card mb-4{% if qa_findings %} border-warning{% endif %}">
+      <div class="card-body">
+        <h2 class="h5 mb-2">HTML5 spec QA</h2>
+        <p class="form-text">IAB display / Campaign Manager 360 / DV360 checks on the HTML that will go in each inner zip (file size, file count, clickTag, ad.size vs labelled size, no nested zip, no unexpected external requests). Warnings never block a download. The outer zip also includes <code>html5_qa.txt</code>.</p>
+        {% if qa_findings %}
+        <ul class="list-unstyled mb-0 small">
+          {% for item in qa_findings %}
+          <li class="mb-1">
+            <span class="badge text-bg-warning">{{ item.level }}</span>
+            <span class="text-muted">{{ item.code }}{% if item.target %} · {{ item.target }}{% endif %}</span>
+            {{ item.message }}
+          </li>
+          {% endfor %}
+        </ul>
+        {% else %}
+        <p class="text-success mb-0 small">No warnings for the current sizes.</p>
+        {% endif %}
+      </div>
+    </section>
+
     <div class="row g-4">
       <div class="col-lg-7">
         <section class="card mb-4">

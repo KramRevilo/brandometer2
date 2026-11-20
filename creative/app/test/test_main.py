@@ -423,6 +423,8 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'navbar-toggler', response.data)
     self.assertNotIn(b'navbar-header', response.data)
     self.assertIn(b'Live preview', response.data)
+    self.assertIn(b'HTML5 spec QA', response.data)
+    self.assertIn(b'html5_qa.txt', response.data)
     self.assertIn(b'<iframe', response.data)
     self.assertIn(b':srcdoc="previewSrcdoc"', response.data)
     csp = response.headers.get('Content-Security-Policy', '')

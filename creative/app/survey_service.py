@@ -36,6 +36,7 @@ import numpy as np
 import pandas as pd
 import creative_size
 import ad_macros
+import html5_qa
 import reporting
 import respondent
 import survey_collection
@@ -493,10 +494,20 @@ def zip_file(survey_id, survey_dict, record_version=True):
         write_html_template(
             survey_id, survey_dict, prefix, seg_types, size_key=size_key,
             creative_version=creative_version))
+  findings = []
+  receiver_url = os.environ.get('RECEIVER_URL') or ''
+  for inner in template_zips:
+    inner_name = os.path.basename(inner.filename)
+    findings.extend(html5_qa.check_inner_zip(
+        inner.filename, filename=inner_name,
+        size_key=html5_qa.size_key_from_filename(inner_name),
+        receiver_url=receiver_url))
   outer_name = creative_size.outer_zip_basename(
       current_datetime, surveyname, size_keys)
   outer_stem = outer_name[:-4] if outer_name.endswith('.zip') else outer_name
-  combined_zip = zip_dir(outer_stem, template_zips)
+  combined_zip = zip_dir(
+      outer_stem, template_zips,
+      extra_files=[('html5_qa.txt', html5_qa.format_report(findings))])
 
   with open(combined_zip.filename, 'rb') as file:
     file_data = io.BytesIO(file.read())
@@ -506,11 +517,13 @@ def zip_file(survey_id, survey_dict, record_version=True):
   return os.path.basename(combined_zip.filename), file_data
 
 
-def zip_dir(filename, template_zips):
+def zip_dir(filename, template_zips, extra_files=None):
   with zipfile.ZipFile('/tmp/' + filename + '.zip', 'w',
                        zipfile.ZIP_DEFLATED) as zipdir:
     for inner in template_zips:
       zipdir.write(inner.filename, arcname=os.path.basename(inner.filename))
+    for name, content in extra_files or []:
+      zipdir.writestr(name, content)
   return zipdir
 
 
@@ -585,6 +598,47 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None,
       creative_version=creative_version,
       **macro_vars,
       **brand.badge_render_vars(survey_dict))
+
+
+def html5_qa_for_survey(survey_id, survey_dict):
+  """IAB/CM360/DV360 warnings for each selected size (HTML, not a zip)."""
+  survey_dict = dict(survey_dict or {})
+  size_keys = creative_size.selected_keys(survey_dict)
+  receiver_url = os.environ.get('RECEIVER_URL') or ''
+  findings = []
+  seen = set()
+  for size_key in size_keys:
+    html = get_html_template(survey_id or 'draft', survey_dict, '', size=size_key)
+    for item in html5_qa.check_html(
+        html, size_key=size_key, target=size_key, receiver_url=receiver_url):
+      key = (item.get('code'), item.get('message'), item.get('target'))
+      if key in seen:
+        continue
+      seen.add(key)
+      findings.append(item)
+  return findings
+
+
+def flash_zip_html5_qa(data):
+  """Flash HTML5 spec warnings from html5_qa.txt in an outer zip BytesIO."""
+  try:
+    data.seek(0)
+    with zipfile.ZipFile(data) as zf:
+      if 'html5_qa.txt' not in zf.namelist():
+        return
+      report = zf.read('html5_qa.txt').decode('utf-8', 'replace')
+  except Exception:
+    return
+  finally:
+    try:
+      data.seek(0)
+    except Exception:
+      pass
+  count = report.count('[warning]') + report.count('[error]')
+  if count:
+    flash(
+        'HTML5 spec: %s warning(s). See html5_qa.txt inside the zip.' % count,
+        'warning')
 
 
 def delete_tmp_zip_files(zipfiles):

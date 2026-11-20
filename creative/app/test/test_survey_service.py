@@ -141,8 +141,10 @@ class TestSurveyService(unittest.TestCase):
     _, data = survey_service.zip_file(survey_id, survey_dict)
     zf = zipfile.ZipFile(data)
     names = [nzf.filename for nzf in zf.filelist]
-    self.assertEqual(len(names), 1)
-    self.assertRegex(names[0], '.*_test-survey_300x250_creative.zip$')
+    self.assertIn('html5_qa.txt', names)
+    zips = [name for name in names if name.endswith('.zip')]
+    self.assertEqual(len(zips), 1)
+    self.assertRegex(zips[0], '.*_test-survey_300x250_creative.zip$')
 
   @mock.patch.object(survey_collection, 'add_version')
   @mock.patch.object(survey_service, 'get_html_template', return_value='<html></html>')
@@ -169,9 +171,11 @@ class TestSurveyService(unittest.TestCase):
     _, data = survey_service.zip_file(survey_id, survey_dict)
     zf = zipfile.ZipFile(data)
     names = sorted([nzf.filename for nzf in zf.filelist])
-    self.assertEqual(len(names), 2)
-    self.assertRegex(names[0], '.*_test-survey_300x250_default_control.zip$')
-    self.assertRegex(names[1], '.*_test-survey_300x250_default_expose.zip$')
+    self.assertIn('html5_qa.txt', names)
+    zips = [name for name in names if name.endswith('.zip')]
+    self.assertEqual(len(zips), 2)
+    self.assertRegex(zips[0], '.*_test-survey_300x250_default_control.zip$')
+    self.assertRegex(zips[1], '.*_test-survey_300x250_default_expose.zip$')
 
   def test_write_html_template(self):
     segments = ['segment1', 'segment2', 'segment3']

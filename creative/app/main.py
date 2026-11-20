@@ -217,6 +217,13 @@ def _render_editor(form, page_title, survey_id=None, versions=None,
                    last_update_time=''):
   ctx = _editor_context(form)
   suggestions = survey_service.identity_suggestions()
+  payload = brand.persist_badge(dict(form.data or {}))
+  payload, _ = creative_size.persist_sizes(payload)
+  try:
+    qa_findings = survey_service.html5_qa_for_survey(survey_id, payload)
+  except Exception:
+    logging.exception('html5_qa_for_survey failed')
+    qa_findings = []
   return render_template(
       'questions.html',
       title=page_title,
@@ -236,7 +243,8 @@ def _render_editor(form, page_title, survey_id=None, versions=None,
       size_overlay_css=ctx.get('size_overlay_css') or {},
       badge_icons=ctx.get('badge_icons') or brand.badge_icon_list(),
       badge_text_max=ctx.get('badge_text_max') or brand.BADGE_TEXT_MAX,
-      badge_text_default=ctx.get('badge_text_default') or brand.badge_tooltip())
+      badge_text_default=ctx.get('badge_text_default') or brand.badge_tooltip(),
+      qa_findings=qa_findings)
 
 
 @app.route('/survey/create', methods=['GET', 'POST'])
@@ -393,7 +401,7 @@ def download_zip(survey_id):
 
   # this is the standard survey
   filename, data = survey_service.zip_file(survey_id, survey_doc.to_dict())
-
+  survey_service.flash_zip_html5_qa(data)
   return send_file(
       data,
       mimetype='application/zip',
@@ -416,6 +424,7 @@ def download_zip_version(survey_id, version):
     return redirect(url_for('edit', survey_id=survey_id))
   filename, data = survey_service.zip_file(
       survey_id, snapshot, record_version=False)
+  survey_service.flash_zip_html5_qa(data)
   return send_file(
       data,
       mimetype='application/zip',

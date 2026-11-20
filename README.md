@@ -58,8 +58,9 @@ Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe 
 * **Ad-server macros:** each zip sets `clickTag` and cachebuster / campaign / placement / site / creative / user-id / GDPR / US-privacy placeholders for the selected ad server. Expanded IDs are sent on the pixel (`camp`, `plc`, `site`, `crid`). Unexpanded placeholders are not sent. GDPR/US privacy strings stay in the creative for the ad environment; they are **not** stored in BigQuery. Generic mode keeps a static clickTag.
 * **Tag sheet:** editors download CSV or XLSX listing each inner zip (size × Brand Lift segment), filenames, survey campaign/placement IDs, macros, the next zip snapshot version (`ver=`), and trafficking notes.
 * **Versions:** each creative ZIP download stores an immutable snapshot **first**, then bakes that number into the pixel as HMAC-bound `ver=`. The edit page can re-download an old version (same `ver=`). Editing the live survey does not change past snapshots. Old responses without `ver=` have NULL `CreativeVersion`.
+* **HTML5 spec QA:** the editor lists IAB display / CM360 / DV360 warnings for the current sizes (zip size, file count, clickTag, `ad.size` vs labelled size, no nested zip, no unexpected external requests). Warnings never block a download. The outer zip includes `html5_qa.txt` (a report, not a creative).
 
-Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (Brand Lift also splits Control and Expose). Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip as a creative. Inner zips contain only `index.html`.
+Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (Brand Lift also splits Control and Expose) plus `html5_qa.txt`. Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip or `html5_qa.txt` as a creative. Inner zips contain only `index.html`.
 
 ![Survey editor identity fields, size checkboxes, theme preset, and live preview](docs/images/editor.png)
 
@@ -141,7 +142,7 @@ Preview **does not** post to BigQuery. To generate test rows, curl the receiver 
 
 Brand Lift **control and expose are two copies of the same survey creative** (same questions, size, and style). The only difference is a baked `seg` (`default_control` vs `default_expose`) sent on the pixel. Serve the control zip to a **Control** audience (people **not** exposed to the campaign) and the expose zip to an **Expose** audience (people who **were** exposed). Reporting classifies rows from that stored `seg` (`control` / `expos` in the string), not from placement ID. The app does **not** generate or require a PSA, house ad, pre-survey, master, or brand-neutral fallback creative.
 
-1. Download the outer ZIP, unzip it, and upload each **inner** HTML5 zip in CM360 (not the outer file). Match each placement’s dimensions to a selected survey size.
+1. Download the outer ZIP, unzip it, and upload each **inner** HTML5 zip in CM360 (not the outer file, not `html5_qa.txt`). Match each placement’s dimensions to a selected survey size. Review `html5_qa.txt` before trafficking; warnings never block the download.
 2. Brand Lift: **two inner zips per size**. Assign `…_default_control.zip` to the Control ad/audience and `…_default_expose.zip` to the Expose ad/audience. One placement per size with those two ads is enough for overall lift.
 3. Brand Track: **one inner zip per size** (no control/expose split).
 4. Extra CM360 placements or DV360 line items are only needed if you want **placement- or site-level breakouts** or a later **cost/impressions join**. Expanded macros (`plc`, `site`, `crid`, `camp`) are stored on the response when the ad server fills them.
@@ -208,7 +209,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 * **Per-instance stats cache.** Homepage `/index/stats-partial` caches BigQuery counts in process memory (`STATS_CACHE_SECONDS`, default 90). Each App Engine instance has its own map. Not a shared cache.
 * **Receiver rate limit is per instance**, not global. `--max-instances=20` × 30/min is the theoretical ceiling for one IP+survey.
 * **Durable IDs only survive as far as the ad environment allows.** Unexpanded `%u` / `${USER_ID}` placeholders, Safari/Chrome storage partitioning, and in-app preview (no pixel) all mean many impressions still look unique. Raw ad-server user IDs are never stored.
-* **Phase 7d leftover** (not built): HTML5 spec QA automation; bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
+* **Phase 7d leftover** (not built): bulk CSV survey import; stats-method corrections beyond current Wilson / z-test; CM360 / DV360 cost/impressions join; shared stats cache. Also not built: free-form write-in answers, in-stream video/VAST. See **Assessments (not built)** in [DEVELOPERS.md](DEVELOPERS.md).
 
 ## Architecture
 
@@ -376,9 +377,8 @@ ORDER BY CreatedAt;
 
 ## Roadmap (not built)
 
-Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). Remaining **7d** — do not treat these as shipped:
+Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). **7d** HTML5 spec QA (item 64) is shipped. Remaining **7d** — do not treat these as shipped:
 
-* HTML5 spec QA automation
 * Bulk CSV survey import
 * Stats-method corrections beyond current Wilson / z-test
 * CM360 / DV360 cost/impressions join

@@ -101,12 +101,13 @@ class ZipAndHtmlTest(unittest.TestCase):
     self.assertIn('_sizes.zip', filename)
     outer = zipfile.ZipFile(data)
     names = sorted(outer.namelist())
-    self.assertEqual(len(names), 2)
-    self.assertTrue(all(name.endswith('.zip') for name in names))
-    self.assertTrue(all(len(os.path.basename(name)) <= 50 for name in names))
-    self.assertTrue(any('300x250' in name for name in names))
-    self.assertTrue(any('970x250' in name for name in names))
-    for name in names:
+    self.assertIn('html5_qa.txt', names)
+    zips = [name for name in names if name.endswith('.zip')]
+    self.assertEqual(len(zips), 2)
+    self.assertTrue(all(len(os.path.basename(name)) <= 50 for name in zips))
+    self.assertTrue(any('300x250' in name for name in zips))
+    self.assertTrue(any('970x250' in name for name in zips))
+    for name in zips:
       inner_bytes = outer.read(name)
       inner = zipfile.ZipFile(__import__('io').BytesIO(inner_bytes))
       inner_names = inner.namelist()
@@ -342,7 +343,9 @@ class DisclosureBadgeTest(unittest.TestCase):
           'badge_text': 'Custom tip <x>',
       })
     outer = zipfile.ZipFile(data)
-    for name in outer.namelist():
+    zips = [name for name in outer.namelist() if name.endswith('.zip')]
+    self.assertTrue(zips)
+    for name in zips:
       html = zipfile.ZipFile(__import__('io').BytesIO(outer.read(name))).read(
           'index.html').decode('utf-8')
       self.assertIn('Dentsu', html)
