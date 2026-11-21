@@ -65,6 +65,11 @@ STATUS_STALE_DAYS = 7
 # Homepage list page size. Not an env var — change this constant to retune.
 HOMEPAGE_PAGE_SIZE = 50
 STATS_POLL_SECONDS = 30
+# htmx timeout for /index/stats-partial. Loading… must not last forever.
+STATS_PARTIAL_TIMEOUT_MS = 20000
+STATS_UNAVAILABLE_TITLE = (
+    'Could not load response counts from BigQuery. Refresh, or check App Engine '
+    'logs for index.stats_partial_error.')
 _DEFAULT_STATS_CACHE_SECONDS = 90
 _DEFAULT_STATS_LOOKBACK_DAYS = 400
 _MRC_INIT = 999999999
@@ -133,7 +138,12 @@ def _concat_frames(frames, **kwargs):
 
 
 def _query_to_dataframe(query, job_config=None, client=None, empty_columns=None):
-  """Run a BigQuery SQL job. Missing tables return an empty frame, not an error."""
+  """Run a BigQuery SQL job. Missing tables return an empty frame, not an error.
+
+  Prefers the Storage API for to_dataframe(). If that fails (often a missing
+  bigquery.readsessions.create / roles/bigquery.readSessionUser on the App
+  Engine SA), fall back to the jobs REST path so homepage counts still load.
+  """
   empty = _empty_frame(empty_columns or _EMPTY_RESPONSES_COLUMNS)
   project_id = os.environ.get('PROJECT_ID')
   if client is None:
@@ -143,10 +153,15 @@ def _query_to_dataframe(query, job_config=None, client=None, empty_columns=None)
       query_job = client.query(query)
     else:
       query_job = client.query(query, job_config=job_config)
-    bqstorageclient = _get_bqstorage_client()
-    return query_job.result().to_dataframe(bqstorage_client=bqstorageclient)
+    result = query_job.result()
   except NotFound:
     return empty
+  try:
+    return result.to_dataframe(bqstorage_client=_get_bqstorage_client())
+  except Exception as exc:
+    _log.warning(
+        'stats.bqstorage_failed; falling back to REST to_dataframe: %s', exc)
+    return result.to_dataframe(create_bqstorage_client=False)
 
 def get_all():
   return survey_collection.get_all()
@@ -535,8 +550,61 @@ def paginate_surveys(surveys, page=1, page_size=HOMEPAGE_PAGE_SIZE):
   }
 
 
+def _coerce_days(value):
+  if value is None:
+    return None
+  try:
+    if isinstance(value, float) and math.isnan(value):
+      return None
+    return int(value)
+  except (TypeError, ValueError):
+    return None
+
+
+def _format_max_date(value):
+  if value is None:
+    return ''
+  if isinstance(value, float) and math.isnan(value):
+    return ''
+  if hasattr(value, 'isoformat') and not isinstance(value, str):
+    text = value.isoformat()
+    if 'T' in text:
+      text = text.split('T', 1)[0]
+    return text
+  text = str(value).strip()
+  if 'T' in text:
+    text = text.split('T', 1)[0]
+  return text
+
+
+def last_received_title(days, max_date=None):
+  """Tooltip for the Last Rcvd / Data (days) cell."""
+  date_text = _format_max_date(max_date)
+  if days is None and not date_text:
+    return ''
+  if days is None:
+    return 'Last received data %s' % date_text
+  unit = 'day' if days == 1 else 'days'
+  if date_text:
+    return 'Last received data %s (%s %s ago)' % (date_text, days, unit)
+  return 'Last received data (%s %s ago)' % (days, unit)
+
+
+def unavailable_stat_array(survey_ids):
+  """OOB cells when BigQuery (or the stats route) fails."""
+  return [{
+      'id': sid,
+      'stats': [],
+      'unavailable': True,
+      'last_change': '',
+      'last_title': STATS_UNAVAILABLE_TITLE,
+      'status': 'Unavailable',
+      'status_label': 'secondary',
+  } for sid in survey_ids]
+
+
 def build_stat_array(survey_ids, counts_df=None):
-  """Per-survey count / last-response / status from the (cached) BQ summary."""
+  """Per-survey count / last-received-days / status from the (cached) BQ summary."""
   if counts_df is None:
     counts_df = get_response_counts(survey_ids)
   stat_array = []
@@ -544,16 +612,21 @@ def build_stat_array(survey_ids, counts_df=None):
     df = counts_df.loc[counts_df['ID'] == survey_id]
     segmentation_rows = df.to_dict()
     most_recent_change = _MRC_INIT
+    last_at = ''
     segs = []
     for x in segmentation_rows.get('ID', {}):
-      days = segmentation_rows['days_since_response'][x]
+      days = _coerce_days(segmentation_rows['days_since_response'][x])
+      max_date = None
+      if 'max_date' in segmentation_rows:
+        max_date = segmentation_rows['max_date'][x]
       segs.append({
           'Segmentation': segmentation_rows['Segmentation'][x],
           'response_count': segmentation_rows['response_count'][x],
           'days_since_response': days,
       })
-      if days < most_recent_change:
+      if days is not None and days < most_recent_change:
         most_recent_change = days
+        last_at = max_date
     if most_recent_change == _MRC_INIT:
       days_since = None
       last_change_display = ''
@@ -564,7 +637,9 @@ def build_stat_array(survey_ids, counts_df=None):
     stat_array.append({
         'id': survey_id,
         'stats': segs,
+        'unavailable': False,
         'last_change': last_change_display,
+        'last_title': last_received_title(days_since, last_at),
         'status': status_text,
         'status_label': status_label,
     })

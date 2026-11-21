@@ -1,16 +1,30 @@
+{% macro unavailable_mark(title) %}
+  <span class="text-muted" title="{{ title }}" aria-label="unavailable">—</span>
+{% endmacro %}
+
 {% macro count_content(item) %}
+  {% if item and item.unavailable %}
+  {{ unavailable_mark(item.last_title) }}
+  {% else %}
   {% set pair = item | compact_count %}
   {% if pair.text %}
   <span class="text-nowrap" title="{{ pair.title }}" aria-label="{{ pair.title }}">{{ pair.text }}</span>
   {% endif %}
+  {% endif %}
 {% endmacro %}
 
 {% macro last_content(item) %}
-  {% if item %}{{ item.last_change }}{% endif %}
+  {% if item and item.unavailable %}
+  {{ unavailable_mark(item.last_title) }}
+  {% elif item and item.last_change != '' and item.last_change is not none %}
+  <span class="text-nowrap" title="{{ item.last_title }}">{{ item.last_change }}</span>
+  {% endif %}
 {% endmacro %}
 
 {% macro status_content(item) %}
-  {% if item %}
+  {% if item and item.unavailable %}
+  {{ unavailable_mark(item.last_title) }}
+  {% elif item %}
     <span class="badge text-bg-{{ item.status_label }} text-nowrap">{{ item.status }}</span>
   {% endif %}
 {% endmacro %}

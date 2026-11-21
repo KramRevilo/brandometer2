@@ -198,6 +198,7 @@ def index():
       show_archived=show_archived,
       pager=pager,
       stats_poll_seconds=survey_service.STATS_POLL_SECONDS,
+      stats_timeout_ms=survey_service.STATS_PARTIAL_TIMEOUT_MS,
       stats_ids=','.join(survey_ids),
       index_query=index_query,
       sort_query=sort_query,
@@ -217,10 +218,19 @@ def index():
 
 @app.route('/index/stats-partial')
 def index_stats_partial():
-  """Load count / last-response / status cells (BQ, cached) after the list paints."""
+  """Load count / last-received-days / status cells (BQ, cached) after the list paints.
+
+  Always 200 with OOB cells so htmx can swap. BigQuery errors become an
+  unavailable row (—) instead of a 500 that would leave Loading… forever.
+  """
   started = time.perf_counter()
   survey_ids = [sid for sid in request.args.get('ids', '').split(',') if sid]
-  stat_array = survey_service.build_stat_array(survey_ids)
+  try:
+    stat_array = survey_service.build_stat_array(survey_ids)
+  except Exception:
+    _index_log.exception(
+        'index.stats_partial_error n_ids=%d', len(survey_ids))
+    stat_array = survey_service.unavailable_stat_array(survey_ids)
   _index_log.debug(
       'index.stats_partial_ms=%.1f n_ids=%d',
       (time.perf_counter() - started) * 1000, len(survey_ids))

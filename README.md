@@ -27,18 +27,18 @@ Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250
 
 ### Homepage
 
-List with search plus **client / agency / created by / year / size** filters (kept on pagination and Show archived). Default order is **newest `created_at` first**; missing dates sort last. Click a column header to sort (name, client, agency, created by, created, id, sizes). Count / last response / status are not sortable. Page size **50** (`HOMEPAGE_PAGE_SIZE` in `survey_service.py`; not an env var). Client and Agency are their own columns (email in Created by). Old surveys without those fields show **Unknown**; `tools/backfill_created.py` can fill them from AuditLog. Desktop rows are a **single line** (`table-sm`, nowrap/truncate): counts like `C 40 · E 42` (full labels in the title), sizes as `300×250 +1`, YYYY-MM-DD dates.
+List with search plus **client / agency / created by / year / size** filters (kept on pagination and Show archived). Default order is **newest `created_at` first**; missing dates sort last. Click a column header to sort (name, client, agency, created by, created, id, sizes). Count / last-received-days / status are not sortable. Page size **50** (`HOMEPAGE_PAGE_SIZE` in `survey_service.py`; not an env var). Client and Agency are their own columns (email in Created by). Old surveys without those fields show **Unknown**; `tools/backfill_created.py` can fill them from AuditLog. Desktop rows are a **single line** (`table-sm`, nowrap/truncate): counts like `C 40 · E 42` (full labels in the title), sizes as `300×250 +1`, YYYY-MM-DD dates. The last-received column header is two lines (**Last Rcvd** / **Data (days)**); the cell is days since the last BigQuery row, with the date in the tooltip.
 
 * **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
 * One **Actions** column: Preview, Stats, and (editors) Edit as icon buttons; ZIP, tags, CSVs, copy, archive, and delete sit in a **⋯** menu. Viewers get Preview/Stats plus downloads in the menu, not mutate actions. Preview opens a modal (size switcher, `?embed=1` iframe); the standalone `/survey/preview/<id>` page is unchanged. Ctrl/Cmd-click still opens that page.
-* **Responsive:** below 768px the list is cards (name, client, created date, status, actions). From `md` up the table shows; Agency hides until `xl`; Created by / Sizes / Count / Last hide until `lg`. Survey ID and questions stay off the list so a 1400px laptop row still fits. Client stays visible.
-* Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery. Empty per-survey count frames are dropped before `pandas.concat` (no FutureWarning on a page of surveys with no responses).
+* **Responsive:** below 768px the list is cards (name, client, created date, status, last received data (days), actions). From `md` up the table shows; Agency hides until `xl`; Created by / Sizes / Count / Last Rcvd hide until `lg`. Survey ID and questions stay off the list so a 1400px laptop row still fits. Client stays visible.
+* Count / last-received-days / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery. If that request fails or times out (20s), the cells show **—** with an “unavailable” tooltip instead of staying on Loading…. Empty per-survey count frames are dropped before `pandas.concat` (no FutureWarning on a page of surveys with no responses).
 * Viewers see the list, filters, preview, reports, and CSVs (responses + breakouts). Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
 
 ![Home page with sample surveys, status chips, and action buttons](docs/images/home.png)
 
-*Home (1400px): one-line rows, compact lift counts (`C 40 · E 42`), size `+N`, Active / Stale / Timed out chips, and editor actions.*
+*Home (1400px): one-line rows, compact lift counts (`C 40 · E 42`), size `+N`, **Last Rcvd / Data (days)**, Active / Stale / Timed out chips, and editor actions.*
 
 ![Home page filtered to client Acme and size 300×250](docs/images/home-filters.png)
 

@@ -396,8 +396,12 @@ def run_browser(app, out: Path) -> None:
     page = context.new_page()
 
     page.goto(base + '/index', wait_until='networkidle')
-    page.wait_for_selector('#status-lift-demo')
-    page.wait_for_timeout(400)
+    page.wait_for_function(
+        """() => {
+          const el = document.getElementById('status-lift-demo');
+          return el && el.textContent && el.textContent.indexOf('Loading') === -1;
+        }""")
+    page.wait_for_timeout(200)
     capture(page, out / 'home.png')
 
     page.goto(base + '/index?client=Acme&size=300x250', wait_until='networkidle')

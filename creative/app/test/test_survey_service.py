@@ -1155,6 +1155,49 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(survey_service.compact_count(None)['text'], '')
     self.assertEqual(survey_service.compact_count({})['text'], '')
 
+  def test_build_stat_array_zero_days_is_active_with_date_title(self):
+    df = pandas.DataFrame({
+        'ID': ['s1'],
+        'Segmentation': ['survey'],
+        'max_date': ['2026-11-21'],
+        'days_since_response': [0],
+        'response_count': [3],
+    })
+    rows = survey_service.build_stat_array(['s1'], counts_df=df)
+    self.assertEqual(rows[0]['last_change'], 0)
+    self.assertEqual(rows[0]['status'], 'Active')
+    self.assertIn('2026-11-21', rows[0]['last_title'])
+    self.assertIn('0 days ago', rows[0]['last_title'])
+
+  def test_last_received_title_includes_date_and_days(self):
+    self.assertEqual(
+        survey_service.last_received_title(1, '2026-11-18'),
+        'Last received data 2026-11-18 (1 day ago)')
+    self.assertEqual(
+        survey_service.last_received_title(4, '2026-11-15T12:00:00Z'),
+        'Last received data 2026-11-15 (4 days ago)')
+    self.assertEqual(survey_service.last_received_title(None, None), '')
+
+  def test_unavailable_stat_array_marks_each_id(self):
+    rows = survey_service.unavailable_stat_array(['a', 'b'])
+    self.assertEqual([row['id'] for row in rows], ['a', 'b'])
+    self.assertTrue(all(row['unavailable'] for row in rows))
+
+  @mock.patch.object(survey_service, '_get_bqstorage_client')
+  def test_query_to_dataframe_falls_back_when_bqstorage_fails(self, _storage):
+    result = mock.Mock()
+    result.to_dataframe.side_effect = [
+        RuntimeError('403 readsessions'),
+        pandas.DataFrame({'ID': ['s1']}),
+    ]
+    client = mock.Mock()
+    client.query.return_value.result.return_value = result
+    df = survey_service._query_to_dataframe('SELECT 1', client=client)
+    self.assertEqual(list(df['ID']), ['s1'])
+    self.assertEqual(result.to_dataframe.call_count, 2)
+    second = result.to_dataframe.call_args_list[1]
+    self.assertEqual(second.kwargs.get('create_bqstorage_client'), False)
+
   def test_sizes_compact_first_plus_n(self):
     one = survey_service.sizes_compact(['300x250'])
     self.assertEqual(one['text'], '300×250')

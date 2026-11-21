@@ -1,4 +1,30 @@
-/* Homepage list: open survey preview in a same-origin modal. */
+/* Homepage list: stats-partial error fallback, then preview modal. */
+(function () {
+  var UNAVAILABLE =
+      '<span class="text-muted" title="Could not load response counts from BigQuery" aria-label="unavailable">—</span>';
+
+  function markStatsUnavailable() {
+    document.querySelectorAll('[data-stats-pending]').forEach(function (el) {
+      el.removeAttribute('data-stats-pending');
+      el.innerHTML = UNAVAILABLE;
+    });
+  }
+
+  function isStatsPoller(evt) {
+    return evt.detail && evt.detail.elt && evt.detail.elt.id === 'stats-poller';
+  }
+
+  document.body.addEventListener('htmx:responseError', function (evt) {
+    if (isStatsPoller(evt)) markStatsUnavailable();
+  });
+  document.body.addEventListener('htmx:sendError', function (evt) {
+    if (isStatsPoller(evt)) markStatsUnavailable();
+  });
+  document.body.addEventListener('htmx:timeout', function (evt) {
+    if (isStatsPoller(evt)) markStatsUnavailable();
+  });
+})();
+
 (function () {
   var modalEl = document.getElementById('previewModal');
   var iframe = document.getElementById('previewModalFrame');

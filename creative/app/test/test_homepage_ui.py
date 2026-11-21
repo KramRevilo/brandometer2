@@ -242,6 +242,69 @@ class HomepageBrowserTest(unittest.TestCase):
         self.assertTrue(page.locator('#mainTable >> text=Client').first.is_visible())
         self.assertTrue(page.locator('#mainTable >> text=C 40 · E 42').first.is_visible())
         self.assertIn('300×250 +1', page.locator('#mainTable').inner_text())
+        self.assertIn('Last Rcvd', page.locator('#mainTable thead').inner_text())
+        self.assertIn('Data (days)', page.locator('#mainTable thead').inner_text())
+        self.assertNotIn('Loading', page.locator('#count-lift-demo').inner_text())
+        self.assertNotIn('Loading', page.locator('#last-lift-demo').inner_text())
+        self.assertNotIn('Loading', page.locator('#status-lift-demo').inner_text())
+        browser.close()
+    finally:
+      server.shutdown()
+
+  def test_stats_cells_leave_loading_after_partial(self):
+    sync_playwright = _playwright_or_skip()
+    survey_service.get_response_counts.return_value = pandas.DataFrame({
+        'ID': ['lift-demo', 'lift-demo', 'track-two'],
+        'Segmentation': ['default_control', 'default_expose', 'survey'],
+        'max_date': ['2026-11-18', '2026-11-18', '2026-11-18'],
+        'days_since_response': [1, 1, 2],
+        'response_count': [40, 42, 24],
+    })
+    server, port = _start_app(main.app)
+    base = 'http://127.0.0.1:%s' % port
+    try:
+      with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1400, 'height': 900})
+        page.goto(base + '/index', wait_until='networkidle')
+        page.wait_for_function(
+            """() => {
+              const el = document.getElementById('count-lift-demo');
+              return el && el.textContent.indexOf('Loading') === -1
+                  && el.textContent.indexOf('C 40') !== -1;
+            }""")
+        self.assertIn('C 40 · E 42', page.locator('#count-lift-demo').inner_text())
+        self.assertIn('1', page.locator('#last-lift-demo').inner_text())
+        self.assertIn(
+            'Last received data',
+            page.locator('#last-lift-demo span').get_attribute('title') or '')
+        self.assertIn('Active', page.locator('#status-lift-demo').inner_text())
+        self.assertNotIn('Loading', page.locator('#count-lift-demo').inner_text())
+        browser.close()
+    finally:
+      server.shutdown()
+
+  def test_stats_cells_show_unavailable_when_bq_fails(self):
+    sync_playwright = _playwright_or_skip()
+    survey_service.get_response_counts.side_effect = RuntimeError('bq down')
+    server, port = _start_app(main.app)
+    base = 'http://127.0.0.1:%s' % port
+    try:
+      with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1400, 'height': 900})
+        page.goto(base + '/index', wait_until='networkidle')
+        page.wait_for_function(
+            """() => {
+              const el = document.getElementById('count-lift-demo');
+              return el && el.textContent.indexOf('Loading') === -1
+                  && el.textContent.indexOf('—') !== -1;
+            }""")
+        self.assertIn('—', page.locator('#count-lift-demo').inner_text())
+        self.assertIn('—', page.locator('#last-lift-demo').inner_text())
+        self.assertIn('—', page.locator('#status-lift-demo').inner_text())
+        title = page.locator('#count-lift-demo span').get_attribute('title') or ''
+        self.assertIn('BigQuery', title)
         browser.close()
     finally:
       server.shutdown()
