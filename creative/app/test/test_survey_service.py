@@ -1120,6 +1120,50 @@ class TestSurveyService(unittest.TestCase):
         survey_service.parse_sort('nope', 'sideways'),
         ('created_at', 'desc'))
 
+  def test_homepage_page_size_is_named_constant_not_env(self):
+    self.assertEqual(survey_service.HOMEPAGE_PAGE_SIZE, 50)
+    self.assertFalse(hasattr(survey_service, 'homepage_page_size'))
+
+  def test_compact_count_lift_and_generic_single_segment(self):
+    lift = survey_service.compact_count({
+        'stats': [
+            {'Segmentation': 'default_control', 'response_count': 40},
+            {'Segmentation': 'default_expose', 'response_count': 42},
+        ],
+    })
+    self.assertEqual(lift['text'], 'C 40 · E 42')
+    self.assertEqual(
+        lift['title'], 'default_control: 40 · default_expose: 42')
+    survey = survey_service.compact_count({
+        'stats': [{'Segmentation': 'survey', 'response_count': 24}],
+    })
+    self.assertEqual(survey['text'], '24')
+    self.assertEqual(survey['title'], 'survey: 24')
+    unnamed = survey_service.compact_count({
+        'stats': [{'Segmentation': '', 'response_count': 3}],
+    })
+    self.assertEqual(unnamed['text'], '3')
+    self.assertEqual(unnamed['title'], 'Unnamed: 3')
+    custom = survey_service.compact_count({
+        'stats': [
+            {'Segmentation': 'north', 'response_count': 10},
+            {'Segmentation': 'south', 'response_count': 11},
+        ],
+    })
+    self.assertEqual(custom['text'], 'N 10 · S 11')
+    self.assertEqual(custom['title'], 'north: 10 · south: 11')
+    self.assertEqual(survey_service.compact_count(None)['text'], '')
+    self.assertEqual(survey_service.compact_count({})['text'], '')
+
+  def test_sizes_compact_first_plus_n(self):
+    one = survey_service.sizes_compact(['300x250'])
+    self.assertEqual(one['text'], '300×250')
+    self.assertEqual(one['title'], '300×250')
+    two = survey_service.sizes_compact(['300x250', '336x280'])
+    self.assertEqual(two['text'], '300×250 +1')
+    self.assertEqual(two['title'], '300×250, 336×280')
+    self.assertEqual(survey_service.sizes_compact([])['text'], '')
+
   def test_identity_suggestions_from_existing_values(self):
     docs = [
         self._survey_doc('a', {'client': 'Acme', 'agency': 'OMD'}),

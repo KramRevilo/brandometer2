@@ -1,13 +1,7 @@
 {% macro count_content(item) %}
-  {% if item %}
-    {% for seg in item.stats %}
-      {% if seg['Segmentation'] == '' %}
-        &lt;Unnamed&gt;
-      {% else %}
-        {{ seg['Segmentation'] }}
-      {% endif %}
-      &nbsp;&colon;&nbsp;{{ seg['response_count'] }}<br>
-    {% endfor %}
+  {% set pair = item | compact_count %}
+  {% if pair.text %}
+  <span class="text-nowrap" title="{{ pair.title }}" aria-label="{{ pair.title }}">{{ pair.text }}</span>
   {% endif %}
 {% endmacro %}
 
@@ -17,6 +11,6 @@
 
 {% macro status_content(item) %}
   {% if item %}
-    <span class="badge text-bg-{{ item.status_label }}">{{ item.status }}</span>
+    <span class="badge text-bg-{{ item.status_label }} text-nowrap">{{ item.status }}</span>
   {% endif %}
 {% endmacro %}

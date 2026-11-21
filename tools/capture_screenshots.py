@@ -8,7 +8,7 @@ with synthetic Brand Lift rows so the report page has CIs and a chart.
   python3 -m playwright install chromium
   python3 tools/capture_screenshots.py
 
-Images land in docs/images/ as optimised PNG (UI capped at 1200px wide;
+Images land in docs/images/ as optimised PNG (desktop UI at 1400px wide;
 creatives stay natural size).
 """
 from __future__ import annotations
@@ -26,7 +26,8 @@ APP_DIR = ROOT / 'creative' / 'app'
 DEFAULT_OUT = ROOT / 'docs' / 'images'
 DEFAULT_PORT = 43147
 PORT = DEFAULT_PORT
-UI_MAX_WIDTH = 1200
+UI_MAX_WIDTH = 1400
+DESKTOP_WIDTH = 1400
 
 
 def _prepare_env() -> None:
@@ -389,7 +390,7 @@ def run_browser(app, out: Path) -> None:
   with sync_playwright() as playwright:
     browser = playwright.chromium.launch(headless=True)
     context = browser.new_context(
-        viewport={'width': 1280, 'height': 900},
+        viewport={'width': DESKTOP_WIDTH, 'height': 900},
         device_scale_factor=1)
     context.add_cookies([admin_cookie])
     page = context.new_page()
@@ -408,7 +409,7 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_selector('#mainTable')
     page.wait_for_timeout(400)
     capture(page, out / 'home-narrow.png')
-    page.set_viewport_size({'width': 1280, 'height': 900})
+    page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
 
     page.goto(base + '/index', wait_until='networkidle')
     page.wait_for_selector('#actions-lift-demo')
@@ -532,6 +533,7 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_timeout(300)
     capture(page, out / 'admin.png')
 
+    page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
     page.goto(base + '/index', wait_until='networkidle')
     page.wait_for_timeout(300)
     page.click('#userMenu')

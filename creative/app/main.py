@@ -732,6 +732,16 @@ def created_by_display_filter(survey):
   return survey_service.created_by_display(survey)
 
 
+@app.template_filter('compact_count')
+def compact_count_filter(item):
+  return survey_service.compact_count(item)
+
+
+@app.template_filter('sizes_compact')
+def sizes_compact_filter(keys):
+  return survey_service.sizes_compact(keys)
+
+
 @app.template_filter('format_percentage')
 def format_percentage(num):
   if num is None or (isinstance(num, float) and math.isnan(num)):

@@ -4,9 +4,15 @@
 {% block styles %}
 <style>
   .survey-actions { flex-wrap: nowrap; }
-  .survey-actions .btn { display: inline-flex; align-items: center; justify-content: center; }
-  td.survey-actions-cell { white-space: nowrap; width: 1%; }
-  #mainTable thead th { position: sticky; top: 0; z-index: 2; }
+  .survey-actions .btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.15rem 0.35rem; }
+  td.survey-actions-cell { white-space: nowrap; width: 1%; overflow: visible; }
+  #mainTable thead th { position: sticky; top: 0; z-index: 2; white-space: nowrap; }
+  #mainTable th, #mainTable td { white-space: nowrap; vertical-align: middle; }
+  #mainTable td.text-truncate { max-width: 11rem; }
+  #mainTable td.cell-name { max-width: 14rem; }
+  #mainTable td.cell-created-by { max-width: 10rem; }
+  #mainTable td.cell-questions { max-width: 12rem; }
+  #mainTable td.cell-count { min-width: 6.5rem; }
   .survey-card .survey-card-title { min-width: 0; }
   #previewModalFrame { border: 0; background: #fff; display: block; }
 </style>
@@ -55,9 +61,9 @@
                 {% endif %}
             </select>
         </div>
-        <div class="col-6 col-lg-1">
+        <div class="col-6 col-lg-auto">
             <label class="form-label" for="filter-year">Year</label>
-            <select class="form-select" id="filter-year" name="year">
+            <select class="form-select" id="filter-year" name="year" style="min-width: 7.5rem;">
                 <option value="">All years</option>
                 {% for value in filter_options.years %}
                 <option value="{{ value }}"{% if filters.year == value %} selected{% endif %}>{{ value }}</option>
@@ -67,16 +73,16 @@
                 {% endif %}
             </select>
         </div>
-        <div class="col-6 col-lg-1">
+        <div class="col-6 col-lg-auto">
             <label class="form-label" for="filter-size">Size</label>
-            <select class="form-select" id="filter-size" name="size">
+            <select class="form-select" id="filter-size" name="size" style="min-width: 8rem;">
                 <option value="">All sizes</option>
                 {% for value, label in size_choices %}
                 <option value="{{ value }}"{% if filters.size == value %} selected{% endif %}>{{ label }}</option>
                 {% endfor %}
             </select>
         </div>
-        <div class="col-lg-2 d-flex gap-2">
+        <div class="col-auto d-flex gap-2">
             <button type="submit" class="btn btn-primary">Filter</button>
             {% if filters_active %}
             <a class="btn btn-outline-secondary" href="{{ url_for('index', archived=1) if show_archived else url_for('index') }}">Clear</a>
@@ -151,7 +157,7 @@
     </div>
 
     <div class="table-responsive d-none d-md-block">
-    <table id="mainTable" class="table table-bordered table-striped align-middle">
+    <table id="mainTable" class="table table-sm table-bordered table-striped align-middle">
         <thead class="table-primary">
             <tr class="text-center">
                     <th scope="col" class="table_header" style="width:160px;" aria-sort="{{ 'descending' if sort_key == 'name' and sort_dir == 'desc' else 'ascending' if sort_key == 'name' else 'none' }}">{{ sort_link('name', 'Name') }}</th>
@@ -159,52 +165,49 @@
                     <th scope="col" class="table_header d-none d-xl-table-cell" aria-sort="{{ 'descending' if sort_key == 'agency' and sort_dir == 'desc' else 'ascending' if sort_key == 'agency' else 'none' }}">{{ sort_link('agency', 'Agency') }}</th>
                     <th scope="col" class="table_header d-none d-lg-table-cell" aria-sort="{{ 'descending' if sort_key == 'created_by' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_by' else 'none' }}">{{ sort_link('created_by', 'Created by') }}</th>
                     <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'created_at' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_at' else 'none' }}">{{ sort_link('created_at', 'Created') }}</th>
-                    <th scope="col" class="table_header d-none d-xxl-table-cell" style="width:120px;" aria-sort="{{ 'descending' if sort_key == 'id' and sort_dir == 'desc' else 'ascending' if sort_key == 'id' else 'none' }}">{{ sort_link('id', 'Survey ID') }}</th>
-                    <th scope="col" class="table_header d-none d-xxl-table-cell">Survey Questions</th>
+                    <th scope="col" class="table_header d-none" aria-sort="{{ 'descending' if sort_key == 'id' and sort_dir == 'desc' else 'ascending' if sort_key == 'id' else 'none' }}">{{ sort_link('id', 'Survey ID') }}</th>
+                    <th scope="col" class="table_header d-none">Survey Questions</th>
                     <th scope="col" class="table_header d-none d-lg-table-cell" style="width:90px;" aria-sort="{{ 'descending' if sort_key == 'sizes' and sort_dir == 'desc' else 'ascending' if sort_key == 'sizes' else 'none' }}">{{ sort_link('sizes', 'Sizes') }}</th>
-                    <th scope="col" class="table_header" style="width:1%;">Actions</th>
-                    <th scope="col" class="table_header d-none d-lg-table-cell" style="width:50px;" title="Response count (segment:count)">Count</th>
+                    <th scope="col" class="table_header">Actions</th>
+                    <th scope="col" class="table_header d-none d-lg-table-cell cell-count" title="Response count (segment:count)">Count</th>
                     <th scope="col" class="table_header d-none d-lg-table-cell" style="width:75px;" title="Last response (days)">Last</th>
                     <th scope="col" class="table_header">Status</th>
             </tr>
         </thead>
         <tbody>
         {% for survey in all_surveys %}
+        {% set sizes = survey | survey_size_keys %}
+        {% set size_compact = sizes | sizes_compact %}
+        {% set questions = survey | get_all_question_text %}
         <tr>
-            <td class="text-center small text-truncate" title="{{ survey | survey_label }}">
+            <td class="text-center small text-truncate text-nowrap cell-name" title="{{ survey | survey_label }}">
                 {{ survey | survey_label }}
             </td>
-            <td class="text-center small">{{ survey.to_dict().get('client') or 'Unknown' }}</td>
-            <td class="text-center small d-none d-xl-table-cell">{{ survey.to_dict().get('agency') or 'Unknown' }}</td>
-            <td class="text-center small d-none d-lg-table-cell">{{ survey | created_by_display }}</td>
-            <td class="text-center small"{% if survey | created_at_title %} title="{{ survey | created_at_title }}"{% endif %}>
+            <td class="text-center small text-truncate text-nowrap" title="{{ survey.to_dict().get('client') or 'Unknown' }}">{{ survey.to_dict().get('client') or 'Unknown' }}</td>
+            <td class="text-center small text-truncate text-nowrap d-none d-xl-table-cell" title="{{ survey.to_dict().get('agency') or 'Unknown' }}">{{ survey.to_dict().get('agency') or 'Unknown' }}</td>
+            <td class="text-center small text-truncate text-nowrap d-none d-lg-table-cell cell-created-by" title="{{ survey | created_by_display }}">{{ survey | created_by_display }}</td>
+            <td class="text-center small text-nowrap"{% if survey | created_at_title %} title="{{ survey | created_at_title }}"{% endif %}>
                 {{ survey | created_at_display or 'Unknown' }}
             </td>
-            <td class="text-center d-none d-xxl-table-cell" style="font-size:8pt;" title="{{ survey.id }}">
+            <td class="text-center small text-truncate text-nowrap d-none" title="{{ survey.id }}">
                 {{ survey.id }}
             </td>
-            <td class="small d-none d-xxl-table-cell">
-                    {% for question_text in survey | get_all_question_text %}
-                        <div>{{ question_text }}</div>
-                    {% endfor %}
+            <td class="small text-truncate text-nowrap d-none cell-questions" title="{{ questions|join(' · ') }}">
+                {{ questions|join(' · ') }}
             </td>
-            <td class="text-center d-none d-lg-table-cell">
-                {% set sizes = survey | survey_size_keys %}
-                {% for key in sizes %}
-                <span class="badge text-bg-light border fw-normal">{{ key.replace('x', '×') }}</span>
-                {% endfor %}
+            <td class="text-center small text-nowrap d-none d-lg-table-cell"{% if size_compact.title %} title="{{ size_compact.title }}"{% endif %}>
+                {{ size_compact.text }}
             </td>
-            <td class="text-center survey-actions-cell">
-                {% set sizes = survey | survey_size_keys %}
+            <td class="text-center survey-actions-cell text-nowrap">
                 {{ survey_actions(survey, sizes, show_archived, 'actions-' + survey.id) }}
             </td>
-            <td class="text-center small d-none d-lg-table-cell">
+            <td class="text-center small text-nowrap d-none d-lg-table-cell cell-count">
                 <div id="count-{{ survey.id }}">{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ count_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
-            <td class="text-center small d-none d-lg-table-cell">
+            <td class="text-center small text-nowrap d-none d-lg-table-cell">
                 <div id="last-{{ survey.id }}">{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ last_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
-            <td class="text-center">
+            <td class="text-center text-nowrap">
                 <div id="status-{{ survey.id }}">{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ status_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
         </tr>

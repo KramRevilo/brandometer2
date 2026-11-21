@@ -144,6 +144,20 @@ class HomepageBrowserTest(unittest.TestCase):
         self.assertFalse(
             page.locator('#mainTable >> text=Created by').first.is_visible())
 
+        page.set_viewport_size({'width': 992, 'height': 900})
+        page.wait_for_timeout(200)
+        self.assertTrue(page.locator('#mainTable').is_visible())
+        self.assertTrue(
+            page.locator('#mainTable >> text=Created by').first.is_visible())
+        self.assertTrue(page.locator('#mainTable >> text=Sizes').first.is_visible())
+        self.assertFalse(page.locator('#mainTable >> text=Agency').first.is_visible())
+
+        page.set_viewport_size({'width': 1200, 'height': 900})
+        page.wait_for_timeout(200)
+        self.assertTrue(page.locator('#mainTable >> text=Agency').first.is_visible())
+        self.assertTrue(
+            page.locator('#mainTable >> text=Created by').first.is_visible())
+
         page.set_viewport_size({'width': 1280, 'height': 900})
         page.goto(base + '/index', wait_until='networkidle')
         page.wait_for_selector('#mainTable a.js-preview-open')
@@ -173,6 +187,61 @@ class HomepageBrowserTest(unittest.TestCase):
         page.locator('#previewModal [data-bs-dismiss="modal"]').click()
         page.wait_for_selector('#previewModal.show', state='hidden')
 
+        browser.close()
+    finally:
+      server.shutdown()
+
+  def test_desktop_rows_are_single_line_at_1400(self):
+    sync_playwright = _playwright_or_skip()
+    extra = []
+    for i in range(4):
+      extra.append(_survey('row-%s' % i, {
+          'surveyname': 'Long survey name that should truncate %s' % i,
+          'displayname': 'Long survey name that should truncate %s' % i,
+          'surveytype': 'brand_track',
+          'client': 'Acme Worldwide International',
+          'agency': 'Example Media Partners LLC',
+          'created_at': '2026-11-1%sT12:00:00Z' % (i + 1),
+          'created_by': 'editor.with.a.long.local-part@example.com',
+          'question1': 'Which cola brand did you notice?',
+          'answer1a': 'Example Cola',
+          'answer1b': 'Other Cola',
+          'creativesizes': ['300x250', '336x280', '970x250'],
+          'responsetype': 'Submit Responses at End of Survey',
+      }))
+    surveys = [_survey('lift-demo', _MULTI), _survey('track-two', _TRACK)] + extra
+    survey_service.list_surveys.return_value = surveys
+    survey_service.get_response_counts.return_value = pandas.DataFrame({
+        'ID': ['lift-demo', 'lift-demo', 'track-two'] + ['row-%s' % i for i in range(4)],
+        'Segmentation': ['default_control', 'default_expose', 'survey'] + ['survey'] * 4,
+        'max_date': ['2026-11-18'] * 7,
+        'days_since_response': [1, 1, 2] + [1] * 4,
+        'response_count': [40, 42, 24] + [8] * 4,
+    })
+
+    server, port = _start_app(main.app)
+    base = 'http://127.0.0.1:%s' % port
+    try:
+      with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1400, 'height': 900})
+        page.goto(base + '/index', wait_until='networkidle')
+        page.wait_for_selector('#mainTable tbody tr')
+        page.wait_for_timeout(300)
+        heights = page.evaluate(
+            """() => Array.from(document.querySelectorAll('#mainTable tbody tr'))
+                 .map(row => Math.round(row.getBoundingClientRect().height))""")
+        self.assertGreaterEqual(len(heights), 2)
+        self.assertTrue(
+            all(h <= 44 for h in heights),
+            'row heights %s exceeded 44px' % heights)
+        self.assertLessEqual(
+            max(heights) - min(heights), 1,
+            'row heights were not equal: %s' % heights)
+        self.assertTrue(page.locator('#mainTable >> text=Agency').first.is_visible())
+        self.assertTrue(page.locator('#mainTable >> text=Client').first.is_visible())
+        self.assertTrue(page.locator('#mainTable >> text=C 40 · E 42').first.is_visible())
+        self.assertIn('300×250 +1', page.locator('#mainTable').inner_text())
         browser.close()
     finally:
       server.shutdown()

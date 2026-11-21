@@ -62,6 +62,7 @@ _FORM_META_KEYS = ('csrf_token', 'submit', 'last_update_time')
 # 2022 backlog (yellow at 7 days). Previously Stale ran through 14 days.
 STATUS_ACTIVE_DAYS = 3
 STATUS_STALE_DAYS = 7
+# Homepage list page size. Not an env var — change this constant to retune.
 HOMEPAGE_PAGE_SIZE = 50
 STATS_POLL_SECONDS = 30
 _DEFAULT_STATS_CACHE_SECONDS = 90
@@ -237,6 +238,83 @@ def created_by_email(survey):
 
 def created_by_display(survey):
   return created_by_email(survey) or 'Unknown'
+
+
+_GENERIC_SEGMENTS = frozenset(('', 'survey', 'unnamed', '<unnamed>', 'default'))
+_SEGMENT_SHORT = {
+    'default_control': 'C',
+    'default_expose': 'E',
+    'control': 'C',
+    'expose': 'E',
+    'exposed': 'E',
+}
+
+
+def short_segment_label(name):
+  """One-letter (or short) label for a homepage count segment."""
+  text = (name or '').strip()
+  key = text.lower()
+  if key in _SEGMENT_SHORT:
+    return _SEGMENT_SHORT[key]
+  if 'control' in key:
+    return 'C'
+  if 'expos' in key:
+    return 'E'
+  if not text:
+    return '?'
+  token = re.split(r'[\s_]+', text)[-1] or text
+  if len(token) <= 3:
+    return token[:1].upper() + token[1:]
+  return token[:1].upper()
+
+
+def compact_count(item):
+  """One-line count cell: {'text', 'title'}.
+
+  Brand Lift control/expose becomes 'C 40 · E 42'. A single generic segment
+  (survey / unnamed / default) is just the number. Full labels stay in title.
+  """
+  empty = {'text': '', 'title': ''}
+  if not item:
+    return empty
+  segs = item.get('stats') if isinstance(item, dict) else None
+  if not segs:
+    return empty
+  full = []
+  shorts = []
+  for seg in segs:
+    name = (seg.get('Segmentation') or '').strip()
+    label = name or 'Unnamed'
+    raw = seg.get('response_count')
+    try:
+      count = int(raw)
+    except (TypeError, ValueError):
+      count = raw
+    full.append('%s: %s' % (label, count))
+    shorts.append((short_segment_label(name), count, name.lower()))
+  title = ' · '.join(full)
+  if len(shorts) == 1:
+    short, count, key = shorts[0]
+    if key in _GENERIC_SEGMENTS:
+      return {'text': str(count), 'title': title}
+    return {'text': '%s %s' % (short, count), 'title': title}
+  text = ' · '.join('%s %s' % (short, count) for short, count, _ in shorts)
+  return {'text': text, 'title': title}
+
+
+def sizes_compact(keys):
+  """First size plus '+N' when there are more. Title is the full list."""
+  keys = list(keys or [])
+  if not keys:
+    return {'text': '', 'title': ''}
+  labels = [str(key).replace('x', '×') for key in keys]
+  title = ', '.join(labels)
+  if len(labels) == 1:
+    return {'text': labels[0], 'title': title}
+  return {
+      'text': '%s +%d' % (labels[0], len(labels) - 1),
+      'title': title,
+  }
 
 
 def survey_identity_line(survey):

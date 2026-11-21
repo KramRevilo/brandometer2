@@ -268,10 +268,38 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('id="status-card-s1"', html)
     self.assertIn('actions-card-s1', html)
     self.assertIn('d-none d-xl-table-cell', html)
-    self.assertIn('d-none d-xxl-table-cell', html)
     self.assertIn('d-none d-lg-table-cell', html)
     self.assertIn('sort=agency', html)
     self.assertIn('sort=client', html)
+    self.assertIn('table-sm', html)
+    self.assertIn('text-nowrap', html)
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_compact_row_markup(self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('wide', {
+            'surveyname': 'Wide pack with a very long display name',
+            'displayname': 'Wide pack with a very long display name',
+            'client': 'Acme Worldwide International',
+            'agency': 'Example Media Partners',
+            'created_at': '2026-11-18T12:00:00Z',
+            'created_by': 'editor@example.com',
+            'creativesizes': ['300x250', '336x280', '970x250'],
+            'question1': 'Q',
+        })
+    ]
+    counts_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
+
+    html = self.client.get('/index').data.decode('utf-8')
+    self.assertIn('table-sm', html)
+    self.assertIn('text-nowrap', html)
+    self.assertIn('300×250 +2', html)
+    self.assertIn('title="300×250, 336×280, 970×250"', html)
+    self.assertIn('title="editor@example.com"', html)
+    self.assertIn('title="2026-11-18T12:00:00Z"', html)
+    self.assertIn('2026-11-18', html)
+    self.assertNotIn('badge text-bg-light', html)
 
   @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
@@ -334,7 +362,32 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'id="status-card-s1"', response.data)
     self.assertIn(b'hx-swap-oob="true"', response.data)
     self.assertIn(b'9', response.data)
+    self.assertIn(b'E 9', response.data)
+    self.assertIn(b'title="default_expose: 9"', response.data)
+    self.assertIn(b'aria-label="default_expose: 9"', response.data)
+    self.assertNotIn(b'<br>', response.data)
+    self.assertNotIn(b'default_expose :', response.data)
     self.assertIn(b'Active', response.data)
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_stats_partial_compact_lift_counts(self, list_mock, counts_mock):
+    counts_mock.return_value = pandas.DataFrame({
+        'ID': ['s1', 's1', 's2'],
+        'Segmentation': ['default_control', 'default_expose', 'survey'],
+        'max_date': ['2026-11-18', '2026-11-18', '2026-11-18'],
+        'days_since_response': [1, 1, 2],
+        'response_count': [40, 42, 24],
+    })
+
+    response = self.client.get('/index/stats-partial?ids=s1,s2')
+    html = response.data.decode('utf-8')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn('C 40 · E 42', html)
+    self.assertIn('title="default_control: 40 · default_expose: 42"', html)
+    self.assertIn('>24<', html)
+    self.assertIn('title="survey: 24"', html)
+    self.assertNotIn('<br>', html)
 
   @mock.patch.object(survey_service, 'list_surveys')
   @mock.patch.object(survey_service, '_fetch_all_response_counts')
@@ -383,6 +436,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('160×600'.encode('utf-8'), home.data)
     self.assertIn(b'title="View Survey"', home.data)
     self.assertIn(b'aria-label="More actions"', home.data)
+    self.assertIn('300×250 +1'.encode('utf-8'), home.data)
     self.assertIn(b'/survey/preview/wide?size=970x250', home.data)
     self.assertIn(b'/survey/preview/tall', home.data)
     self.assertNotIn(b'/survey/preview/tall?size=', home.data)
