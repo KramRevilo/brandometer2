@@ -765,7 +765,8 @@ class TestSurveyService(unittest.TestCase):
       self.assertNotIn('custom_css', fields)
       for name in (
           'surveyname', 'displayname', 'archived', 'surveytype', 'question1',
-          'client', 'agency', 'created_at', 'creativesize', 'creativesizes'):
+          'client', 'agency', 'created_at', 'created_by', 'creativesize',
+          'creativesizes'):
         self.assertIn(name, fields)
       self.assertNotIn('campaign_id', fields)
       self.assertNotIn('placement_id', fields)
@@ -1089,6 +1090,35 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(options['agencies'], ['OMD', 'WPP'])
     self.assertEqual(options['years'], ['2026', '2025'])
     self.assertTrue(options['has_unknown_year'])
+    self.assertTrue(options['has_unknown_creator'])
+    docs[0].to_dict.return_value['created_by'] = 'mark@agency.example'
+    docs[1].to_dict.return_value['created_by'] = 'sam@agency.example'
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(
+            docs, created_by='mark@agency.example')],
+        ['a'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_homepage_filters(
+            docs, created_by=survey_service.UNKNOWN_CREATOR)],
+        ['c'])
+
+  def test_sort_surveys_newest_created_at_first_missing_last(self):
+    docs = [
+        self._survey_doc('old', {'created_at': '2025-01-01T00:00:00Z',
+                                 'displayname': 'Zulu'}),
+        self._survey_doc('new', {'created_at': '2026-11-19T00:00:00Z',
+                                 'displayname': 'Alpha'}),
+        self._survey_doc('none', {'displayname': 'Mid'}),
+    ]
+    newest = survey_service.sort_surveys(docs, 'created_at', 'desc')
+    self.assertEqual([d.id for d in newest], ['new', 'old', 'none'])
+    oldest = survey_service.sort_surveys(docs, 'created_at', 'asc')
+    self.assertEqual([d.id for d in oldest], ['old', 'new', 'none'])
+    by_name = survey_service.sort_surveys(docs, 'name', 'asc')
+    self.assertEqual([d.id for d in by_name], ['new', 'none', 'old'])
+    self.assertEqual(
+        survey_service.parse_sort('nope', 'sideways'),
+        ('created_at', 'desc'))
 
   def test_identity_suggestions_from_existing_values(self):
     docs = [

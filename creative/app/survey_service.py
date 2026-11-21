@@ -48,6 +48,12 @@ from forms import DEFAULT_CSS
 from forms import RESPONSES_AT_END
 
 UNKNOWN_YEAR = 'unknown'
+UNKNOWN_CREATOR = 'unknown'
+DEFAULT_SORT_KEY = 'created_at'
+DEFAULT_SORT_DIR = 'desc'
+SORT_KEYS = (
+    'created_at', 'name', 'id', 'client', 'agency', 'created_by', 'sizes',
+)
 _IDENTITY_KEYS = (
     'client', 'agency', 'campaign_id', 'placement_id', 'ad_server')
 _FORM_META_KEYS = ('csrf_token', 'submit', 'last_update_time')
@@ -171,20 +177,66 @@ def _survey_data(survey):
   return survey or {}
 
 
+def parse_created_at(value):
+  """Parse stored created_at to aware UTC datetime, or None."""
+  if value is None or value == '':
+    return None
+  if isinstance(value, datetime.datetime):
+    if value.tzinfo is None:
+      return value.replace(tzinfo=datetime.timezone.utc)
+    return value.astimezone(datetime.timezone.utc)
+  text = str(value).strip()
+  if not text:
+    return None
+  if text.endswith('Z'):
+    text = text[:-1] + '+00:00'
+  try:
+    parsed = datetime.datetime.fromisoformat(text)
+  except ValueError:
+    return None
+  if parsed.tzinfo is None:
+    parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+  return parsed.astimezone(datetime.timezone.utc)
+
+
 def created_year(survey):
   """Calendar year of created_at, or None when missing/unparseable (unknown)."""
   data = _survey_data(survey)
-  raw = data.get('created_at')
-  if raw is None or raw == '':
+  parsed = parse_created_at(data.get('created_at'))
+  if parsed is None:
+    raw = data.get('created_at')
+    if raw is None or raw == '':
+      return None
+    text = str(raw).strip()
+    if len(text) >= 4 and text[:4].isdigit():
+      year = int(text[:4])
+      if 1990 <= year <= 2100:
+        return str(year)
     return None
-  if isinstance(raw, datetime.datetime):
-    return str(raw.year)
-  text = str(raw).strip()
-  if len(text) >= 4 and text[:4].isdigit():
-    year = int(text[:4])
-    if 1990 <= year <= 2100:
-      return str(year)
-  return None
+  return str(parsed.year)
+
+
+def created_at_display(survey):
+  """YYYY-MM-DD for the table, or empty when unknown."""
+  parsed = parse_created_at(_survey_data(survey).get('created_at'))
+  if parsed is None:
+    return ''
+  return parsed.strftime('%Y-%m-%d')
+
+
+def created_at_title(survey):
+  parsed = parse_created_at(_survey_data(survey).get('created_at'))
+  if parsed is None:
+    return ''
+  return parsed.strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def created_by_email(survey):
+  return (_survey_data(survey).get('created_by') or '').strip()
+
+
+def created_by_display(survey):
+  return created_by_email(survey) or 'Unknown'
 
 
 def survey_identity_line(survey):
@@ -203,15 +255,22 @@ def homepage_filter_options(surveys):
   clients = set()
   agencies = set()
   years = set()
+  creators = set()
   has_unknown_year = False
+  has_unknown_creator = False
   for survey in surveys:
     data = _survey_data(survey)
     client = (data.get('client') or '').strip()
     agency = (data.get('agency') or '').strip()
+    creator = (data.get('created_by') or '').strip()
     if client:
       clients.add(client)
     if agency:
       agencies.add(agency)
+    if creator:
+      creators.add(creator)
+    else:
+      has_unknown_creator = True
     year = created_year(data)
     if year:
       years.add(year)
@@ -220,8 +279,10 @@ def homepage_filter_options(surveys):
   return {
       'clients': sorted(clients, key=lambda value: (value.lower(), value)),
       'agencies': sorted(agencies, key=lambda value: (value.lower(), value)),
+      'creators': sorted(creators, key=lambda value: (value.lower(), value)),
       'years': sorted(years, reverse=True),
       'has_unknown_year': has_unknown_year,
+      'has_unknown_creator': has_unknown_creator,
   }
 
 
@@ -230,13 +291,15 @@ def survey_size_keys(survey):
   return creative_size.selected_keys(_survey_data(survey))
 
 
-def apply_homepage_filters(surveys, q='', client='', agency='', year='', size=''):
+def apply_homepage_filters(
+    surveys, q='', client='', agency='', year='', size='', created_by=''):
   """Filter in Python so Firestore stays a single select() of list fields."""
   q = (q or '').strip().lower()
   client = (client or '').strip()
   agency = (agency or '').strip()
   year = (year or '').strip()
   size = (size or '').strip()
+  created_by = (created_by or '').strip()
   matched = []
   for survey in surveys:
     data = _survey_data(survey)
@@ -244,6 +307,13 @@ def apply_homepage_filters(surveys, q='', client='', agency='', year='', size=''
       continue
     if agency and (data.get('agency') or '').strip() != agency:
       continue
+    if created_by:
+      creator = (data.get('created_by') or '').strip()
+      if created_by == UNKNOWN_CREATOR:
+        if creator:
+          continue
+      elif creator != created_by:
+        continue
     if year:
       survey_year = created_year(data)
       if year == UNKNOWN_YEAR:
@@ -260,6 +330,63 @@ def apply_homepage_filters(surveys, q='', client='', agency='', year='', size=''
         continue
     matched.append(survey)
   return matched
+
+
+def parse_sort(sort_key, direction):
+  key = (sort_key or DEFAULT_SORT_KEY).strip().lower()
+  if key not in SORT_KEYS:
+    key = DEFAULT_SORT_KEY
+  direction = (direction or DEFAULT_SORT_DIR).strip().lower()
+  if direction not in ('asc', 'desc'):
+    direction = DEFAULT_SORT_DIR
+  return key, direction
+
+
+def sort_surveys(surveys, sort_key=DEFAULT_SORT_KEY, direction=DEFAULT_SORT_DIR):
+  """Sort the homepage list. Missing created_at / created_by always sort last."""
+  key, direction = parse_sort(sort_key, direction)
+  reverse = direction == 'desc'
+
+  def _text(value):
+    return (value or '').strip().lower()
+
+  def _missing_last(value):
+    text = _text(value)
+    if not text:
+      return (1, '')
+    return (0, text)
+
+  def sort_item(survey):
+    data = _survey_data(survey)
+    sid = getattr(survey, 'id', '') or ''
+    if key == 'created_at':
+      parsed = parse_created_at(data.get('created_at'))
+      if parsed is None:
+        stamp = (1, 0.0)
+      else:
+        stamp = (0, -parsed.timestamp() if reverse else parsed.timestamp())
+      return stamp + (sid,)
+    if key == 'name':
+      label = _text(data.get('displayname') or data.get('surveyname'))
+      return ((1, '') if not label else (0, label), sid)
+    if key == 'id':
+      return (_text(sid),)
+    if key == 'client':
+      return (_missing_last(data.get('client')), sid)
+    if key == 'agency':
+      return (_missing_last(data.get('agency')), sid)
+    if key == 'created_by':
+      return (_missing_last(data.get('created_by')), sid)
+    if key == 'sizes':
+      sizes = survey_size_keys(data)
+      return (_missing_last(','.join(sizes)), sid)
+    return (sid,)
+
+  if key == 'created_at':
+    return sorted(surveys, key=sort_item)
+  if key in ('name', 'client', 'agency', 'created_by', 'sizes'):
+    return sorted(surveys, key=sort_item, reverse=reverse)
+  return sorted(surveys, key=sort_item, reverse=reverse)
 
 
 def identity_suggestions():
@@ -300,11 +427,6 @@ def list_surveys(include_archived=False):
     surveys = [survey for survey in surveys if is_archived(survey)]
   else:
     surveys = [survey for survey in surveys if not is_archived(survey)]
-  surveys.sort(key=lambda s: (
-      ((_survey_data(s).get('displayname')
-        or _survey_data(s).get('surveyname') or '')).lower(),
-      s.id,
-  ))
   return surveys
 
 

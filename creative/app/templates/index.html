@@ -14,11 +14,15 @@
         {% if show_archived %}
         <input type="hidden" name="archived" value="1">
         {% endif %}
-        <div class="col-md-3">
+        {% if sort_key and (sort_key != 'created_at' or sort_dir != 'desc') %}
+        <input type="hidden" name="sort" value="{{ sort_key }}">
+        <input type="hidden" name="dir" value="{{ sort_dir }}">
+        {% endif %}
+        <div class="col-6 col-lg-2">
             <label class="form-label" for="filter-q">Search</label>
             <input class="form-control" type="search" id="filter-q" name="q" value="{{ filters.q }}" placeholder="Name or display name">
         </div>
-        <div class="col-md-2">
+        <div class="col-6 col-lg-2">
             <label class="form-label" for="filter-client">Client</label>
             <select class="form-select" id="filter-client" name="client">
                 <option value="">All clients</option>
@@ -27,7 +31,7 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-md-2">
+        <div class="col-6 col-lg-2">
             <label class="form-label" for="filter-agency">Agency</label>
             <select class="form-select" id="filter-agency" name="agency">
                 <option value="">All agencies</option>
@@ -36,7 +40,19 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-6 col-md-1">
+        <div class="col-6 col-lg-2">
+            <label class="form-label" for="filter-created-by">Created by</label>
+            <select class="form-select" id="filter-created-by" name="created_by">
+                <option value="">All creators</option>
+                {% for value in filter_options.creators %}
+                <option value="{{ value }}"{% if filters.created_by == value %} selected{% endif %}>{{ value }}</option>
+                {% endfor %}
+                {% if filter_options.has_unknown_creator %}
+                <option value="unknown"{% if filters.created_by == 'unknown' %} selected{% endif %}>Unknown</option>
+                {% endif %}
+            </select>
+        </div>
+        <div class="col-6 col-lg-1">
             <label class="form-label" for="filter-year">Year</label>
             <select class="form-select" id="filter-year" name="year">
                 <option value="">All years</option>
@@ -48,7 +64,7 @@
                 {% endif %}
             </select>
         </div>
-        <div class="col-6 col-md-2">
+        <div class="col-6 col-lg-1">
             <label class="form-label" for="filter-size">Size</label>
             <select class="form-select" id="filter-size" name="size">
                 <option value="">All sizes</option>
@@ -57,7 +73,7 @@
                 {% endfor %}
             </select>
         </div>
-        <div class="col-md-2 d-flex gap-2">
+        <div class="col-lg-2 d-flex gap-2">
             <button type="submit" class="btn btn-primary">Filter</button>
             {% if filters_active %}
             <a class="btn btn-outline-secondary" href="{{ url_for('index', archived=1) if show_archived else url_for('index') }}">Clear</a>
@@ -86,14 +102,26 @@
          hx-trigger="load, every {{ stats_poll_seconds }}s [!document.hidden]"
          hx-swap="none"></div>
     {% endif %}
+    {% macro sort_link(column, label) %}
+    <a class="sort-link text-reset text-decoration-none" href="{{ url_for('index', **sort_query(column)) }}">
+      {{ label }}
+      {% if sort_key == column %}
+      <i class="bi bi-caret-{{ 'down' if sort_dir == 'desc' else 'up' }}-fill" aria-hidden="true"></i>
+      {% endif %}
+    </a>
+    {% endmacro %}
     <div class="table-responsive">
-    <table data-sortable id="mainTable" class="table table-bordered table-striped align-middle">
+    <table id="mainTable" class="table table-bordered table-striped align-middle">
         <thead class="table-primary">
             <tr class="text-center">
-                    <th scope="col" class="table_header" style="width:250px;">Survey Name</th>
-                    <th scope="col" class="table_header" style="width:150px;">Survey ID</th>
+                    <th scope="col" class="table_header" style="width:180px;" aria-sort="{{ 'descending' if sort_key == 'name' and sort_dir == 'desc' else 'ascending' if sort_key == 'name' else 'none' }}">{{ sort_link('name', 'Survey Name') }}</th>
+                    <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'client' and sort_dir == 'desc' else 'ascending' if sort_key == 'client' else 'none' }}">{{ sort_link('client', 'Client') }}</th>
+                    <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'agency' and sort_dir == 'desc' else 'ascending' if sort_key == 'agency' else 'none' }}">{{ sort_link('agency', 'Agency') }}</th>
+                    <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'created_by' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_by' else 'none' }}">{{ sort_link('created_by', 'Created by') }}</th>
+                    <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'created_at' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_at' else 'none' }}">{{ sort_link('created_at', 'Created') }}</th>
+                    <th scope="col" class="table_header" style="width:120px;" aria-sort="{{ 'descending' if sort_key == 'id' and sort_dir == 'desc' else 'ascending' if sort_key == 'id' else 'none' }}">{{ sort_link('id', 'Survey ID') }}</th>
                     <th scope="col" class="table_header">Survey Questions</th>
-                    <th scope="col" class="table_header" style="width:90px;">Sizes</th>
+                    <th scope="col" class="table_header" style="width:90px;" aria-sort="{{ 'descending' if sort_key == 'sizes' and sort_dir == 'desc' else 'ascending' if sort_key == 'sizes' else 'none' }}">{{ sort_link('sizes', 'Sizes') }}</th>
                     <th scope="col" class="table_header" style="width:1%;">Actions</th>
                     <th scope="col" class="table_header" style="width:50px;">Response Count (segment:count)</th>
                     <th scope="col" class="table_header" style="width:75px;">Last Response (days)</th>
@@ -103,7 +131,7 @@
         <tbody>
         {% if not all_surveys %}
         <tr>
-            <td colspan="8" class="text-center py-4">
+            <td colspan="12" class="text-center py-4">
                 {% if unfiltered_count %}
                     No surveys match these filters.
                     <a href="{{ url_for('index', archived=1) if show_archived else url_for('index') }}">Clear filters</a>
@@ -117,14 +145,16 @@
         {% endif %}
         {% for survey in all_surveys %}
         <tr>
-            <td class="text-center small">
+            <td class="text-center small text-truncate" title="{{ survey | survey_label }}">
                 {{ survey | survey_label }}
-                {% set identity = survey | survey_identity_line %}
-                {% if identity %}
-                <div class="text-muted">{{ identity }}</div>
-                {% endif %}
             </td>
-            <td class="text-center" style="font-size:8pt;">
+            <td class="text-center small">{{ survey.to_dict().get('client') or 'Unknown' }}</td>
+            <td class="text-center small">{{ survey.to_dict().get('agency') or 'Unknown' }}</td>
+            <td class="text-center small">{{ survey | created_by_display }}</td>
+            <td class="text-center small"{% if survey | created_at_title %} title="{{ survey | created_at_title }}"{% endif %}>
+                {{ survey | created_at_display or 'Unknown' }}
+            </td>
+            <td class="text-center" style="font-size:8pt;" title="{{ survey.id }}">
                 {{ survey.id }}
             </td>
             <td class="small">

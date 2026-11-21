@@ -60,6 +60,7 @@ LIST_FIELDS = (
     'client',
     'agency',
     'created_at',
+    'created_by',
     'creativesize',
     'creativesizes',
 )

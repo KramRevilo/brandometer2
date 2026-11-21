@@ -209,8 +209,13 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'Gamma old', by_client.data)
     self.assertNotIn(b'>Beta<', by_client.data)
     self.assertNotIn(b's2', by_client.data)
-    self.assertIn('Acme · OMD'.encode('utf-8'), by_client.data)
+    self.assertIn(b'>Acme</td>', by_client.data)
+    self.assertIn(b'>OMD</td>', by_client.data)
+    self.assertNotIn('Acme · OMD'.encode('utf-8'), by_client.data)
     self.assertIn(b'All clients', by_client.data)
+    self.assertIn(b'filter-created-by', by_client.data)
+    self.assertIn(b'sort=name', by_client.data)
+    self.assertIn(b'Created by', by_client.data)
 
     by_search = self.client.get('/index?q=friendly')
     self.assertIn(b'Friendly A', by_search.data)
@@ -222,6 +227,17 @@ class MainRoutesTest(unittest.TestCase):
     self.assertNotIn(b'Friendly A', by_year.data)
     self.assertNotIn(b's2', by_year.data)
     self.assertIn(b'Unknown', by_year.data)
+
+    named = self.client.get('/index?sort=name&dir=asc')
+    html = named.data.decode('utf-8')
+    self.assertLess(html.find('Friendly A'), html.find('Gamma old'))
+    self.assertIn('sort=name', html)
+    self.assertIn('dir=desc', html)
+
+    default = self.client.get('/index')
+    default_html = default.data.decode('utf-8')
+    self.assertLess(default_html.find('Friendly A'), default_html.find('Beta'))
+    self.assertLess(default_html.find('Beta'), default_html.find('Gamma old'))
 
   @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')

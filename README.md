@@ -27,7 +27,7 @@ Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250
 
 ### Homepage
 
-List with search plus **client / agency / year / size** filters (kept on pagination and Show archived). Page size 50.
+List with search plus **client / agency / created by / year / size** filters (kept on pagination and Show archived). Default order is **newest `created_at` first**; missing dates sort last. Click a column header to sort (name, client, agency, created by, created, id, sizes). Count / last response / status are not sortable. Page size 50. Client and Agency are their own columns (email in Created by). Old surveys without those fields show **Unknown**; `tools/backfill_created.py` can fill them from AuditLog.
 
 * **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
@@ -332,6 +332,17 @@ pip install -r creative/app/requirements.txt -r requirements-dev.txt
 cd creative/app
 PYTHONPATH=. python -m pytest
 ```
+
+### Backfill created_at / created_by
+
+Old survey docs may lack those fields (they show as **Unknown**). From Cloud Shell on project `brandometer2`:
+
+```shell
+python3 tools/backfill_created.py --project brandometer2
+python3 tools/backfill_created.py --project brandometer2 --apply
+```
+
+Dry-run prints the patches. `--apply` writes only missing values from `AuditLog` create/copy rows. AuditLog starts 2026-11-19; older surveys likely stay Unknown. See DEVELOPERS.md.
 
 ### Screenshots
 

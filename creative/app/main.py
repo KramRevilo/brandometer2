@@ -91,20 +91,32 @@ def _filter_args():
       'agency': (request.args.get('agency') or '').strip(),
       'year': (request.args.get('year') or '').strip(),
       'size': (request.args.get('size') or '').strip(),
+      'created_by': (request.args.get('created_by') or '').strip(),
   }
 
 
-def _index_query(show_archived, page=None, filters=None):
+def _sort_args():
+  return survey_service.parse_sort(
+      request.args.get('sort'), request.args.get('dir'))
+
+
+def _index_query(
+    show_archived, page=None, filters=None, sort=None, direction=None):
   args = {}
   if show_archived:
     args['archived'] = 1
   if page:
     args['page'] = page
   filters = filters or {}
-  for key in ('q', 'client', 'agency', 'year', 'size'):
+  for key in ('q', 'client', 'agency', 'year', 'size', 'created_by'):
     value = (filters.get(key) or '').strip()
     if value:
       args[key] = value
+  sort, direction = survey_service.parse_sort(sort, direction)
+  if (sort != survey_service.DEFAULT_SORT_KEY
+      or direction != survey_service.DEFAULT_SORT_DIR):
+    args['sort'] = sort
+    args['dir'] = direction
   return args
 
 
@@ -136,6 +148,7 @@ def index():
   request_started = time.perf_counter()
   show_archived = _truthy_arg(request.args.get('archived'))
   filters = _filter_args()
+  sort_key, sort_dir = _sort_args()
   list_started = time.perf_counter()
   surveys = survey_service.list_surveys(include_archived=show_archived)
   _log_index_timing(
@@ -150,11 +163,25 @@ def index():
       client=filters['client'],
       agency=filters['agency'],
       year=filters['year'],
-      size=filters['size'])
+      size=filters['size'],
+      created_by=filters['created_by'])
+  surveys = survey_service.sort_surveys(surveys, sort_key, sort_dir)
   _log_index_timing('filter', filter_started, n=len(surveys))
 
-  def index_query(archived_flag, page=None):
-    return _index_query(archived_flag, page, filters)
+  def index_query(archived_flag, page=None, sort=None, direction=None):
+    return _index_query(
+        archived_flag, page, filters,
+        sort=sort_key if sort is None else sort,
+        direction=sort_dir if direction is None else direction)
+
+  def sort_query(column):
+    if column == sort_key:
+      nxt = 'asc' if sort_dir == 'desc' else 'desc'
+    elif column == 'created_at':
+      nxt = 'desc'
+    else:
+      nxt = 'asc'
+    return _index_query(show_archived, None, filters, sort=column, direction=nxt)
 
   page_surveys, pager = survey_service.paginate_surveys(
       surveys,
@@ -173,6 +200,9 @@ def index():
       stats_poll_seconds=survey_service.STATS_POLL_SECONDS,
       stats_ids=','.join(survey_ids),
       index_query=index_query,
+      sort_query=sort_query,
+      sort_key=sort_key,
+      sort_dir=sort_dir,
       filters=filters,
       filter_options=filter_options,
       size_choices=creative_size.SIZE_CHOICES,
@@ -683,6 +713,21 @@ def survey_label_filter(survey):
 @app.template_filter('survey_identity_line')
 def survey_identity_line_filter(survey):
   return survey_service.survey_identity_line(survey)
+
+
+@app.template_filter('created_at_display')
+def created_at_display_filter(survey):
+  return survey_service.created_at_display(survey)
+
+
+@app.template_filter('created_at_title')
+def created_at_title_filter(survey):
+  return survey_service.created_at_title(survey)
+
+
+@app.template_filter('created_by_display')
+def created_by_display_filter(survey):
+  return survey_service.created_by_display(survey)
 
 
 @app.template_filter('format_percentage')
