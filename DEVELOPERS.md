@@ -240,6 +240,8 @@ The homepage paginates at 50 surveys and projects list fields only (no `custom_c
 
 Homepage filters (`q`, `client`, `agency`, `created_by`, `year`, `size`) plus `sort` / `dir` are query params, applied in Python after the list `select()`, and are kept on pagination and the archive toggle. Default sort is `created_at` descending (newest first); surveys with no `created_at` always sort last. Name, client, agency, created_by, id, and sizes are sortable; count / last / status are not. A survey matches the size filter if that size is in its configured list (legacy docs with no size field match **300×250**). The **Sizes** column shows those keys as chips. Client and Agency are their own columns. Created by is the stored email. Year / creator **Unknown** is for old documents with no `created_at` / `created_by`. Optional **Client** and **Agency** on the editor (datalist of existing values) copy with the survey. `created_at` and `created_by` are set on create and copy. Optional **Campaign ID** / **Placement ID** are placeholders for a future cost join; they are not used in reporting yet.
 
+**Responsive list.** `#survey-cards` (`d-md-none`) is the list below 768px; `#mainTable` is `d-none d-md-block`. Agency, Survey ID, and questions use `d-none d-xl-table-cell`; Created by, Sizes, Count, and Last use `d-none d-lg-table-cell`. Cards reuse unique stats ids (`count-card-<id>`, `status-card-<id>`) so htmx OOB swaps can fill both the table and the cards. Actions menus use `actions-<id>` in the table and `actions-card-<id>` on cards.
+
 **Backfill missing created fields.** `tools/backfill_created.py` reads Firestore `AuditLog` `create` / `copy` rows and writes **only** missing `created_at` / `created_by` on `Surveys` (never overwrites). Copy events use `detail` as the new survey id. Dry-run is the default:
 
 ```shell
@@ -502,7 +504,7 @@ Same start as Phase 3 (`DISABLE_BASIC_AUTH=1`, then from `creative/app`: `flask 
 
 1. **Identity.** Create survey: Client, Agency, Campaign ID, Placement ID in Identity. Type a client used on another survey and confirm the datalist suggests it. Save. Homepage has **Client** and **Agency** columns (not a subtitle under the name).
 2. **Copy.** Copy that survey. Editor should still have the same client/agency/IDs. `created_at` / `created_by` on the copy are now (the copier’s email). Old docs without those fields stay **Unknown**.
-3. **Filters.** Homepage: filter by client, agency, created by, year, size, and a name search. Combine with **Show archived**. Next/Previous should keep the query params (and `sort`/`dir`). Clear returns to the unfiltered list (archive toggle unchanged). Default order is newest created first. The Sizes column shows chips (legacy rows show 300×250).
+3. **Filters.** Homepage: filter by client, agency, created by, year, size, and a name search. Combine with **Show archived**. Next/Previous should keep the query params (and `sort`/`dir`). Clear returns to the unfiltered list (archive toggle unchanged). Default order is newest created first. The Sizes column shows chips (legacy rows show 300×250). Shrink the preview below 768px: cards, not the table. Around 992px Agency should be gone; Client stays.
 4. **Old surveys.** A document with no `created_at` appears under Year → Unknown and Created → Unknown, and still lists if you do not filter by year. Optionally run `tools/backfill_created.py` (dry-run, then `--apply`) on project `brandometer2`.
 
 # Cloud Shell test (Phase 6)

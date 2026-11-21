@@ -32,6 +32,7 @@ List with search plus **client / agency / created by / year / size** filters (ke
 * **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
 * One **Actions** column: Preview, Stats, and (editors) Edit as icon buttons; ZIP, tags, CSVs, copy, archive, and delete sit in a **⋯** menu. Viewers get Preview/Stats plus downloads in the menu, not mutate actions.
+* **Responsive:** below 768px the list is cards (name, client, created date, status, actions). From `md` up the table shows; Agency / Survey ID / questions hide until `xl`; Created by / Sizes / Count / Last hide until `lg`. Client stays visible.
 * Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery. Empty per-survey count frames are dropped before `pandas.concat` (no FutureWarning on a page of surveys with no responses).
 * Viewers see the list, filters, preview, reports, and CSVs (responses + breakouts). Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
 

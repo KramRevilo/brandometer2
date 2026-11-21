@@ -241,6 +241,39 @@ class MainRoutesTest(unittest.TestCase):
 
   @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_uses_cards_below_md_and_hides_low_priority_columns(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('s1', {
+            'surveyname': 'Alpha study',
+            'displayname': 'Friendly A',
+            'client': 'Acme',
+            'agency': 'OMD',
+            'created_at': '2026-02-01T00:00:00Z',
+            'created_by': 'editor@example.com',
+            'question1': 'Q',
+        })
+    ]
+    counts_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
+
+    response = self.client.get('/index')
+    html = response.data.decode('utf-8')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn('id="survey-cards"', html)
+    self.assertIn('d-md-none', html)
+    self.assertIn('d-none d-md-block', html)
+    self.assertIn('id="mainTable"', html)
+    self.assertIn('survey-card', html)
+    self.assertIn('id="count-card-s1"', html)
+    self.assertIn('id="status-card-s1"', html)
+    self.assertIn('actions-card-s1', html)
+    self.assertIn('d-none d-xl-table-cell', html)
+    self.assertIn('d-none d-lg-table-cell', html)
+    self.assertIn('sort=agency', html)
+    self.assertIn('sort=client', html)
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
   def test_index_pagination_preserves_filters_and_archive(
       self, list_mock, counts_mock):
     list_mock.return_value = [
@@ -296,6 +329,8 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'id="count-s1"', response.data)
     self.assertIn(b'id="last-s1"', response.data)
     self.assertIn(b'id="status-s1"', response.data)
+    self.assertIn(b'id="count-card-s1"', response.data)
+    self.assertIn(b'id="status-card-s1"', response.data)
     self.assertIn(b'hx-swap-oob="true"', response.data)
     self.assertIn(b'9', response.data)
     self.assertIn(b'Active', response.data)
