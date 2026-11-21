@@ -2,10 +2,14 @@
 {% macro survey_actions(survey, sizes, show_archived, menu_id) %}
 {% set preview_href = url_for('preview', survey_id=survey.id, size=sizes[0]) if sizes|length > 1 else url_for('preview', survey_id=survey.id) %}
 {% set stats_label = 'View Brand Lift Stats' if survey|is_brand_lift else 'View survey stats' %}
+{% set preview_label = survey | survey_label %}
 <div class="survey-actions btn-group btn-group-sm" role="group" aria-label="Survey actions">
-  <a class="btn btn-info" href="{{ preview_href }}"
+  <a class="btn btn-info js-preview-open" href="{{ preview_href }}"
      title="View Survey" aria-label="View Survey"
-     {% if sizes %}data-preview-id="{{ survey.id }}" data-preview-sizes="{{ sizes|join(',') }}"{% endif %}>
+     data-preview-id="{{ survey.id }}"
+     data-preview-sizes="{{ sizes|join(',') }}"
+     data-preview-size="{{ sizes[0] if sizes else '' }}"
+     data-preview-label="{{ preview_label }}">
     <i class="bi bi-eye" aria-hidden="true"></i>
   </a>
   <a class="btn btn-warning" href="{{ url_for('reporting', survey_id=survey.id) }}"
@@ -29,7 +33,11 @@
     <li><h6 class="dropdown-header">Preview size</h6></li>
     {% for key in sizes %}
     <li>
-      <a class="dropdown-item" href="{{ url_for('preview', survey_id=survey.id, size=key) }}">{{ key.replace('x', '×') }}</a>
+      <a class="dropdown-item js-preview-open" href="{{ url_for('preview', survey_id=survey.id, size=key) }}"
+         data-preview-id="{{ survey.id }}"
+         data-preview-sizes="{{ sizes|join(',') }}"
+         data-preview-size="{{ key }}"
+         data-preview-label="{{ preview_label }}">{{ key.replace('x', '×') }}</a>
     </li>
     {% endfor %}
     <li><hr class="dropdown-divider"></li>

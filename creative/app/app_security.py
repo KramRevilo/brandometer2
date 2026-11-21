@@ -145,7 +145,7 @@ def content_security_policy(environ=None):
       'form-action ' + ' '.join(form),
       "base-uri 'self'",
       "object-src 'none'",
-      "frame-ancestors 'none'",
+      "frame-ancestors 'self'",
   ))
 
 

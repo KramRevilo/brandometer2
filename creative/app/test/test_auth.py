@@ -405,6 +405,8 @@ class ContentSecurityPolicyTest(unittest.TestCase):
     self.assertIn('https://accounts.google.com', policy)
     self.assertIn('https://oauth2.googleapis.com', policy)
     self.assertIn("object-src 'none'", policy)
+    self.assertIn("frame-ancestors 'self'", policy)
+    self.assertNotIn("frame-ancestors 'none'", policy)
     self.assertNotIn('cdn.jsdelivr', policy)
     self.assertNotIn('googletagmanager', policy)
 
@@ -422,6 +424,7 @@ class ContentSecurityPolicyTest(unittest.TestCase):
     self.assertIn("default-src 'self'", csp)
     self.assertIn('https://*.googleusercontent.com', csp)
     self.assertIn('https://accounts.google.com', csp)
+    self.assertIn("frame-ancestors 'self'", csp)
     self.assertIsNone(response.headers.get('Content-Security-Policy-Report-Only'))
     self.assertIn(b'Brandometer2', response.data)
 

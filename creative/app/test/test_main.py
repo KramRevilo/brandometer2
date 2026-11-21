@@ -785,6 +785,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertEqual(default.status_code, 200)
     self.assertIn(b'width=300,height=250', default.data)
     self.assertIn(b'>300', default.data)
+    self.assertIn(b'>Back</a>', default.data)
     self.assertIn(b'/survey/preview/abc?size=970x250', default.data)
 
     requested = self.client.get('/survey/preview/abc?size=970x250')
@@ -795,6 +796,38 @@ class MainRoutesTest(unittest.TestCase):
     unknown = self.client.get('/survey/preview/abc?size=160x600')
     self.assertEqual(unknown.status_code, 200)
     self.assertIn(b'width=300,height=250', unknown.data)
+
+    embed = self.client.get('/survey/preview/abc?embed=1&size=970x250')
+    self.assertEqual(embed.status_code, 200)
+    self.assertIn(b'width=970,height=250', embed.data)
+    self.assertNotIn(b'>Back</a>', embed.data)
+    self.assertNotIn(b'>Size:</span>', embed.data)
+    self.assertNotIn(b'?type=survey', embed.data)
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_includes_preview_modal(self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('s1', {
+            'surveyname': 'Track one',
+            'question1': 'Q1',
+            'creativesizes': ['300x250', '970x250'],
+        })
+    ]
+    counts_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
+
+    response = self.client.get('/index')
+    html = response.data.decode('utf-8')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn('id="previewModal"', html)
+    self.assertIn('id="previewModalFrame"', html)
+    self.assertIn('id="previewModalSizes"', html)
+    self.assertIn('home.js', html)
+    self.assertIn('js-preview-open', html)
+    self.assertIn('data-preview-id="s1"', html)
+    self.assertIn('data-preview-size="970x250"', html)
+    csp = response.headers.get('Content-Security-Policy', '')
+    self.assertIn("frame-ancestors 'self'", csp)
 
   @mock.patch.object(survey_service, 'list_versions', return_value=[])
   @mock.patch.object(survey_service, 'get_doc_by_id')

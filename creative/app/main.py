@@ -368,13 +368,15 @@ def preview(survey_id):
     size = creative_size.resolve_preview(survey_info, request.args.get('size'))
     custom_css = Markup(creative_size.apply_overlay(
         css_theme.sanitize_user_css(custom_css), size))
+    embed = (request.args.get('embed') or '').strip() == '1'
 
     return render_template(
         'creative.html',
         survey=survey_info,
         survey_id=survey_id,
         manual_responses=True,
-        show_back_button=True,
+        show_back_button=not embed,
+        embed=embed,
         preview_sizes=preview_sizes,
         all_question_json=survey_service.get_question_json(survey_info),
         seg='preview',
