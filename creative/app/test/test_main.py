@@ -268,6 +268,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('id="status-card-s1"', html)
     self.assertIn('actions-card-s1', html)
     self.assertIn('d-none d-xl-table-cell', html)
+    self.assertIn('d-none d-xxl-table-cell', html)
     self.assertIn('d-none d-lg-table-cell', html)
     self.assertIn('sort=agency', html)
     self.assertIn('sort=client', html)

@@ -32,7 +32,7 @@ List with search plus **client / agency / created by / year / size** filters (ke
 * **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
 * One **Actions** column: Preview, Stats, and (editors) Edit as icon buttons; ZIP, tags, CSVs, copy, archive, and delete sit in a **⋯** menu. Viewers get Preview/Stats plus downloads in the menu, not mutate actions. Preview opens a modal (size switcher, `?embed=1` iframe); the standalone `/survey/preview/<id>` page is unchanged. Ctrl/Cmd-click still opens that page.
-* **Responsive:** below 768px the list is cards (name, client, created date, status, actions). From `md` up the table shows; Agency / Survey ID / questions hide until `xl`; Created by / Sizes / Count / Last hide until `lg`. Client stays visible.
+* **Responsive:** below 768px the list is cards (name, client, created date, status, actions). From `md` up the table shows; Agency hides until `xl`; Survey ID / questions hide until `xxl`; Created by / Sizes / Count / Last hide until `lg`. Client stays visible.
 * Count / last-response / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery. Empty per-survey count frames are dropped before `pandas.concat` (no FutureWarning on a page of surveys with no responses).
 * Viewers see the list, filters, preview, reports, and CSVs (responses + breakouts). Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
 
@@ -47,6 +47,18 @@ List with search plus **client / agency / created by / year / size** filters (ke
 ![Navbar avatar dropdown showing email, role, and Sign out](docs/images/avatar-dropdown.png)
 
 *Avatar menu: Google photo when the account has one, otherwise an initial. Dropdown shows email, role, and Sign out.*
+
+![Home page at 800px with Client visible and Agency hidden](docs/images/home-narrow.png)
+
+*Narrow (800px): table still, Agency / Created by / Sizes / counts hidden. Below 768px the list becomes cards.*
+
+![Homepage ⋯ menu listing downloads, copy, archive, and delete](docs/images/home-actions-menu.png)
+
+*Actions ⋯ menu: downloads for everyone; copy / archive / delete for editors. Delete still asks to confirm.*
+
+![Homepage preview modal with size switcher and embedded creative](docs/images/home-preview-modal.png)
+
+*Preview modal: iframe of `/survey/preview/<id>?embed=1`, size switcher in the header, **Open page** for the standalone preview.*
 
 ### Survey editor
 
@@ -355,7 +367,7 @@ python3 -m playwright install chromium
 python3 tools/capture_screenshots.py
 ```
 
-The script sets `DISABLE_BASIC_AUTH=1`, `APP_BRAND_NAME=Brandometer2`, and dummy OAuth / HMAC values so Secret Manager is never called. Output is optimised PNG (UI capped at 1200px wide; creatives stay natural size). Navbar, login, and titles in these shots show **Brandometer2**. The Brand Lift report shot is the viewport (breakout tables continue below).
+The script sets `DISABLE_BASIC_AUTH=1`, `APP_BRAND_NAME=Brandometer2`, and dummy OAuth / HMAC values so Secret Manager is never called. Output is optimised PNG (UI capped at 1200px wide; creatives stay natural size). Navbar, login, and titles in these shots show **Brandometer2**. The Brand Lift report shot is the viewport (breakout tables continue below). Homepage recapture includes `home.png`, `home-filters.png`, `avatar-dropdown.png`, plus `home-narrow.png` (800px), `home-actions-menu.png`, and `home-preview-modal.png`.
 
 ## Querying results in BigQuery
 

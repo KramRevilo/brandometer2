@@ -500,6 +500,9 @@ class ReadmeImagesTest(unittest.TestCase):
     for required in (
         'docs/images/home.png',
         'docs/images/home-filters.png',
+        'docs/images/home-narrow.png',
+        'docs/images/home-actions-menu.png',
+        'docs/images/home-preview-modal.png',
         'docs/images/editor.png',
         'docs/images/preview-300x250.png',
         'docs/images/creative-300x250-classic.png',

@@ -111,6 +111,8 @@ def seed(fs) -> None:
           question1='Which cola brand did you notice?',
           client='Acme',
           agency='Example Media',
+          created_at='2026-11-18T12:00:00Z',
+          created_by='editor@example.com',
           sample_plan={
               'baseline': 0.20,
               'mde_mode': 'relative',
@@ -137,6 +139,8 @@ def seed(fs) -> None:
           question1='Which cola brand did you notice?',
           client='Acme',
           agency='Example Media',
+          created_at='2026-11-17T09:00:00Z',
+          created_by='editor@example.com',
       ),
       _survey(
           'track-two',
@@ -148,6 +152,8 @@ def seed(fs) -> None:
           question1='Would you consider this snack?',
           client='Northwind',
           agency='Harbour Ads',
+          created_at='2026-11-16T15:30:00Z',
+          created_by='admin@example.com',
       ),
       _survey(
           'tall-eight',
@@ -163,6 +169,8 @@ def seed(fs) -> None:
           client='Northwind',
           agency='Harbour Ads',
           badge_icon='B2',
+          created_at='2026-11-15T11:00:00Z',
+          created_by='admin@example.com',
       ),
       _survey(
           'halfpage-dark',
@@ -174,6 +182,8 @@ def seed(fs) -> None:
           question1='Do you recall the ad?',
           client='Acme',
           agency='Example Media',
+          created_at='2026-11-14T08:15:00Z',
+          created_by='editor@example.com',
       ),
       _survey(
           'mrec-pink',
@@ -185,6 +195,8 @@ def seed(fs) -> None:
           question1='Which brand feels most familiar?',
           client='Contoso',
           agency='Pixel Shop',
+          created_at='2026-11-12T16:45:00Z',
+          created_by='viewer@example.com',
       ),
   ]
   for doc_id, payload in surveys:
@@ -390,6 +402,39 @@ def run_browser(app, out: Path) -> None:
     page.goto(base + '/index?client=Acme&size=300x250', wait_until='networkidle')
     page.wait_for_timeout(400)
     capture(page, out / 'home-filters.png')
+
+    page.set_viewport_size({'width': 800, 'height': 900})
+    page.goto(base + '/index', wait_until='networkidle')
+    page.wait_for_selector('#mainTable')
+    page.wait_for_timeout(400)
+    capture(page, out / 'home-narrow.png')
+    page.set_viewport_size({'width': 1280, 'height': 900})
+
+    page.goto(base + '/index', wait_until='networkidle')
+    page.wait_for_selector('#actions-lift-demo')
+    page.click('#actions-lift-demo')
+    page.wait_for_selector('#actions-lift-demo + .dropdown-menu.show, .dropdown-menu.show')
+    page.wait_for_timeout(200)
+    capture(page, out / 'home-actions-menu.png', full_page=False)
+
+    page.goto(base + '/index', wait_until='networkidle')
+    page.wait_for_selector('#mainTable a.js-preview-open')
+    page.locator('#mainTable a.js-preview-open').first.click()
+    page.wait_for_selector('#previewModal.show')
+    page.wait_for_function(
+        """() => {
+          const iframe = document.getElementById('previewModalFrame');
+          try {
+            const doc = iframe && iframe.contentDocument;
+            return !!(doc && doc.querySelector('#master_container'));
+          } catch (err) {
+            return false;
+          }
+        }""")
+    page.wait_for_timeout(400)
+    capture(page, out / 'home-preview-modal.png', full_page=False)
+    page.locator('#previewModal [data-bs-dismiss="modal"]').click()
+    page.wait_for_timeout(200)
 
     page.goto(base + '/survey/edit?survey_id=lift-demo', wait_until='networkidle')
     page.wait_for_selector('iframe')

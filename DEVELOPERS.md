@@ -240,7 +240,7 @@ The homepage paginates at 50 surveys and projects list fields only (no `custom_c
 
 Homepage filters (`q`, `client`, `agency`, `created_by`, `year`, `size`) plus `sort` / `dir` are query params, applied in Python after the list `select()`, and are kept on pagination and the archive toggle. Default sort is `created_at` descending (newest first); surveys with no `created_at` always sort last. Name, client, agency, created_by, id, and sizes are sortable; count / last / status are not. A survey matches the size filter if that size is in its configured list (legacy docs with no size field match **300×250**). The **Sizes** column shows those keys as chips. Client and Agency are their own columns. Created by is the stored email. Year / creator **Unknown** is for old documents with no `created_at` / `created_by`. Optional **Client** and **Agency** on the editor (datalist of existing values) copy with the survey. `created_at` and `created_by` are set on create and copy. Optional **Campaign ID** / **Placement ID** are placeholders for a future cost join; they are not used in reporting yet.
 
-**Responsive list.** `#survey-cards` (`d-md-none`) is the list below 768px; `#mainTable` is `d-none d-md-block`. Agency, Survey ID, and questions use `d-none d-xl-table-cell`; Created by, Sizes, Count, and Last use `d-none d-lg-table-cell`. Cards reuse unique stats ids (`count-card-<id>`, `status-card-<id>`) so htmx OOB swaps can fill both the table and the cards. Actions menus use `actions-<id>` in the table and `actions-card-<id>` on cards.
+**Responsive list.** `#survey-cards` (`d-md-none`) is the list below 768px; `#mainTable` is `d-none d-md-block`. Agency uses `d-none d-xl-table-cell`; Survey ID and questions use `d-none d-xxl-table-cell`; Created by, Sizes, Count, and Last use `d-none d-lg-table-cell`. Cards reuse unique stats ids (`count-card-<id>`, `status-card-<id>`) so htmx OOB swaps can fill both the table and the cards. Actions menus use `actions-<id>` in the table and `actions-card-<id>` on cards.
 
 **Backfill missing created fields.** `tools/backfill_created.py` reads Firestore `AuditLog` `create` / `copy` rows and writes **only** missing `created_at` / `created_by` on `Surveys` (never overwrites). Copy events use `detail` as the new survey id. Dry-run is the default:
 
@@ -371,7 +371,7 @@ python3 -m playwright install chromium
 python3 tools/capture_screenshots.py
 ```
 
-UI shots are capped at 1200px wide; creatives are clipped to `#master_container` at natural size. Do not commit production screenshots or real email addresses.
+UI shots are capped at 1200px wide; creatives are clipped to `#master_container` at natural size. Homepage recapture: `home.png`, `home-filters.png`, `avatar-dropdown.png`, `home-narrow.png` (800px table), `home-actions-menu.png`, `home-preview-modal.png`. Do not commit production screenshots or real email addresses.
 
 # Receiver (Cloud Function)
 

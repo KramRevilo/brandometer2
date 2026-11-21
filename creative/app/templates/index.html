@@ -154,17 +154,17 @@
     <table id="mainTable" class="table table-bordered table-striped align-middle">
         <thead class="table-primary">
             <tr class="text-center">
-                    <th scope="col" class="table_header" style="width:180px;" aria-sort="{{ 'descending' if sort_key == 'name' and sort_dir == 'desc' else 'ascending' if sort_key == 'name' else 'none' }}">{{ sort_link('name', 'Survey Name') }}</th>
+                    <th scope="col" class="table_header" style="width:160px;" aria-sort="{{ 'descending' if sort_key == 'name' and sort_dir == 'desc' else 'ascending' if sort_key == 'name' else 'none' }}">{{ sort_link('name', 'Name') }}</th>
                     <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'client' and sort_dir == 'desc' else 'ascending' if sort_key == 'client' else 'none' }}">{{ sort_link('client', 'Client') }}</th>
                     <th scope="col" class="table_header d-none d-xl-table-cell" aria-sort="{{ 'descending' if sort_key == 'agency' and sort_dir == 'desc' else 'ascending' if sort_key == 'agency' else 'none' }}">{{ sort_link('agency', 'Agency') }}</th>
                     <th scope="col" class="table_header d-none d-lg-table-cell" aria-sort="{{ 'descending' if sort_key == 'created_by' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_by' else 'none' }}">{{ sort_link('created_by', 'Created by') }}</th>
                     <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'created_at' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_at' else 'none' }}">{{ sort_link('created_at', 'Created') }}</th>
-                    <th scope="col" class="table_header d-none d-xl-table-cell" style="width:120px;" aria-sort="{{ 'descending' if sort_key == 'id' and sort_dir == 'desc' else 'ascending' if sort_key == 'id' else 'none' }}">{{ sort_link('id', 'Survey ID') }}</th>
-                    <th scope="col" class="table_header d-none d-xl-table-cell">Survey Questions</th>
+                    <th scope="col" class="table_header d-none d-xxl-table-cell" style="width:120px;" aria-sort="{{ 'descending' if sort_key == 'id' and sort_dir == 'desc' else 'ascending' if sort_key == 'id' else 'none' }}">{{ sort_link('id', 'Survey ID') }}</th>
+                    <th scope="col" class="table_header d-none d-xxl-table-cell">Survey Questions</th>
                     <th scope="col" class="table_header d-none d-lg-table-cell" style="width:90px;" aria-sort="{{ 'descending' if sort_key == 'sizes' and sort_dir == 'desc' else 'ascending' if sort_key == 'sizes' else 'none' }}">{{ sort_link('sizes', 'Sizes') }}</th>
                     <th scope="col" class="table_header" style="width:1%;">Actions</th>
-                    <th scope="col" class="table_header d-none d-lg-table-cell" style="width:50px;">Response Count (segment:count)</th>
-                    <th scope="col" class="table_header d-none d-lg-table-cell" style="width:75px;">Last Response (days)</th>
+                    <th scope="col" class="table_header d-none d-lg-table-cell" style="width:50px;" title="Response count (segment:count)">Count</th>
+                    <th scope="col" class="table_header d-none d-lg-table-cell" style="width:75px;" title="Last response (days)">Last</th>
                     <th scope="col" class="table_header">Status</th>
             </tr>
         </thead>
@@ -180,10 +180,10 @@
             <td class="text-center small"{% if survey | created_at_title %} title="{{ survey | created_at_title }}"{% endif %}>
                 {{ survey | created_at_display or 'Unknown' }}
             </td>
-            <td class="text-center d-none d-xl-table-cell" style="font-size:8pt;" title="{{ survey.id }}">
+            <td class="text-center d-none d-xxl-table-cell" style="font-size:8pt;" title="{{ survey.id }}">
                 {{ survey.id }}
             </td>
-            <td class="small d-none d-xl-table-cell">
+            <td class="small d-none d-xxl-table-cell">
                     {% for question_text in survey | get_all_question_text %}
                         <div>{{ question_text }}</div>
                     {% endfor %}
