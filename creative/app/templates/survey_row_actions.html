@@ -1,0 +1,108 @@
+{# Compact homepage actions. Import with context (needs can_edit, csrf_token). #}
+{% macro survey_actions(survey, sizes, show_archived, menu_id) %}
+{% set preview_href = url_for('preview', survey_id=survey.id, size=sizes[0]) if sizes|length > 1 else url_for('preview', survey_id=survey.id) %}
+{% set stats_label = 'View Brand Lift Stats' if survey|is_brand_lift else 'View survey stats' %}
+<div class="survey-actions btn-group btn-group-sm" role="group" aria-label="Survey actions">
+  <a class="btn btn-info" href="{{ preview_href }}"
+     title="View Survey" aria-label="View Survey"
+     {% if sizes %}data-preview-id="{{ survey.id }}" data-preview-sizes="{{ sizes|join(',') }}"{% endif %}>
+    <i class="bi bi-eye" aria-hidden="true"></i>
+  </a>
+  <a class="btn btn-warning" href="{{ url_for('reporting', survey_id=survey.id) }}"
+     title="{{ stats_label }}" aria-label="{{ stats_label }}">
+    <i class="bi bi-bar-chart" aria-hidden="true"></i>
+  </a>
+  {% if can_edit %}
+  <a class="btn btn-primary" href="{{ url_for('edit', survey_id=survey.id) }}"
+     title="Edit Survey" aria-label="Edit Survey">
+    <i class="bi bi-pencil" aria-hidden="true"></i>
+  </a>
+  {% endif %}
+  <button type="button" class="btn btn-outline-secondary dropdown-toggle"
+          data-bs-toggle="dropdown" data-bs-popper-config='{"strategy":"fixed"}'
+          aria-expanded="false" aria-label="More actions" title="More actions"
+          id="{{ menu_id }}">
+    <i class="bi bi-three-dots" aria-hidden="true"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="{{ menu_id }}">
+    {% if sizes|length > 1 %}
+    <li><h6 class="dropdown-header">Preview size</h6></li>
+    {% for key in sizes %}
+    <li>
+      <a class="dropdown-item" href="{{ url_for('preview', survey_id=survey.id, size=key) }}">{{ key.replace('x', '×') }}</a>
+    </li>
+    {% endfor %}
+    <li><hr class="dropdown-divider"></li>
+    {% endif %}
+    <li>
+      <a class="dropdown-item" href="{{ url_for('sample_size_planner', survey_id=survey.id) }}"
+         title="Sample-size planner">Sample-size planner</a>
+    </li>
+    <li><hr class="dropdown-divider"></li>
+    <li><h6 class="dropdown-header">Download</h6></li>
+    {% if can_edit %}
+    <li>
+      <a class="dropdown-item" href="{{ url_for('download_zip', survey_id=survey.id) }}"
+         title="Download Creative Zip">Creative zip</a>
+    </li>
+    <li>
+      <a class="dropdown-item" href="{{ url_for('download_tags', survey_id=survey.id) }}"
+         title="Download trafficking tag sheet (CSV)">Tag sheet CSV</a>
+    </li>
+    <li>
+      <a class="dropdown-item" href="{{ url_for('download_bulk_upload', survey_id=survey.id) }}"
+         title="Download CM360/DV360 bulk-upload files">CM360/DV360 bulk files</a>
+    </li>
+    {% endif %}
+    <li>
+      <a class="dropdown-item" href="{{ url_for('download_responses', survey_id=survey.id) }}"
+         title="Download Responses">Responses</a>
+    </li>
+    <li>
+      <a class="dropdown-item" href="{{ url_for('download_responses_context', survey_id=survey.id) }}"
+         title="Download Responses with Context">Responses with context</a>
+    </li>
+    <li>
+      <a class="dropdown-item" href="{{ url_for('download_breakouts', survey_id=survey.id) }}"
+         title="Download breakouts CSV">Breakouts CSV</a>
+    </li>
+    {% if can_edit %}
+    <li><hr class="dropdown-divider"></li>
+    <li>
+      <form method="post" action="{{ url_for('copy_survey') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="survey_id" value="{{ survey.id }}">
+        <button type="submit" class="dropdown-item" title="Copy Survey">Copy survey</button>
+      </form>
+    </li>
+    {% if show_archived %}
+    <li>
+      <form method="post" action="{{ url_for('archive') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="survey_id" value="{{ survey.id }}">
+        <input type="hidden" name="archived" value="0">
+        <input type="hidden" name="view" value="archived">
+        <button type="submit" class="dropdown-item" title="Unarchive Survey">Unarchive</button>
+      </form>
+    </li>
+    {% else %}
+    <li>
+      <form method="post" action="{{ url_for('archive') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="survey_id" value="{{ survey.id }}">
+        <input type="hidden" name="archived" value="1">
+        <button type="submit" class="dropdown-item" title="Archive Survey">Archive</button>
+      </form>
+    </li>
+    {% endif %}
+    <li>
+      <form method="post" action="{{ url_for('delete') }}" onsubmit="return confirm('Really delete?');">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="survey_id" value="{{ survey.id }}">
+        <button type="submit" class="dropdown-item text-danger" title="Delete Survey">Delete</button>
+      </form>
+    </li>
+    {% endif %}
+  </ul>
+</div>
+{% endmacro %}

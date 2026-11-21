@@ -329,10 +329,12 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('300×250'.encode('utf-8'), home.data)
     self.assertIn('970×250'.encode('utf-8'), home.data)
     self.assertIn('160×600'.encode('utf-8'), home.data)
-    self.assertIn(b'dropdown-toggle-split', home.data)
+    self.assertIn(b'title="View Survey"', home.data)
+    self.assertIn(b'aria-label="More actions"', home.data)
     self.assertIn(b'/survey/preview/wide?size=970x250', home.data)
     self.assertIn(b'/survey/preview/tall', home.data)
     self.assertNotIn(b'/survey/preview/tall?size=', home.data)
+    self.assertNotIn(b'dropdown-toggle-split', home.data)
     counts_mock.assert_not_called()
 
     by_size = self.client.get('/index?size=970x250')

@@ -319,6 +319,8 @@ class RoleMatrixTest(unittest.TestCase):
     self.assertNotIn(b'title="Archive Survey"', response.data)
     self.assertNotIn(b'title="Delete Survey"', response.data)
     self.assertIn(b'title="View Survey"', response.data)
+    self.assertIn(b'aria-label="View Survey"', response.data)
+    self.assertNotIn(b'title="Edit Survey"', response.data)
     self.assertIn(b'title="Download Responses"', response.data)
     self.assertIn(b'title="Download breakouts CSV"', response.data)
     self.assertIn(b'>viewer</span>', response.data)
@@ -333,6 +335,7 @@ class RoleMatrixTest(unittest.TestCase):
     self.assertIn(b'tag sheet', response.data)
     self.assertIn(b'bulk-upload', response.data)
     self.assertIn(b'title="Edit Survey"', response.data)
+    self.assertIn(b'aria-label="Edit Survey"', response.data)
     self.assertIn(b'>editor</span>', response.data)
 
   def test_admin_ui_shows_admin_link(self):
