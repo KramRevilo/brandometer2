@@ -152,7 +152,7 @@ class ThankyouBrowserTest(unittest.TestCase):
     page.wait_for_selector('#option_container_0')
     for _ in range(clicks):
       page.locator('#option_container_0').click()
-      page.wait_for_timeout(150)
+      page.wait_for_timeout(180)
     page.wait_for_selector('#thankyou_container.thankyoucontainer')
     body = page.locator('#thankyou_container').inner_text()
     self.assertIn(expect_text, body)

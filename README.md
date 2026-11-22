@@ -117,6 +117,8 @@ Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (
 
 Natural-size captures of the `#master_container` from seeded sample surveys. Themes are CSS-only presets; answer counts are 2, 4, or 8.
 
+Creatives stay a single `index.html` (no extra assets). Answer presses scale and dim slightly; multi-question surveys crossfade (`opacity`) and show progress dots (`aria-current` on the current question). Thank-you copy grows to fill the centered box after layout. `prefers-reduced-motion: reduce` skips the fade and press motion. Answers are `role="button"` with keyboard Enter/Space; the thank-you container is `role="status"`. Focus-visible rings use the theme accent. Inner zip sizes stay well under a practical **150 KB** budget (IAB initial load is 200 KB). Re-download zips after this change.
+
 <table>
   <tr>
     <td align="center" valign="top">

@@ -351,10 +351,93 @@
                     var surveyOptionsUIConfig =
                         this.uiConfig.component_selectors.survey.options;
                     for (var optIndex = 0; optIndex < surveyOptionsUIConfig.max_options; optIndex++) {
-                        document
-                            .getElementById(
-                                surveyOptionsUIConfig.option_prefix.container + optIndex)
-                            .addEventListener('click', this.handleOptionSelection.bind(this));
+                        var optionEl = document.getElementById(
+                            surveyOptionsUIConfig.option_prefix.container + optIndex);
+                        optionEl.addEventListener('click', this.handleOptionSelection.bind(this));
+                        optionEl.addEventListener('keydown', this.handleOptionKey.bind(this));
+                    }
+                },
+
+                handleOptionKey: function(event) {
+                    if (event.key !== 'Enter' && event.key !== ' ') {
+                        return;
+                    }
+                    event.preventDefault();
+                    this.handleOptionSelection(event);
+                },
+
+                prefersReducedMotion: function() {
+                    return !!(window.matchMedia &&
+                        window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+                },
+
+                paintQuestion: function(question) {
+                    this.renderQuestion(question);
+                    if (question.answersOrder != 'ORDERED') {
+                        this.shuffleArray(question.options);
+                    }
+                    this.renderOptions(question.options);
+                    this.updateProgressDots();
+                    document
+                        .getElementById(
+                            this.uiConfig.component_selectors.next_button.container)
+                        .style.visibility =
+                        (this.isCurrentQuestionSingleOption()) ? 'hidden' : 'visible';
+                    document
+                        .getElementById(this.uiConfig.component_selectors.comment.container)
+                        .textContent = (this.isCurrentQuestionSingleOption()) ?
+                        '' :
+                        this.uiConfig.component_selectors.comment.text;
+                    var survey = document.getElementById('survey_container');
+                    if (survey) {
+                        survey.classList.remove('is-fading');
+                    }
+                    this._paintedOnce = true;
+                },
+
+                updateProgressDots: function() {
+                    var host = document.getElementById('progress_dots');
+                    var questions = this.surveyConfig.questions || [];
+                    if (!host) {
+                        return;
+                    }
+                    if (questions.length < 2) {
+                        host.className = 'progress-dots';
+                        host.innerHTML = '';
+                        host.setAttribute('hidden', 'hidden');
+                        return;
+                    }
+                    host.removeAttribute('hidden');
+                    host.className = 'progress-dots is-on';
+                    host.setAttribute('role', 'list');
+                    host.setAttribute('aria-label', 'Question progress');
+                    var html = '';
+                    var current = String(this.renderedQuestionId);
+                    for (var i = 0; i < questions.length; i++) {
+                        var qid = String(questions[i].id);
+                        var currentAttr = qid === current ? ' aria-current="true"' : '';
+                        html += '<span class="progress-dot" role="listitem"' + currentAttr +
+                            '></span>';
+                    }
+                    host.innerHTML = html;
+                },
+
+                fitThankyouText: function() {
+                    var el = document.getElementById('thankyou_text');
+                    var box = document.getElementById('thankyou_container');
+                    if (!el || !box) {
+                        return;
+                    }
+                    var size = 12;
+                    el.style.fontSize = size + 'px';
+                    while (size < 36) {
+                        el.style.fontSize = (size + 1) + 'px';
+                        if (el.scrollHeight > box.clientHeight - 8 ||
+                            el.scrollWidth > box.clientWidth - 8) {
+                            el.style.fontSize = size + 'px';
+                            break;
+                        }
+                        size += 1;
                     }
                 },
 
@@ -473,29 +556,19 @@
                     }
 
                     var question = this.questionMap[this.renderedQuestionId];
-
-                    this.renderQuestion(question);
-
-                    // shuffle array only if not ORDERED type question
-                    if (question.answersOrder != 'ORDERED') {
-                        this.shuffleArray(question.options);
+                    var survey = document.getElementById('survey_container');
+                    var self = this;
+                    var first = !this._paintedOnce;
+                    if (survey && !first && !this.prefersReducedMotion()) {
+                        this._painting = true;
+                        survey.classList.add('is-fading');
+                        setTimeout(function() {
+                            self.paintQuestion(question);
+                            self._painting = false;
+                        }, 120);
+                    } else {
+                        this.paintQuestion(question);
                     }
-
-                    this.renderOptions(question.options);
-
-                    // hide Next Button
-                    document
-                        .getElementById(
-                            this.uiConfig.component_selectors.next_button.container)
-                        .style.visibility =
-                        (this.isCurrentQuestionSingleOption()) ? 'hidden' : 'visible';
-
-                    // show comment section if multiple options
-                    document
-                        .getElementById(this.uiConfig.component_selectors.comment.container)
-                        .textContent = (this.isCurrentQuestionSingleOption()) ?
-                        '' :
-                        this.uiConfig.component_selectors.comment.text;
                     return true;
                 },
 
@@ -537,7 +610,11 @@
 
                             // Set OID on the option container
                             optionContainer.setAttribute('oid', questionOptions[optIndex].id);
-                            optionContainer.setAttribute('role', questionOptions[optIndex].role);
+                            optionContainer.setAttribute(
+                                'data-option-role',
+                                questionOptions[optIndex].role || 'option');
+                            optionContainer.setAttribute('role', 'button');
+                            optionContainer.setAttribute('tabindex', '0');
                             // Set Option Label (A-D)
                             // document.getElementById(optionsUIConfig.label + optIndex).innerHTML
                             // =
@@ -557,6 +634,9 @@
                 },
 
                 handleOptionSelection: function(event) {
+                    if (this._painting) {
+                        return;
+                    }
                     var optionContainer = event.target;
                     if (optionContainer && optionContainer.closest) {
                         optionContainer = optionContainer.closest('.Abox') ||
@@ -576,7 +656,7 @@
                         optionContainer.removeAttribute('selected');
                     }
 
-                    if (optionContainer.getAttribute('role') == 'reset') {
+                    if (optionContainer.getAttribute('data-option-role') == 'reset') {
                         this.resetOptions();
                     }
 
@@ -626,8 +706,10 @@
                     var thanks = document.getElementById(
                         this.uiConfig.component_selectors.thankyou.container);
                     thanks.setAttribute('class', 'thankyoucontainer');
+                    thanks.setAttribute('role', 'status');
                     var thanksText = document.getElementById('thankyou_text') || thanks;
                     thanksText.textContent = this.uiConfig.component_selectors.thankyou.text;
+                    this.fitThankyouText();
                     var privacyNote = document.getElementById('privacy_note');
                     if (privacyNote) {
                         privacyNote.className = 'privacy-note';
@@ -1053,9 +1135,10 @@
                     Sample Question
                 </span>
             </div>
+            <div id="progress_dots" class="progress-dots" hidden></div>
             <div id="answers_grid" class="answers-grid">
             {% for i in range(8) %}
-            <div id="option_container_{{ i }}" class="Abox">
+            <div id="option_container_{{ i }}" class="Abox" role="button" tabindex="0">
                 <div id="option_text_{{ i }}" class="AText">opt{{ i + 1 }}</div>
             </div>
             {% endfor %}
