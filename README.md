@@ -361,6 +361,8 @@ Dry-run prints the patches. `--apply` writes only missing values from `AuditLog`
 
 `tools/seed_demo_data.py` loads a fictional agency-world homepage dataset into the **live** project (`brandometer2`) so you can page the list (default **220** surveys, `HOMEPAGE_PAGE_SIZE` 50 → 4+ pages). **Dry-run is the default.** This environment must not run `--apply` / `--purge --apply`; Mark runs those in Cloud Shell.
 
+Each fictional client has a consistent brand palette written as a `BV2_THEME` block (`--bv2-bg`, text, button, accent, font, optional pattern) with campaign-to-campaign variation (Harbor Grocer greens, Voltway Motors electric blue, Neon Circuit Games neon/dark, and so on). Combinations meet WCAG AA. The homepage list does not paint those colours; open **Preview** after seeding to see them. No App Engine deploy is required for theme updates — re-run `--apply`.
+
 **Warning: `--apply` writes to production Firestore and `brandometer2.responses.responses`.** `--purge --apply` deletes **only** tagged demo records.
 
 ```shell
@@ -372,7 +374,7 @@ python3 tools/seed_demo_data.py --project brandometer2 --purge
 python3 tools/seed_demo_data.py --project brandometer2 --purge --apply
 ```
 
-Optional: `--seed 1` (reproducible), `--count 220` (must be ≥ 200). Re-running `--apply` replaces the tagged batch (deterministic ids `demo_<seed>_<nnnn>`); it does not duplicate.
+Optional: `--seed 1` (reproducible, including themes), `--count 220` (must be ≥ 200). Re-running `--apply` replaces the tagged batch (deterministic ids `demo_<seed>_<nnnn>`), including `custom_css` themes; it does not duplicate.
 
 Tags: Firestore `demo_seed: true` plus `demo_batch`, ids starting `demo_`; AuditLog `demo_audit_<id>`; BigQuery `ID` starts with `demo_` and `RandomTimeStamp` is `demo_seed:<batch>`; respondent ids `demo_<survey_id>_<seq>`. Rows load with a **load job** (NDJSON), not streaming inserts, so a later `DELETE` is not blocked by the streaming buffer. If anything was ever inserted with `insert_rows_json`, wait ~90 minutes before purge can remove those rows.
 

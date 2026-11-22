@@ -21,6 +21,7 @@ import pandas
 import reporting
 from mockfirestore import MockFirestore
 
+import css_theme
 import main
 import survey_service
 
@@ -64,7 +65,13 @@ class SeedDemoDataTest(unittest.TestCase):
     self.assertEqual(
         [s.doc['displayname'] for s in self.world.surveys],
         [s.doc['displayname'] for s in again.surveys])
+    self.assertEqual(
+        [s.doc['custom_css'] for s in self.world.surveys],
+        [s.doc['custom_css'] for s in again.surveys])
     self.assertEqual(self.world.n_rows, again.n_rows)
+    self.assertNotEqual(
+        [s.doc['custom_css'] for s in self.world.surveys],
+        [s.doc['custom_css'] for s in other.surveys])
 
   def test_ids_and_docs_are_tagged(self):
     for spec in self.world.surveys:
@@ -76,6 +83,83 @@ class SeedDemoDataTest(unittest.TestCase):
       self.assertIn('@', spec.doc['created_by'])
       self.assertTrue(spec.audit.get('demo_seed'))
       self.assertEqual(spec.audit['survey_id'], spec.id)
+
+  def test_themes_vary_across_the_batch(self):
+    backgrounds = {spec.theme['bg'].lower() for spec in self.world.surveys}
+    css_blocks = {spec.doc['custom_css'] for spec in self.world.surveys}
+    self.assertGreaterEqual(len(backgrounds), 12, backgrounds)
+    self.assertGreaterEqual(len(css_blocks), 20)
+    classic = css_theme.DEFAULT_THEME['bg'].lower()
+    self.assertTrue(
+        any(bg != classic for bg in backgrounds),
+        'seeded surveys should not all use classic green')
+    self.assertTrue(
+        all('BV2_THEME_START' in spec.doc['custom_css']
+            for spec in self.world.surveys))
+    self.assertTrue(
+        all('--bv2-accent:' in spec.doc['custom_css']
+            for spec in self.world.surveys))
+
+  def test_every_agency_client_has_a_brand_palette(self):
+    names = {client[0] for agency in self.mod.AGENCIES for client in agency['clients']}
+    self.assertEqual(names, set(self.mod.CLIENT_BRANDS))
+    for spec in self.world.surveys:
+      parsed = css_theme.parse_theme_css(spec.doc['custom_css'])
+      self.assertTrue(parsed['had_theme_block'], spec.id)
+      self.assertEqual(
+          parsed['theme']['bg'].lower(), spec.theme['bg'].lower(), spec.id)
+
+  def test_per_client_theme_consistency_and_campaign_variation(self):
+    by_client = {}
+    for spec in self.world.surveys:
+      by_client.setdefault(spec.doc['client'], []).append(spec)
+    for client, specs in by_client.items():
+      allowed = self.mod.brand_backgrounds(client)
+      used = {spec.theme['bg'].lower() for spec in specs}
+      self.assertTrue(used <= allowed, '%s extra %s' % (client, used - allowed))
+      self.assertGreaterEqual(len(specs), 8, client)
+      self.assertGreaterEqual(len(used), 2, client)
+      fonts = {spec.theme['font_family'] for spec in specs}
+      self.assertTrue(fonts, client)
+
+  def test_theme_contrast_meets_wcag_aa(self):
+    self.assertGreaterEqual(self.mod.WCAG_AA_CONTRAST, 4.5)
+    for spec in self.world.surveys:
+      for label, fg, bg in self.mod.theme_contrast_pairs(spec.theme):
+        ratio = self.mod.contrast_ratio(fg, bg)
+        self.assertGreaterEqual(
+            ratio, self.mod.WCAG_AA_CONTRAST,
+            '%s %s %s on %s ratio=%.2f' % (spec.id, label, fg, bg, ratio))
+    for client, brand in self.mod.CLIENT_BRANDS.items():
+      for i, entry in enumerate(brand['campaigns']):
+        theme = self.mod.resolve_campaign(entry)
+        self.assertTrue(
+            self.mod.theme_meets_aa(theme),
+            '%s campaign %s' % (client, i))
+
+  def test_apply_overwrites_existing_demo_themes(self):
+    fs = MockFirestore()
+    sid = self.world.surveys[0].id
+    fs.collection('Surveys').document(sid).set({
+        'surveyname': 'old-green',
+        'demo_seed': True,
+        'demo_batch': 'demo-1',
+        'custom_css': (
+            'body { margin: 0; display: block; }\n'
+            '#master_container { background-color:#008000; }'),
+    })
+    self.mod.apply_firestore(fs, self.world)
+    data = fs.collection('Surveys').document(sid).get().to_dict()
+    self.assertIn('BV2_THEME_START', data['custom_css'])
+    self.assertIn('--bv2-bg:', data['custom_css'])
+    parsed = css_theme.parse_theme_css(data['custom_css'])
+    self.assertTrue(parsed['had_theme_block'])
+    self.assertEqual(
+        parsed['theme']['bg'].lower(),
+        self.world.surveys[0].theme['bg'].lower())
+    self.assertNotEqual(
+        data['custom_css'].strip(),
+        '#master_container { background-color:#008000; }')
 
   def test_no_real_agency_or_brand_names(self):
     blob = ' '.join(
@@ -245,6 +329,8 @@ class SeedDemoDataTest(unittest.TestCase):
     self.assertIn('Estimated BigQuery rows', text)
     self.assertIn('WARNING', text)
     self.assertIn('Northline Media', text)
+    self.assertIn('Themes:', text)
+    self.assertIn('BV2_THEME', text)
     self.assertGreaterEqual(self.world.n_rows, 1000)
 
   def test_active_surveys_cover_four_pages(self):

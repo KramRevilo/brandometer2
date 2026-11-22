@@ -11,8 +11,11 @@ rows only. Mark runs this in Cloud Shell against project brandometer2.
 
 Every Firestore survey has demo_seed=true and a deterministic id demo_<seed>_<n>.
 Every BigQuery row has ID starting with demo_ and RandomTimeStamp demo_seed:<batch>.
-Re-running --apply overwrites the same ids and replaces demo BQ rows (load job,
-not streaming insert, so purge DELETE is not blocked by the streaming buffer).
+Each fictional client has a brand palette (BV2_THEME --bv2-* block: background,
+text, buttons, accent, font, optional pattern) with campaign variation; every
+combo meets WCAG AA. Re-running --apply overwrites the same ids (themes included)
+and replaces demo BQ rows (load job, not streaming insert, so purge DELETE is
+not blocked by the streaming buffer).
 """
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ import io
 import json
 import os
 import random
+import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -29,6 +33,10 @@ from typing import Iterable
 
 ROOT = Path(__file__).resolve().parents[1]
 APP_DIR = ROOT / 'creative' / 'app'
+_APP_DIR = str(APP_DIR)
+if _APP_DIR not in sys.path:
+  sys.path.insert(0, _APP_DIR)
+import css_theme  # noqa: E402
 
 DEFAULT_PROJECT = 'brandometer2'
 DEFAULT_COUNT = 220
@@ -39,17 +47,16 @@ STAMP_PREFIX = 'demo_seed:'
 STATUS_ACTIVE_DAYS = 3
 STATUS_STALE_DAYS = 7
 BATCH_WRITES = 400
+WCAG_AA_CONTRAST = 4.5
 
-# Preview CSS so seeded surveys still open in the editor / preview modal.
-_CREATIVE_CSS = """body { margin: 0; display: block; }
+# Layout leftover kept beside the generated BV2_THEME block (no hardcoded green).
+_LAYOUT_CSS = """body { margin: 0; display: block; }
 .invisible { display: none; }
-#master_container {
-    background-color:#008000;
-    width: 300px;
-    height: 250px;
-    border: solid black 1px;
-}
 """
+
+_RGBA_RE = re.compile(
+    r'rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([0-9.]+))?\s*\)',
+    re.I)
 
 # Fictional shops only — no real holding companies or consumer brands.
 AGENCIES = (
@@ -117,6 +124,377 @@ AGENCIES = (
         ),
     },
 )
+
+# Per-client brand palettes. Campaigns share a family; index picks a variant.
+# Keys must match AGENCIES client names. Values are css_theme picker fields
+# (or {'preset': STYLE_PRESETS id} plus optional overrides).
+CLIENT_BRANDS = {
+    'Harbor Grocer': {
+        'fonts': ('Georgia, serif', "'Open Sans', sans-serif"),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#14532D', 'question_color': '#ECFCCB',
+             'answer_bg': '#F4C430', 'answer_color': '#1A1400',
+             'accent': '#F4C430', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#1B5E20', 'question_color': '#E8F5E9',
+             'answer_bg': '#C5E1A5', 'answer_color': '#1B3A1A',
+             'accent': '#C5E1A5', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'preset': 'classic'},
+            {'bg': '#052E16', 'question_color': '#ECFCCB',
+             'answer_bg': '#86EFAC', 'answer_color': '#052E16',
+             'accent': '#86EFAC', 'panel': 'rgba(0, 0, 0, 0.45)'},
+        ),
+    },
+    'Peak Motor Co': {
+        'fonts': ('Helvetica, Arial, sans-serif', 'Arial, Helvetica, sans-serif'),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#1C1917', 'question_color': '#F5F5F4',
+             'answer_bg': '#F59E0B', 'answer_color': '#1C1917',
+             'accent': '#F59E0B', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#292524', 'question_color': '#FAFAF9',
+             'answer_bg': '#E7E5E4', 'answer_color': '#1C1917',
+             'accent': '#E7E5E4', 'panel': 'rgba(0, 0, 0, 0.40)'},
+            {'bg': '#44403C', 'question_color': '#FAFAF9',
+             'answer_bg': '#FBBF24', 'answer_color': '#1C1917',
+             'accent': '#FBBF24', 'panel': 'rgba(0, 0, 0, 0.38)'},
+        ),
+    },
+    'Arcade Forge': {
+        'fonts': ("'Courier New', Courier, monospace",
+                  'Trebuchet MS, Helvetica, sans-serif'),
+        'patterns': ('none', css_theme._STRIPES_HAZARD),
+        'campaigns': (
+            {'preset': 'safety-orange'},
+            {'bg': '#2B1408', 'question_color': '#FFEDD5',
+             'answer_bg': '#FBBF24', 'answer_color': '#1A0A00',
+             'accent': '#FBBF24', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#1A0A00', 'question_color': '#FFD6A5',
+             'answer_bg': '#FF7A18', 'answer_color': '#1A0A00',
+             'accent': '#FF7A18', 'panel': 'rgba(0, 0, 0, 0.45)'},
+        ),
+    },
+    'Brightbyte Computers': {
+        'fonts': ('system-ui, sans-serif', 'Arial, Helvetica, sans-serif'),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#0F172A', 'question_color': '#E0F2FE',
+             'answer_bg': '#38BDF8', 'answer_color': '#0F172A',
+             'accent': '#38BDF8', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#1E293B', 'question_color': '#F8FAFC',
+             'answer_bg': '#F8FAFC', 'answer_color': '#0F172A',
+             'accent': '#F8FAFC', 'panel': 'rgba(0, 0, 0, 0.40)'},
+            {'preset': 'royal-blue'},
+        ),
+    },
+    'Ember Kitchen': {
+        'fonts': ('Georgia, serif', "'Times New Roman', Times, serif"),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#7C2D12', 'question_color': '#FFEDD5',
+             'answer_bg': '#FED7AA', 'answer_color': '#7C2D12',
+             'accent': '#FED7AA', 'panel': 'rgba(0, 0, 0, 0.38)'},
+            {'bg': '#431407', 'question_color': '#FFF7ED',
+             'answer_bg': '#FDBA74', 'answer_color': '#431407',
+             'accent': '#FDBA74', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#7F1D1D', 'question_color': '#FEE2E2',
+             'answer_bg': '#FCA5A5', 'answer_color': '#7F1D1D',
+             'accent': '#FCA5A5', 'panel': 'rgba(0, 0, 0, 0.40)'},
+        ),
+    },
+    'Loom & Lattice': {
+        'fonts': ('Trebuchet MS, Helvetica, sans-serif', 'Georgia, serif'),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#4C1D3D', 'question_color': '#FCE7F3',
+             'answer_bg': '#F9A8D4', 'answer_color': '#4C1D3D',
+             'accent': '#F9A8D4', 'panel': 'rgba(0, 0, 0, 0.40)'},
+            {'bg': '#831843', 'question_color': '#FDF2F8',
+             'answer_bg': '#FBCFE8', 'answer_color': '#831843',
+             'accent': '#FBCFE8', 'panel': 'rgba(0, 0, 0, 0.38)'},
+            {'bg': '#FDF2F8', 'question_color': '#831843',
+             'answer_bg': '#9D174D', 'answer_color': '#FDF2F8',
+             'accent': '#9D174D', 'panel': 'rgba(255, 255, 255, 0.72)',
+             'font_family': 'Georgia, serif'},
+        ),
+    },
+    'Maple Pantry': {
+        'fonts': ('Georgia, serif', "'Open Sans', sans-serif"),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#78350F', 'question_color': '#FFFBEB',
+             'answer_bg': '#FBBF24', 'answer_color': '#78350F',
+             'accent': '#FBBF24', 'panel': 'rgba(0, 0, 0, 0.40)'},
+            {'bg': '#451A03', 'question_color': '#FEF3C7',
+             'answer_bg': '#FDE68A', 'answer_color': '#451A03',
+             'accent': '#FDE68A', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#9A3412', 'question_color': '#FFF7ED',
+             'answer_bg': '#FED7AA', 'answer_color': '#7C2D12',
+             'accent': '#FED7AA', 'panel': 'rgba(0, 0, 0, 0.38)'},
+        ),
+    },
+    'Voltway Motors': {
+        'fonts': ('Helvetica, Arial, sans-serif', 'system-ui, sans-serif'),
+        'patterns': ('none', css_theme._DOTS_WHITE),
+        'campaigns': (
+            {'preset': 'electric-cyan'},
+            {'preset': 'ocean'},
+            {'preset': 'navy-orange'},
+            {'bg': '#012A4A', 'question_color': '#E0F2FE',
+             'answer_bg': '#00B4D8', 'answer_color': '#012A4A',
+             'accent': '#00B4D8', 'panel': 'rgba(0, 0, 0, 0.42)'},
+        ),
+    },
+    'Neon Circuit Games': {
+        'fonts': ("'Courier New', Courier, monospace",
+                  'Trebuchet MS, Helvetica, sans-serif'),
+        'patterns': (
+            'none', css_theme._STRIPES_NEON, css_theme._CHECK_LIME,
+            css_theme._CHECK_MAGENTA,
+        ),
+        'campaigns': (
+            {'preset': 'electric-lime'},
+            {'preset': 'neon-magenta'},
+            {'preset': 'neon-stripes'},
+            {'preset': 'magenta-checkers'},
+        ),
+    },
+    'Nimbus Workstations': {
+        'fonts': ('system-ui, sans-serif', 'Verdana, Geneva, sans-serif'),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#111827', 'question_color': '#F9FAFB',
+             'answer_bg': '#E5E7EB', 'answer_color': '#111827',
+             'accent': '#E5E7EB', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#F3F4F6', 'question_color': '#111827',
+             'answer_bg': '#111827', 'answer_color': '#F9FAFB',
+             'accent': '#1D4ED8', 'panel': 'rgba(255, 255, 255, 0.72)'},
+            {'bg': '#1F2937', 'question_color': '#F3F4F6',
+             'answer_bg': '#93C5FD', 'answer_color': '#1F2937',
+             'accent': '#93C5FD', 'panel': 'rgba(0, 0, 0, 0.40)'},
+        ),
+    },
+    'Copper Spoon': {
+        'fonts': ('Georgia, serif', "'Times New Roman', Times, serif"),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#3B1F0B', 'question_color': '#FFEDD5',
+             'answer_bg': '#D97706', 'answer_color': '#1A0A00',
+             'accent': '#D97706', 'panel': 'rgba(0, 0, 0, 0.40)'},
+            {'bg': '#1A0A00', 'question_color': '#FDE68A',
+             'answer_bg': '#F59E0B', 'answer_color': '#1A0A00',
+             'accent': '#F59E0B', 'panel': 'rgba(0, 0, 0, 0.45)'},
+            {'bg': '#78350F', 'question_color': '#FFFBEB',
+             'answer_bg': '#FBBF24', 'answer_color': '#1C1917',
+             'accent': '#FBBF24', 'panel': 'rgba(0, 0, 0, 0.38)'},
+        ),
+    },
+    'Threadwell Apparel': {
+        'fonts': ('Georgia, serif', 'Trebuchet MS, Helvetica, sans-serif'),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#1E293B', 'question_color': '#F8FAFC',
+             'answer_bg': '#D4AF37', 'answer_color': '#1E293B',
+             'accent': '#D4AF37', 'panel': 'rgba(0, 0, 0, 0.40)'},
+            {'bg': '#0F172A', 'question_color': '#E2E8F0',
+             'answer_bg': '#F8FAFC', 'answer_color': '#0F172A',
+             'accent': '#F8FAFC', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#312E81', 'question_color': '#EEF2FF',
+             'answer_bg': '#C7D2FE', 'answer_color': '#312E81',
+             'accent': '#C7D2FE', 'panel': 'rgba(0, 0, 0, 0.38)'},
+        ),
+    },
+    'Field & Basket': {
+        'fonts': ('Georgia, serif', "'Open Sans', sans-serif"),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#365314', 'question_color': '#ECFCCB',
+             'answer_bg': '#FACC15', 'answer_color': '#365314',
+             'accent': '#FACC15', 'panel': 'rgba(0, 0, 0, 0.40)'},
+            {'bg': '#1A2E05', 'question_color': '#F7FEE7',
+             'answer_bg': '#84CC16', 'answer_color': '#1A2E05',
+             'accent': '#84CC16', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#3F6212', 'question_color': '#FEFCE8',
+             'answer_bg': '#FDE047', 'answer_color': '#3F6212',
+             'accent': '#FDE047', 'panel': 'rgba(0, 0, 0, 0.38)'},
+        ),
+    },
+    'Driftline Autos': {
+        'fonts': ('Helvetica, Arial, sans-serif', 'Verdana, Geneva, sans-serif'),
+        'patterns': ('none',),
+        'campaigns': (
+            {'bg': '#134E4A', 'question_color': '#CCFBF1',
+             'answer_bg': '#2DD4BF', 'answer_color': '#134E4A',
+             'accent': '#2DD4BF', 'panel': 'rgba(0, 0, 0, 0.40)'},
+            {'bg': '#042F2E', 'question_color': '#F0FDFA',
+             'answer_bg': '#5EEAD4', 'answer_color': '#042F2E',
+             'accent': '#5EEAD4', 'panel': 'rgba(0, 0, 0, 0.42)'},
+            {'bg': '#164E63', 'question_color': '#CFFAFE',
+             'answer_bg': '#22D3EE', 'answer_color': '#164E63',
+             'accent': '#22D3EE', 'panel': 'rgba(0, 0, 0, 0.40)'},
+        ),
+    },
+}
+
+
+def _hex_to_rgb(value: str) -> tuple[int, int, int]:
+  raw = css_theme.normalize_color(value) or value
+  if not raw.startswith('#'):
+    raise ValueError('not a hex color: %s' % value)
+  digits = raw[1:]
+  if len(digits) == 3:
+    digits = ''.join(ch * 2 for ch in digits)
+  return tuple(int(digits[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _srgb_channel_to_lin(channel: float) -> float:
+  s = channel / 255.0
+  return s / 12.92 if s <= 0.04045 else ((s + 0.055) / 1.055) ** 2.4
+
+
+def relative_luminance(color: str) -> float:
+  red, green, blue = _hex_to_rgb(color)
+  return (
+      0.2126 * _srgb_channel_to_lin(red)
+      + 0.7152 * _srgb_channel_to_lin(green)
+      + 0.0722 * _srgb_channel_to_lin(blue))
+
+
+def contrast_ratio(foreground: str, background: str) -> float:
+  lighter = max(relative_luminance(foreground), relative_luminance(background))
+  darker = min(relative_luminance(foreground), relative_luminance(background))
+  return (lighter + 0.05) / (darker + 0.05)
+
+
+def parse_color_rgba(value: str) -> tuple[int, int, int, float]:
+  raw = (value or '').strip()
+  match = _RGBA_RE.fullmatch(raw)
+  if match:
+    alpha = float(match.group(4)) if match.group(4) is not None else 1.0
+    return int(match.group(1)), int(match.group(2)), int(match.group(3)), alpha
+  red, green, blue = _hex_to_rgb(raw)
+  return red, green, blue, 1.0
+
+
+def composite_hex(overlay: str, background: str) -> str:
+  """Blend overlay (hex or rgba) over a solid background; return #rrggbb."""
+  fr, fg, fb, alpha = parse_color_rgba(overlay)
+  br, bg, bb = _hex_to_rgb(background)
+  red = int(round(alpha * fr + (1.0 - alpha) * br))
+  green = int(round(alpha * fg + (1.0 - alpha) * bg))
+  blue = int(round(alpha * fb + (1.0 - alpha) * bb))
+  return '#%02x%02x%02x' % (red, green, blue)
+
+
+def hex_hue(color: str) -> float | None:
+  red, green, blue = [channel / 255.0 for channel in _hex_to_rgb(color)]
+  mx, mn = max(red, green, blue), min(red, green, blue)
+  delta = mx - mn
+  if delta < 1e-6:
+    return None
+  if mx == red:
+    hue = ((green - blue) / delta) % 6
+  elif mx == green:
+    hue = (blue - red) / delta + 2
+  else:
+    hue = (red - green) / delta + 4
+  return (hue * 60.0) % 360.0
+
+
+def _with_px(size) -> str:
+  text = str(size or '13px').strip()
+  if text.endswith('px'):
+    return text
+  return text + 'px'
+
+
+def _preset_theme(preset_id: str) -> dict:
+  preset = next(item for item in css_theme.STYLE_PRESETS if item['id'] == preset_id)
+  return {
+      'bg': preset['bg'],
+      'question_color': preset['question_color'],
+      'answer_bg': preset['answer_bg'],
+      'answer_color': preset['answer_color'],
+      'accent': preset['accent'],
+      'panel': preset['panel'],
+      'bg_pattern': preset.get('bg_pattern') or 'none',
+      'font_family': preset.get('font_family') or css_theme.DEFAULT_THEME['font_family'],
+      'font_size': _with_px(preset.get('font_size') or '13'),
+      'bg_image': '',
+  }
+
+
+def resolve_campaign(entry: dict) -> dict:
+  theme = dict(entry)
+  preset_id = theme.pop('preset', None)
+  resolved = _preset_theme(preset_id) if preset_id else {}
+  resolved.update(theme)
+  resolved.setdefault('accent', resolved.get('answer_bg') or css_theme.DEFAULT_THEME['accent'])
+  resolved.setdefault('panel', css_theme.DEFAULT_THEME['panel'])
+  resolved.setdefault('bg_pattern', 'none')
+  resolved.setdefault('bg_image', '')
+  resolved.setdefault(
+      'font_family', css_theme.DEFAULT_THEME['font_family'])
+  resolved['font_size'] = _with_px(resolved.get('font_size') or '13px')
+  return resolved
+
+
+def theme_contrast_pairs(theme: dict) -> list[tuple[str, str, str]]:
+  """Named (label, foreground, background) pairs that must meet WCAG AA."""
+  panel_bg = composite_hex(theme['panel'], theme['bg'])
+  return [
+      ('question_on_panel', theme['question_color'], panel_bg),
+      ('answer_on_button', theme['answer_color'], theme['answer_bg']),
+      ('answer_on_accent', theme['answer_color'], theme['accent']),
+  ]
+
+
+def theme_meets_aa(theme: dict) -> bool:
+  return all(
+      contrast_ratio(fg, bg) >= WCAG_AA_CONTRAST
+      for _, fg, bg in theme_contrast_pairs(theme))
+
+
+def require_theme_aa(theme: dict) -> None:
+  failures = []
+  for label, fg, bg in theme_contrast_pairs(theme):
+    ratio = contrast_ratio(fg, bg)
+    if ratio < WCAG_AA_CONTRAST:
+      failures.append('%s %s on %s ratio=%.2f' % (label, fg, bg, ratio))
+  if failures:
+    raise ValueError('theme fails WCAG AA: ' + '; '.join(failures))
+
+
+def brand_backgrounds(client_name: str) -> set[str]:
+  brand = CLIENT_BRANDS[client_name]
+  return {resolve_campaign(entry)['bg'].lower() for entry in brand['campaigns']}
+
+
+def theme_for_client(client_name: str, index: int, seed: int,
+                     n_clients: int | None = None) -> dict:
+  """Deterministic BV2 picker theme: client family + campaign variation."""
+  brand = CLIENT_BRANDS[client_name]
+  campaigns = brand['campaigns']
+  stride = n_clients if n_clients else len(_flat_clients())
+  campaign_i = (index // stride) % len(campaigns)
+  theme = resolve_campaign(campaigns[campaign_i])
+  rng = random.Random(seed * 91711 + index * 13 + 7)
+  fonts = brand.get('fonts') or (css_theme.DEFAULT_THEME['font_family'],)
+  if rng.random() < 0.45:
+    theme['font_family'] = fonts[rng.randrange(len(fonts))]
+  theme['font_size'] = ('12px', '13px', '13px', '14px')[rng.randrange(4)]
+  extra_patterns = [p for p in brand.get('patterns') or ('none',) if p != 'none']
+  if theme.get('bg_pattern') in (None, 'none') and extra_patterns and rng.random() < 0.22:
+    theme['bg_pattern'] = extra_patterns[rng.randrange(len(extra_patterns))]
+  theme.setdefault('bg_pattern', 'none')
+  theme.setdefault('bg_image', '')
+  require_theme_aa(theme)
+  return theme
+
+
+def survey_custom_css(theme: dict) -> str:
+  return css_theme.combine_css(theme, _LAYOUT_CSS)
+
 
 _NAME_TEMPLATES = {
     'groceries': (
@@ -232,6 +610,7 @@ class SurveySpec:
   p_control: float
   p_expose: float
   n_questions: int
+  theme: dict
   expected_status: str = field(init=False)
 
   def __post_init__(self):
@@ -448,6 +827,7 @@ def generate_world(count: int, seed: int, now: datetime.datetime | None = None) 
         'lift' if lift else 'track', index)
     extra_incomplete = (not lift) and n_questions > 1 and (n_c + n_e) >= 20 and index % 11 == 0
     omit_rid = index % 23 == 0
+    theme = theme_for_client(client['client'], index, seed, n_clients=len(clients))
     counts = {}
     rows = 0
     if lift:
@@ -482,7 +862,7 @@ def generate_world(count: int, seed: int, now: datetime.datetime | None = None) 
         'responsetype': (
             'Submit Responses after each Question' if extra_incomplete
             else 'Submit Responses at End of Survey'),
-        'custom_css': _CREATIVE_CSS,
+        'custom_css': survey_custom_css(theme),
         'badge_icon': 'B2' if index % 4 == 0 else 'B',
         'badge_text': '',
         'demo_seed': True,
@@ -530,6 +910,7 @@ def generate_world(count: int, seed: int, now: datetime.datetime | None = None) 
         p_control=p_c,
         p_expose=p_e,
         n_questions=n_questions,
+        theme=theme,
     )
     surveys.append(spec)
   return World(
@@ -682,14 +1063,18 @@ def summary_lines(world: World, sample: int = 8) -> list[str]:
       'Agencies: ' + ', '.join(a['name'] for a in AGENCIES),
       'Tag: Firestore demo_seed=true demo_batch=%s; BQ ID %s* and RandomTimeStamp %s%s'
       % (world.batch, ID_PREFIX, STAMP_PREFIX, world.batch),
+      'Themes: %s distinct --bv2-bg values across %s clients (BV2_THEME block; WCAG AA)'
+      % (len({s.theme['bg'].lower() for s in world.surveys}),
+         len({s.doc['client'] for s in world.surveys})),
       'Sample surveys:',
   ]
   for spec in world.surveys[:sample]:
     lines.append(
-        '  %s  %s  %s / %s  %s  last=%s  %s  rows≈%s  counts=%s'
+        '  %s  %s  %s / %s  %s  last=%s  %s  rows≈%s  counts=%s  bg=%s'
         % (spec.id, spec.doc['displayname'][:48], spec.doc['agency'],
            spec.doc['client'], spec.doc['surveytype'], spec.last_days,
-           spec.expected_status, spec.n_rows, spec.counts or '{}'))
+           spec.expected_status, spec.n_rows, spec.counts or '{}',
+           spec.theme['bg']))
   return lines
 
 
