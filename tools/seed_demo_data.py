@@ -1201,6 +1201,8 @@ def apply_bigquery(client, table_id: str, world: World) -> int:
   if n == 0:
     return 0
   buf.seek(0)
+  # Load into the existing table. CreatedAt (DATETIME) is the DAY partition
+  # field on new deploys; rows still load if the live table is unpartitioned.
   config = bigquery.LoadJobConfig(
       source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
       write_disposition=bigquery.WriteDisposition.WRITE_APPEND,

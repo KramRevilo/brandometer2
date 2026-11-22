@@ -356,6 +356,7 @@ def receiver(request):
     return _pixel_response(500, reason='table_error')
 
   row_to_insert = {
+      # DATETIME; DAY partition field on responses.responses (new deploys).
       'CreatedAt': datetime.datetime.now().isoformat(),
       'Type': fields['Type'],
       'ID': fields['ID'],

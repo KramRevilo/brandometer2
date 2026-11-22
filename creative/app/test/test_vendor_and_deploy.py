@@ -180,6 +180,8 @@ class DeployIamTest(unittest.TestCase):
         'Removing project roles/bigquery.dataEditor from $member', script)
     self.assertIn('MAX_INSTANCES', script)
     self.assertIn('ensure_dataset_descriptions()', script)
+    self.assertIn('warn_if_unpartitioned()', script)
+    self.assertIn('migrate_responses_partition.py', script)
     self.assertIn('bq update --description', script)
     self.assertIn('Main response dataset for Brandometer2', script)
     self.assertIn(

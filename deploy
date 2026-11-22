@@ -210,6 +210,29 @@ ensure_dataset_descriptions() {
     fi
 }
 
+PARTITION_MIGRATE_PY="$DEPLOY_ROOT/tools/migrate_responses_partition.py"
+
+warn_if_unpartitioned() {
+    echo -e "\n-- Check responses table partitioning"
+    set +e
+    python3 "$PARTITION_MIGRATE_PY" --project "$PROJECT_ID" --check
+    status=$?
+    set -e
+    if [ "$status" -eq 0 ]; then
+        echo "Table $PROJECT_ID:responses.responses is DAY-partitioned on CreatedAt"
+        return 0
+    fi
+    if [ "$status" -eq 3 ]; then
+        echo "Table $PROJECT_ID:responses.responses is missing (new deploys create it partitioned)"
+        return 0
+    fi
+    echo "WARNING: $PROJECT_ID:responses.responses is not DAY-partitioned on CreatedAt."
+    echo "Deploy will not drop or recreate it. Migrate with:"
+    echo "  python3 tools/migrate_responses_partition.py --project $PROJECT_ID"
+    echo "  python3 tools/migrate_responses_partition.py --project $PROJECT_ID --apply"
+    return 0
+}
+
 show_dataset_json() {
     dest="$1"
     dataset_id="${2:-responses}"
@@ -528,10 +551,11 @@ if [ "$APP_ONLY" != 1 ]; then
 
     echo -e "\n-- Create BigQuery responses table"
     if bq show --format=none "$PROJECT_ID:responses.responses" >/dev/null 2>&1; then
-        echo "Table $PROJECT_ID:responses.responses already exists"
+        echo "Table $PROJECT_ID:responses.responses already exists (not recreated)"
     else
-        # Partition by CreatedAt and cluster by ID for new tables only.
-        # Do not alter an existing responses table.
+        # Partition by CreatedAt (DAY) and cluster by ID for new tables.
+        # Existing unpartitioned tables are left in place; warn_if_unpartitioned
+        # prints the migrate_responses_partition.py command.
         bq mk --table \
             --schema receiver/responses.schema.json \
             --time_partitioning_field CreatedAt \
@@ -678,6 +702,7 @@ grant_dataset_editor "serviceAccount:$GAE_SA"
 ensure_respondent_columns
 ensure_reporting_dataset
 ensure_dataset_descriptions
+warn_if_unpartitioned
 # HMAC secrets were created before App Engine existed; bind GAE now.
 bind_secret_member brandometer-receiver-hmac "serviceAccount:$GAE_SA"
 if gcloud projects remove-iam-policy-binding "$PROJECT_ID" \

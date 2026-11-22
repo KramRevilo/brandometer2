@@ -398,7 +398,7 @@ Table: `` `$PROJECT_ID.responses.responses` `` (dataset `responses`, table `resp
 
 | Column | Type | Meaning |
 | --- | --- | --- |
-| `CreatedAt` | DATETIME | Insert time |
+| `CreatedAt` | DATETIME | Insert time (DAY partition field on new tables) |
 | `Type` | STRING | Usually `survey` |
 | `ID` | STRING | Firestore survey id |
 | `Segmentation` | STRING | Stored `seg` (Brand Lift control/expose; often empty for Track) |
@@ -431,7 +431,14 @@ WHERE ID = 'SURVEY_ID'
 ORDER BY CreatedAt;
 ```
 
-Replace `PROJECT_ID` and `SURVEY_ID`. For production tables that are partitioned on `CreatedAt`, add a date filter.
+Replace `PROJECT_ID` and `SURVEY_ID`. New deploys create `responses.responses` **DAY-partitioned on `CreatedAt`**, clustered by `ID`. Add a `CreatedAt` date filter so queries prune partitions. Homepage stats already use `STATS_LOOKBACK_DAYS` (default 400). If the live table is still unpartitioned, `./deploy` prints instructions and does not rewrite it — migrate with:
+
+```shell
+python3 tools/migrate_responses_partition.py --project brandometer2
+python3 tools/migrate_responses_partition.py --project brandometer2 --apply
+```
+
+Dry-run is the default. `--apply` copies into a partitioned table, swaps names, and keeps `responses_unpartitioned_backup_YYYYMMDD`.
 
 Analysts with Looker / reporting-dataset access should query the authorized views instead of the raw table:
 
