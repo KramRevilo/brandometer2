@@ -47,7 +47,10 @@
   <p class="small text-muted">
     Each respondent is counted once (RespondentID, falling back to BomID): the latest, most complete cumulative response is kept.
     Surveys that submit after each question therefore show fewer people than raw row counts.
-    Segments are the values stored on the response (<code>seg</code>), not renamed labels.
+    Segments are the values stored on the response (<code>seg</code>).
+    When the survey has cells, each id maps to an explicit role; otherwise
+    <code>control</code> / <code>expos</code> in the string still classify the arm.
+    Holdout and other cells are excluded from lift.
     Preview <code>Type=test</code> rows are excluded by default.
     {% if include_test %}
     <a href="{{ url_for('reporting', survey_id=survey_id) }}">Exclude test data</a>
@@ -136,6 +139,47 @@
       No control or exposed segment in this data. Lift is not computed.
       Distributions below use the stored seg values as-is.
       {{ meaning('report.no_control', 'help-no-control-or-expose') }}
+    </div>
+    {% endif %}
+
+    {% if is_lift and report.cell_comparisons %}
+    <div class="card mb-4" id="cell-comparisons">
+      <div class="card-body">
+        <h2 class="h5">Additional expose cells vs control</h2>
+        <p class="small text-muted">
+          Overall sequential status and Result pool every control cell against every
+          expose cell. Each extra expose cell is compared to pooled control on
+          question 1 answer A. Holm–Bonferroni is across these cell tests only.
+        </p>
+        <div class="table-responsive">
+          <table class="table table-bordered table-sm align-middle">
+            <thead class="table-light">
+              <tr>
+                <th scope="col">Cell</th>
+                <th scope="col">n control</th>
+                <th scope="col">n expose</th>
+                <th scope="col">Lift</th>
+                <th scope="col">p</th>
+                <th scope="col">p-adj</th>
+              </tr>
+            </thead>
+            <tbody>
+              {% for row in report.cell_comparisons %}
+              <tr>
+                <td>{{ row.label or row.id }} <code class="small">{{ row.id }}</code></td>
+                <td>{{ row.n_control }}</td>
+                <td>{{ row.n_expose }}</td>
+                <td>{% if row.lift == row.lift %}{{ (row.lift * 100)|round(1) }}%{% else %}—{% endif %}</td>
+                <td>{% if row.pvalue == row.pvalue %}{{ '%.4f'|format(row.pvalue) }}{% else %}—{% endif %}</td>
+                <td>{% if row.pvalue_adjusted == row.pvalue_adjusted %}{{ '%.4f'|format(row.pvalue_adjusted) }}{% else %}—{% endif %}
+                  {% if row.warning_n_small %}<span class="badge text-bg-warning">small n</span>{% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
     {% endif %}
 

@@ -19,6 +19,7 @@ import re
 
 import pandas as pd
 
+import cells as cells_mod
 import respondent
 
 # Warn when a lift arm has fewer than this many respondents who answered.
@@ -45,14 +46,13 @@ def completeness(response):
   return len(parse_response(response))
 
 
-def segment_role(seg):
-  """Map a stored seg value to control, expose, or other. Does not rename it."""
-  text = str(seg or '').strip().lower()
-  if 'control' in text:
-    return 'control'
-  if 'expos' in text:
-    return 'expose'
-  return 'other'
+def segment_role(seg, cells=None):
+  """Map a stored seg value to control, expose, holdout, or other.
+
+  When the survey stores cells, the matching cell id wins. Surveys without
+  cells keep the substring fallback (control / expos in the string).
+  """
+  return cells_mod.role_for_seg(seg, cells)
 
 
 def consolidate_frame(df):
@@ -188,6 +188,59 @@ def apply_holm_to_questions(questions):
   for answer, adj in zip(answers, adjusted):
     answer['pvalue_adjusted'] = adj
   return sum(1 for value in raw if _finite_pvalue(value))
+
+
+def _q1_a_counts(work, mask):
+  n = k = 0
+  if work is None or work.empty:
+    return n, k
+  for _, row in work.loc[mask].iterrows():
+    parsed = row.get('_parsed') or {}
+    if 1 not in parsed:
+      continue
+    n += 1
+    if parsed.get(1) == 'A':
+      k += 1
+  return n, k
+
+
+def cell_comparisons(work, survey_info):
+  """Each extra expose cell vs pooled control (Q1 answer A), Holm across cells.
+
+  Primary sequential / Result still pool every control vs every expose.
+  Holdout and other cells are omitted. One expose cell is the primary arm,
+  so this list is empty unless there are additional expose cells.
+  """
+  cells = cells_mod.normalize((survey_info or {}).get('cells'))
+  extra = cells_mod.primary_cells(cells)[2]
+  if work is None or work.empty or not extra:
+    return []
+  control_mask = work['role'] == 'control'
+  n_c, k_c = _q1_a_counts(work, control_mask)
+  rows = []
+  for cell in extra:
+    expose_mask = work['Segmentation'].fillna('').astype(str) == cell['id']
+    n_e, k_e = _q1_a_counts(work, expose_mask)
+    p_c = (k_c / n_c) if n_c else float('nan')
+    p_e = (k_e / n_e) if n_e else float('nan')
+    rows.append({
+        'id': cell['id'],
+        'label': cell['label'],
+        'n_control': n_c,
+        'n_expose': n_e,
+        'k_control': k_c,
+        'k_expose': k_e,
+        'p_control': p_c,
+        'p_expose': p_e,
+        'lift': lift_ratio(p_e, p_c),
+        'pvalue': two_proportion_pvalue(k_e, n_e, k_c, n_c),
+        'pvalue_adjusted': float('nan'),
+        'warning_n_small': n_c < MIN_N or n_e < MIN_N,
+    })
+  adjusted = holm_adjust([row['pvalue'] for row in rows])
+  for row, adj in zip(rows, adjusted):
+    row['pvalue_adjusted'] = adj
+  return rows
 
 
 BREAKOUT_DIMS = (
@@ -481,12 +534,15 @@ def build_report(df, survey_info, is_lift=False):
       'control_n': 0,
       'expose_n': 0,
       'n_tests': 0,
+      'cell_comparisons': [],
+      'cells': cells_mod.normalize(survey_info.get('cells')),
       'stats_notes': {
           'ci': 'Wilson score 95% CI on each arm (not Wald).',
           'test': 'Two-sided two-proportion z-test with pooled standard error.',
           'multiple_comparison': (
               'Holm–Bonferroni within the overall table (all answers) and '
               'separately within each breakout dimension (all slices × answers). '
+              'Additional expose cells vs pooled control are a third family. '
               'Unadjusted p-values are still shown.'),
           'min_n': MIN_N,
       },
@@ -496,7 +552,9 @@ def build_report(df, survey_info, is_lift=False):
     return report
 
   work = consolidated.copy()
-  work['role'] = work['Segmentation'].map(segment_role)
+  survey_cells = cells_mod.normalize(survey_info.get('cells'))
+  work['role'] = work['Segmentation'].map(
+      lambda seg: cells_mod.lift_role(seg, survey_cells))
   work['_parsed'] = work['Response'].map(parse_response)
   if 'CreatedAt' in work.columns:
     dates = pd.to_datetime(work['CreatedAt'], errors='coerce')
@@ -538,6 +596,8 @@ def build_report(df, survey_info, is_lift=False):
 
   report['questions'] = question_stats(work, survey_info)
   report['n_tests'] = apply_holm_to_questions(report['questions'])
+  if is_lift:
+    report['cell_comparisons'] = cell_comparisons(work, survey_info)
   report['breakouts'] = build_breakouts(work, survey_info, is_lift=is_lift)
   if is_lift:
     import sequential as sequential_mod

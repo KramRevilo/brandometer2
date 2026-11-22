@@ -40,6 +40,12 @@ class ReportingMathTest(unittest.TestCase):
     self.assertEqual(reporting.segment_role('CONTROL_MALE'), 'control')
     self.assertEqual(reporting.segment_role(''), 'other')
     self.assertEqual(reporting.segment_role('seg1'), 'other')
+    cells = [
+        {'id': 'north', 'label': 'North', 'role': 'control'},
+        {'id': 'hold_pool', 'label': 'Hold', 'role': 'holdout'},
+    ]
+    self.assertEqual(reporting.segment_role('north', cells), 'control')
+    self.assertEqual(reporting.segment_role('hold_pool', cells), 'holdout')
 
   def test_wilson_interval_50_of_100(self):
     lo, hi = reporting.wilson_interval(50, 100)

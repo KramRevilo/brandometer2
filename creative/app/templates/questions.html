@@ -142,7 +142,7 @@
           </div>
           <div class="col-md-4">
             <label class="form-label" for="surveytype">Type</label>
-            {{ form.surveytype(class="form-select", id="surveytype") }}
+            {{ form.surveytype(class="form-select", id="surveytype", **{'@change': 'onSurveyTypeChange()'}) }}
           </div>
           <div class="col-md-4">
             <label class="form-label" for="language">Language</label>
@@ -168,7 +168,63 @@
             {% for error in form.creativesize.errors %}
             <div class="text-danger small">{{ error }}</div>
             {% endfor %}
-            <div class="form-text">Select every size this survey should traffic. 160×600 and 300×600 allow up to 8 answers; the others cap at 5. Download produces one HTML5 zip per size (and per Brand Lift segment).</div>
+            <div class="form-text">Select every size this survey should traffic. 160×600 and 300×600 allow up to 8 answers; the others cap at 5. Download produces one HTML5 zip per size (and per cell).</div>
+          </div>
+          <div class="col-12" id="cells-editor">
+            <div class="form-label">Cells</div>
+            {{ form.cells_json(class="d-none", id="cells_json") }}
+            <p class="form-text mb-2">
+              One inner zip per cell. Brand Lift needs at least one
+              <strong>control</strong> and one <strong>expose</strong>.
+              Additional expose cells are each compared to pooled control.
+              Holdout and other cells are stored and excluded from lift.
+              Brand Track can add cells for breakouts.
+            </p>
+            <div class="table-responsive">
+              <table class="table table-sm align-middle mb-2">
+                <thead>
+                  <tr>
+                    <th scope="col">Id (seg)</th>
+                    <th scope="col">Label</th>
+                    <th scope="col">Role</th>
+                    <th scope="col" class="text-end"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template x-for="(cell, index) in cells" :key="index">
+                    <tr>
+                      <td>
+                        <input class="form-control form-control-sm" type="text"
+                               x-model="cell.id" @input="syncCells()"
+                               :aria-label="'Cell id ' + (index + 1)" maxlength="64">
+                      </td>
+                      <td>
+                        <input class="form-control form-control-sm" type="text"
+                               x-model="cell.label" @input="syncCells()"
+                               :aria-label="'Cell label ' + (index + 1)">
+                      </td>
+                      <td>
+                        <select class="form-select form-select-sm" x-model="cell.role"
+                                @change="syncCells()" :aria-label="'Cell role ' + (index + 1)">
+                          <option value="control">control</option>
+                          <option value="expose">expose</option>
+                          <option value="holdout">holdout</option>
+                          <option value="other">other</option>
+                        </select>
+                      </td>
+                      <td class="text-end">
+                        <button type="button" class="btn btn-sm btn-outline-danger"
+                                @click="removeCell(index)">Remove</button>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-primary" @click="addCell()">Add cell</button>
+            {% for error in form.cells_json.errors %}
+            <div class="text-danger small mt-2">{{ error }}</div>
+            {% endfor %}
           </div>
         </div>
       </div>

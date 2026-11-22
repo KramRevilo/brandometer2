@@ -200,14 +200,77 @@
         4: filledAnswerCount(4),
         5: filledAnswerCount(5)
       },
+      cells: [],
 
       init: function () {
+        this.cells = this.loadCells();
+        this.syncCells();
         this.prevFilled = this.filledQuestionMap();
         var keys = this.selectedSizeKeys();
         this.previewSize = keys[0] || '300x250';
         this.trimAnswersToMax();
         this.syncCss();
         this.editorReady = true;
+      },
+
+      defaultCells: function (surveyType) {
+        if (surveyType === 'brand_lift') {
+          return [
+            { id: 'default_control', label: 'Control', role: 'control' },
+            { id: 'default_expose', label: 'Exposed', role: 'expose' }
+          ];
+        }
+        return [];
+      },
+
+      loadCells: function () {
+        var field = document.getElementById('cells_json');
+        var raw = field && field.value ? String(field.value).trim() : '';
+        if (raw) {
+          try {
+            var parsed = JSON.parse(raw);
+            if (Array.isArray(parsed) && parsed.length) {
+              return parsed.map(function (cell) {
+                return {
+                  id: String((cell && cell.id) || ''),
+                  label: String((cell && cell.label) || ''),
+                  role: String((cell && cell.role) || 'other')
+                };
+              });
+            }
+          } catch (err) { /* fall through to defaults */ }
+        }
+        var typeField = document.getElementById('surveytype');
+        var surveyType = typeField ? typeField.value : 'brand_track';
+        return this.defaultCells(surveyType);
+      },
+
+      syncCells: function () {
+        var field = document.getElementById('cells_json');
+        if (!field) return;
+        field.value = JSON.stringify(this.cells || []);
+      },
+
+      addCell: function () {
+        var n = (this.cells || []).length + 1;
+        this.cells.push({ id: 'cell_' + n, label: 'Cell ' + n, role: 'other' });
+        this.syncCells();
+      },
+
+      removeCell: function (index) {
+        if (!this.cells || !this.cells.length) return;
+        this.cells.splice(index, 1);
+        this.syncCells();
+      },
+
+      onSurveyTypeChange: function () {
+        var typeField = document.getElementById('surveytype');
+        var surveyType = typeField ? typeField.value : 'brand_track';
+        var defaults = this.defaultCells(surveyType);
+        if (surveyType === 'brand_lift' && !(this.cells || []).length) {
+          this.cells = defaults;
+        }
+        this.syncCells();
       },
 
       selectedSizeKeys: function () {

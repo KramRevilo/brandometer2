@@ -201,7 +201,7 @@ ENTRIES = {
         'body': (
             'Brand Lift needs a control group (people who did not see the '
             'campaign) and an exposed group. This app stores that on the row '
-            'as seg (default_control vs default_expose). If control is '
+            'as seg (the control cell id, default_control unless you renamed it). If control is '
             'missing, traffic the control zip or wait for those responses. '
             'Lift is not computed until both sides exist.'
         ),

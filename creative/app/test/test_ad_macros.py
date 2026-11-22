@@ -73,6 +73,22 @@ class TagSheetTest(unittest.TestCase):
     self.assertTrue(all(row['campaign_id'] == 'camp-1' for row in rows))
     self.assertIn('%c', rows[0]['click_tag'])
 
+  def test_lift_survey_one_row_per_cell(self):
+    when = datetime.datetime(2026, 11, 20)
+    rows = ad_macros.tag_sheet_rows('sid', {
+        'surveyname': 'cola-lift',
+        'surveytype': 'brand_lift',
+        'creativesizes': ['300x250'],
+        'ad_server': 'cm360',
+        'cells': [
+            {'id': 'ctrl_a', 'label': 'Control', 'role': 'control'},
+            {'id': 'exp_a', 'label': 'Expose A', 'role': 'expose'},
+            {'id': 'exp_b', 'label': 'Expose B', 'role': 'expose'},
+        ],
+    }, when=when)
+    segs = [row['segment'] for row in rows]
+    self.assertEqual(segs, ['ctrl_a', 'exp_a', 'exp_b'])
+
   def test_tag_sheet_includes_next_creative_version(self):
     rows = ad_macros.tag_sheet_rows('sid', {
         'surveyname': 'track',

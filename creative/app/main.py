@@ -39,6 +39,7 @@ from markupsafe import Markup
 import app_security
 import brand
 import bulk_surveys
+import cells as cells_mod
 import ui_help
 import creative_size
 import css_theme
@@ -447,6 +448,10 @@ def preview(survey_id):
       pixel_type = 'test'
       is_test_pixel = True
 
+    preview_cells = cells_mod.preview_cells(survey_info)
+    cell_arg = request.args.get('cell') or request.args.get('seg')
+    preview_seg = cells_mod.resolve_preview_seg(survey_info, cell_arg)
+
     return render_template(
         'creative.html',
         survey=survey_info,
@@ -455,8 +460,9 @@ def preview(survey_id):
         show_back_button=not embed,
         embed=embed,
         preview_sizes=preview_sizes,
+        preview_cells=preview_cells,
         all_question_json=survey_service.get_question_json(survey_info),
-        seg='preview',
+        seg=preview_seg,
         custom_css=custom_css,
         response_type=response_type,
         creative_width=size['width'],

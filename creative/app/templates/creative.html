@@ -1104,10 +1104,28 @@
         {% if key == size_key %}
         <strong style="margin-left: 8px;">{{ key.replace('x', '×') }}</strong>
         {% else %}
-        {% if submit_test %}
+        {% if submit_test and preview_cells %}
+        <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=key, cell=seg, submit_test=1) }}">{{ key.replace('x', '×') }}</a>
+        {% elif submit_test %}
         <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=key, submit_test=1) }}">{{ key.replace('x', '×') }}</a>
+        {% elif preview_cells %}
+        <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=key, cell=seg) }}">{{ key.replace('x', '×') }}</a>
         {% else %}
         <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=key) }}">{{ key.replace('x', '×') }}</a>
+        {% endif %}
+        {% endif %}
+      {% endfor %}
+      {% endif %}
+      {% if preview_cells and preview_cells|length %}
+      <span style="margin-left: 12px;">Cell:</span>
+      {% for cell in preview_cells %}
+        {% if cell.id == seg %}
+        <strong style="margin-left: 8px;">{{ cell.label or cell.id }}</strong>
+        {% else %}
+        {% if submit_test %}
+        <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=size_key, cell=cell.id, submit_test=1) }}">{{ cell.label or cell.id }}</a>
+        {% else %}
+        <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=size_key, cell=cell.id) }}">{{ cell.label or cell.id }}</a>
         {% endif %}
         {% endif %}
       {% endfor %}
@@ -1117,9 +1135,9 @@
         {% if submit_test %}
         <strong>Test submissions on</strong>
         (Type=test, ids prefixed <code>test_</code>).
-        <a href="{{ url_for('preview', survey_id=survey_id, size=size_key) }}">Turn off</a>
+        <a href="{{ url_for('preview', survey_id=survey_id, size=size_key, cell=seg) }}">Turn off</a>
         {% else %}
-        <a href="{{ url_for('preview', survey_id=survey_id, size=size_key, submit_test=1) }}">Submit test response</a>
+        <a href="{{ url_for('preview', survey_id=survey_id, size=size_key, cell=seg, submit_test=1) }}">Submit test response</a>
         {% endif %}
       </span>
       {% endif %}

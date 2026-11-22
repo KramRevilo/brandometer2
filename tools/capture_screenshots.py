@@ -93,6 +93,12 @@ def _survey(doc_id, **fields):
       'creativesizes': sizes,
       'creativesize': sizes[0] if len(sizes) == 1 else sizes,
   }
+  if payload['surveytype'] == 'brand_lift':
+    payload['cells'] = [
+        {'id': 'default_control', 'label': 'Control', 'role': 'control'},
+        {'id': 'default_expose', 'label': 'Exposed', 'role': 'expose'},
+        {'id': 'exp_b', 'label': 'Exposed B', 'role': 'expose'},
+    ]
   letters = 'abcdefgh'
   for index, text in enumerate(answers):
     payload['answer1' + letters[index]] = text
@@ -581,7 +587,8 @@ def patch_bigquery() -> None:
     })
   small_df = pandas.DataFrame(small_rows)
 
-  def fake_rows(surveyid, client=None):
+  def fake_rows(surveyid, client=None, include_test=False):
+    del include_test
     if surveyid == 'lift-demo':
       return lift_df.copy()
     if surveyid == 'lift-small':
@@ -830,6 +837,15 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_selector('iframe.preview-frame')
     page.wait_for_timeout(800)
     capture(page, out / 'editor.png', full_page=False)
+    cells = page.locator('#cells-editor')
+    cells.scroll_into_view_if_needed()
+    page.wait_for_timeout(200)
+    box = cells.bounding_box()
+    if not box:
+      raise RuntimeError('Cells editor not visible')
+    capture(
+        page, out / 'editor-cells.png', full_page=False, clip=box,
+        max_width=UI_MAX_WIDTH)
     page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
 
     badge = page.locator('#disclosure-badge')

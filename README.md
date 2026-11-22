@@ -91,11 +91,15 @@ Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe 
 * **Bulk CSV:** editors can download a template, preview validation, and create up to 50 surveys at once (`/survey/bulk`). Invalid rows are listed and skipped. Default theme CSS is applied; change style in the editor afterwards.
 * **Sample-size planner:** navbar **Sample size**, a calculator on each survey row, and a link from the editor and report. Estimates Brand Lift respondents and impressions from baseline rate, minimum detectable lift (relative % or absolute pp), 95%/80% defaults, Holm/Bonferroni-style comparisons, response rate, and control:exposed split. Server-side two-proportion z-test (same as the report) with a 30-per-arm floor. Viewers calculate; editors save the plan on the survey. Help copy is in `ui_help.py`.
 
-Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (Brand Lift also splits Control and Expose) plus `html5_qa.txt` and the CM360/DV360 bulk-upload CSVs. Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip, `html5_qa.txt`, or the sidecar CSVs as a creative. Inner zips contain only `index.html`.
+Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (and per cell) plus `html5_qa.txt` and the CM360/DV360 bulk-upload CSVs. Unzip the outer file and upload each **inner** zip to CM360. Do not upload the outer zip, `html5_qa.txt`, or the sidecar CSVs as a creative. Inner zips contain only `index.html`.
 
-![Survey editor identity fields, size checkboxes, theme preset, and live preview](docs/images/editor.png)
+![Survey editor identity fields, size checkboxes, cells table, theme preset, and live preview](docs/images/editor.png)
 
-*Editor (1400px): identity, multi-size checkboxes, HTML5 spec QA, Classic green theme, and live iframe preview with bordered answer buttons.*
+*Editor (1400px): identity, multi-size checkboxes, cells (control / expose / holdout / other), HTML5 spec QA, Classic green theme, and live iframe preview with bordered answer buttons.*
+
+![Cells editor with default control and expose rows](docs/images/editor-cells.png)
+
+*Cells: one inner zip per cell. Brand Lift needs at least one control and one expose (defaults match today’s `default_control` / `default_expose`). Extra expose cells are each compared to pooled control. Holdout and other are stored and excluded from lift. Brand Track can add cells for breakouts.*
 
 ![Disclosure badge section with B, B2, Ad, and Name icon choices plus an agency name field](docs/images/editor-badge.png)
 
@@ -107,7 +111,7 @@ Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (
 
 ![Standalone live preview of a 300×250 creative with size switcher](docs/images/preview-300x250.png)
 
-*Preview (`/survey/preview/<id>`): size links switch among the survey’s selected sizes. Editors can **Submit test response** on the standalone page (not the homepage modal): answers POST as `Type=test` with `seg=preview` and respondent ids prefixed `test_`. Reports, homepage counts, CSV, sequential stats, and Looker views exclude those rows unless you turn on **Include test data**. The **Thank You** end screen is flex-centered in the creative minus the 24px badge gutter (every size, including long copy and RTL). `<html lang>` / `dir` follow the survey language (`ar` / `he` / `fa` / `ur` are RTL). The measurement pixel is fire-and-forget and must not block that screen. Re-download HTML5 zips after layout or pixel changes.*
+*Preview (`/survey/preview/<id>`): size links switch among the survey’s selected sizes; **Cell** switches the baked `seg` when the survey has cells. Editors can **Submit test response** on the standalone page (not the homepage modal): answers POST as `Type=test` with respondent ids prefixed `test_`. Reports, homepage counts, CSV, sequential stats, and Looker views exclude those rows unless you turn on **Include test data**. The **Thank You** end screen is flex-centered in the creative minus the 24px badge gutter (every size, including long copy and RTL). `<html lang>` / `dir` follow the survey language (`ar` / `he` / `fa` / `ur` are RTL). The measurement pixel is fire-and-forget and must not block that screen. Re-download HTML5 zips after layout or pixel changes.*
 
 ### Creatives
 
@@ -191,11 +195,11 @@ Preview **does not** post to BigQuery. To generate test rows, curl the receiver 
 
 ### Trafficking (CM360 / DV360)
 
-Brand Lift **control and expose are two copies of the same survey creative** (same questions, size, and style). The only difference is a baked `seg` (`default_control` vs `default_expose`) sent on the pixel. Serve the control zip to a **Control** audience (people **not** exposed to the campaign) and the expose zip to an **Expose** audience (people who **were** exposed). Reporting classifies rows from that stored `seg` (`control` / `expos` in the string), not from placement ID. The app does **not** generate or require a PSA, house ad, pre-survey, master, or brand-neutral fallback creative.
+Brand Lift **control and expose are copies of the same survey creative** (same questions, size, and style). The only difference is a baked `seg` per cell sent on the pixel. Defaults are `default_control` / `default_expose`. Serve each control zip to a **Control** audience (people **not** exposed to the campaign) and each expose zip to an **Expose** audience (people who **were** exposed). Reporting uses the survey’s stored cells (`id` → `role`); surveys without cells still classify from `control` / `expos` in the stored `seg`. The app does **not** generate or require a PSA, house ad, pre-survey, master, or brand-neutral fallback creative.
 
 1. Download the outer ZIP, unzip it, and upload each **inner** HTML5 zip in CM360 (not the outer file, not `html5_qa.txt`, not the bulk CSVs). Match each placement’s dimensions to a selected survey size. Review `html5_qa.txt` before trafficking; warnings never block the download. Optional: fill Advertiser ID on `cm360_html5_bulk.csv` / `dv360_html5_bulk.csv` and use those sheets in the ad-server bulk UI (`HOW_TO_UPLOAD.txt`). There is no CM360/DV360 API in this app.
-2. Brand Lift: **two inner zips per size**. Assign `…_default_control.zip` to the Control ad/audience and `…_default_expose.zip` to the Expose ad/audience. One placement per size with those two ads is enough for overall lift.
-3. Brand Track: **one inner zip per size** (no control/expose split).
+2. Brand Lift: **one inner zip per size × cell**. Assign each control cell zip to the Control ad/audience and each expose cell zip to its Expose ad/audience. Overall sequential status and Result pool every control cell against every expose cell. Extra expose cells are each compared to pooled control (Holm across those cell tests). Holdout and other cells are excluded from lift.
+3. Brand Track: **one inner zip per size** unless you add cells for breakouts (then one zip per cell).
 4. Extra CM360 placements or DV360 line items are only needed if you want **placement- or site-level breakouts** or a later **cost/impressions join**. Expanded macros (`plc`, `site`, `crid`, `camp`) are stored on the response when the ad server fills them.
 
 ## Security and access

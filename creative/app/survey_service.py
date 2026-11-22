@@ -24,6 +24,7 @@ import time
 import zipfile
 import access
 import brand
+import cells as cells_mod
 import css_theme
 import receiver_crypto
 from flask import flash
@@ -59,7 +60,7 @@ SORT_KEYS = (
 STATS_SORT_KEYS = ('progress', 'result')
 _IDENTITY_KEYS = (
     'client', 'agency', 'campaign_id', 'placement_id', 'ad_server')
-_FORM_META_KEYS = ('csrf_token', 'submit', 'last_update_time')
+_FORM_META_KEYS = ('csrf_token', 'submit', 'last_update_time', 'cells_json')
 
 # Homepage status chips. Active <= 3 days, Stale <= 7, Timed out after that.
 # 2022 backlog (yellow at 7 days). Previously Stale ran through 14 days.
@@ -810,7 +811,7 @@ def _surveys_by_id(surveys):
   return by_id
 
 
-def _headline_arms(item):
+def _headline_arms(item, cells=None):
   """n / n_q1 / k_q1_a split by control vs expose from one cached counts item."""
   n_c = n_e = k_c = k_e = 0
   n_q1_c = n_q1_e = 0
@@ -824,7 +825,7 @@ def _headline_arms(item):
     else:
       n_q1 = n
     k = _coerce_int(seg.get('k_q1_a'))
-    role = reporting.segment_role(seg.get('Segmentation'))
+    role = reporting.segment_role(seg.get('Segmentation'), cells)
     n_total += n
     n_q1_total += n_q1
     k_total += k
@@ -978,7 +979,8 @@ def compute_progress_result(item, survey=None):
   out = _empty_progress_result()
   if not item or item.get('unavailable'):
     return out
-  arms = _headline_arms(item)
+  data = _survey_data(survey) if survey is not None else {}
+  arms = _headline_arms(item, data.get('cells'))
   if arms is None:
     out.update({
         'result_key': 'no_data',
@@ -991,7 +993,6 @@ def compute_progress_result(item, survey=None):
     return out
   if survey is None:
     return out
-  data = _survey_data(survey)
   plan = data.get('sample_plan') if isinstance(data.get('sample_plan'), dict) else None
   target = track_target_moe()
   if is_brand_lift(data):
@@ -1173,6 +1174,7 @@ def create_from_payload(data, flash_created=True):
   """Persist a survey dict (editor form or bulk CSV)."""
   payload = brand.persist_badge(_strip_identity(dict(data or {})))
   payload, _ = creative_size.persist_sizes(payload)
+  payload = cells_mod.persist(payload)
   payload['archived'] = False
   actor = access.actor_email()
   now = survey_collection.utc_now_iso()
@@ -1212,6 +1214,7 @@ def save_sample_plan(survey_id, plan):
 def update_by_id(survey_id, form, last_update_time=None):
   data, _ = creative_size.persist_sizes(
       brand.persist_badge(_strip_identity(form.data)))
+  data = cells_mod.persist(data)
   actor = access.actor_email()
   data['updated_at'] = survey_collection.utc_now_iso()
   data['updated_by'] = actor
@@ -1233,6 +1236,8 @@ def set_form_data(form, edit_doc):
       form[key].data = edit_doc.get(key,)
   if 'creativesize' in form:
     form['creativesize'].data = creative_size.selected_keys(edit_doc_dict)
+  if 'cells_json' in form:
+    form['cells_json'].data = cells_mod.dumps(edit_doc_dict.get('cells'))
 
 
 def zip_file(survey_id, survey_dict, record_version=True):
@@ -1241,11 +1246,7 @@ def zip_file(survey_id, survey_dict, record_version=True):
   current_datetime = when.strftime('%Y%m%d')
   surveyname = (survey_dict.get('surveyname') or 'survey').replace(' ', '-')
   size_keys = creative_size.selected_keys(survey_dict)
-  survey_type = survey_dict.get('surveytype', BRAND_TRACK)
-  if survey_type == BRAND_LIFT:
-    seg_types = ['default_control', 'default_expose']
-  else:
-    seg_types = ['']
+  seg_types = cells_mod.zip_seg_ids(survey_dict)
 
   if 'responsetype' not in survey_dict:
     survey_dict['responsetype'] = RESPONSES_AT_END
@@ -1505,15 +1506,22 @@ def get_brand_lift_results(surveyid):
   """Legacy lift matrices (expose/control proportions + lift).
 
   Used by tests and as a thin adapter. The reporting page uses get_report.
-  Segment roles come from the stored seg values (control / expos), not a
-  hardcoded rename of default_*.
+  Segment roles come from survey cells when stored, else from the stored
+  seg substring (control / expos).
   """
   df = fetch_survey_response_rows(surveyid, include_test=False)
   df = reporting.consolidate_frame(df)
   if df.empty or not df['Response'].any():
     return []
   df = df.copy()
-  roles = df['Segmentation'].map(reporting.segment_role)
+  cells = None
+  try:
+    survey_doc = get_doc_by_id(surveyid)
+    if survey_doc and getattr(survey_doc, 'exists', False):
+      cells = (survey_doc.to_dict() or {}).get('cells')
+  except Exception:
+    cells = None
+  roles = df['Segmentation'].map(lambda seg: reporting.segment_role(seg, cells))
   df['Segmentation'] = [
       role if role != 'other' else seg
       for role, seg in zip(roles, df['Segmentation'])

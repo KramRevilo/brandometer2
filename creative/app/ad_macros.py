@@ -177,9 +177,8 @@ def render_vars(survey=None):
 
 
 def _segments(survey):
-  if (survey.get('surveytype') or BRAND_TRACK) == BRAND_LIFT:
-    return ['default_control', 'default_expose']
-  return ['']
+  import cells as cells_mod
+  return cells_mod.zip_seg_ids(survey)
 
 
 def tag_sheet_rows(survey_id, survey, when=None, creative_version=None):

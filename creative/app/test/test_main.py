@@ -1200,6 +1200,27 @@ class MainRoutesTest(unittest.TestCase):
     self.assertNotIn(b'?type=survey', embed.data)
     self.assertNotIn(b'Submit test response', embed.data)
 
+  @mock.patch.object(survey_service, 'get_question_json', return_value=[])
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_preview_cell_switcher(self, doc_mock, _json_mock):
+    doc_mock.return_value = self._survey('abc', {
+        'surveyname': 'Lift',
+        'surveytype': 'brand_lift',
+        'question1': 'Q1',
+        'cells': [
+            {'id': 'default_control', 'label': 'Control', 'role': 'control'},
+            {'id': 'default_expose', 'label': 'Exposed', 'role': 'expose'},
+        ],
+        'responsetype': 'Submit Responses at End of Survey',
+    })
+    response = self.client.get('/survey/preview/abc')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'>Cell:</span>', response.data)
+    self.assertIn(b'"seg": "default_control"', response.data)
+    self.assertIn(b'cell=default_expose', response.data)
+    expose = self.client.get('/survey/preview/abc?cell=default_expose')
+    self.assertIn(b'"seg": "default_expose"', expose.data)
+
   @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
   def test_index_includes_preview_modal(self, list_mock, counts_mock):

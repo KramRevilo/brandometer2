@@ -414,6 +414,8 @@ class QuestionForm(FlaskForm):
   # adding portion of form to customize creative
   custom_css = TextAreaField('custom_css', default=DEFAULT_CSS)
 
+  cells_json = TextAreaField('cells_json')
+
   creativesize = CreativeSizeField(
       'creativeSize',
       choices=creative_size.SIZE_CHOICES,
@@ -590,3 +592,18 @@ class QuestionForm(FlaskForm):
 
   def validate_question5(form, field):
     validate_next_question(form, field)
+
+  def validate_cells_json(form, field):
+    import cells as cells_mod
+    try:
+      parsed = cells_mod.parse_json(field.data)
+    except ValueError as err:
+      raise ValidationError(str(err))
+    survey_type = (form.surveytype.data if form.surveytype.data
+                   else BRAND_TRACK)
+    if not parsed:
+      parsed = cells_mod.default_cells(survey_type)
+    errors = cells_mod.validate(parsed, survey_type)
+    if errors:
+      raise ValidationError(errors[0])
+    field.data = cells_mod.dumps(parsed)
