@@ -801,8 +801,9 @@ class TestSurveyService(unittest.TestCase):
           'campaign_id': 'camp-1',
           'placement_id': 'plc-9',
           'created_at': '2024-01-02T00:00:00Z',
-          'badge_icon': 'Dentsu',
-          'badge_text': 'Survey Type Dentsu Ad - powered by Google',
+          'badge_icon': 'Name',
+          'badge_name': 'Cedar & Pine Collective',
+          'badge_text': 'Survey Type Brandometer2 Ad - powered by Google',
       })
       new_ref = survey_collection.copy(original.id)
       self.assertIsNotNone(new_ref)
@@ -823,9 +824,10 @@ class TestSurveyService(unittest.TestCase):
       self.assertNotEqual(data['created_at'], '2024-01-02T00:00:00Z')
       self.assertEqual(data['created_by'], '')
       self.assertEqual(data['updated_by'], '')
-      self.assertEqual(data['badge_icon'], 'Dentsu')
+      self.assertEqual(data['badge_icon'], 'Name')
+      self.assertEqual(data['badge_name'], 'Cedar & Pine Collective')
       self.assertEqual(
-          data['badge_text'], 'Survey Type Dentsu Ad - powered by Google')
+          data['badge_text'], 'Survey Type Brandometer2 Ad - powered by Google')
 
   def test_update_by_id_raises_conflict_on_failed_precondition(self):
     from google.api_core.exceptions import FailedPrecondition

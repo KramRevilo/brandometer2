@@ -243,6 +243,14 @@
         return { id: 'B', kind: 'letter', mark: null };
       },
 
+      badgeNameText: function () {
+        void this.formEpoch;
+        var typed = String(fieldValue('badge_name') || '').trim();
+        var agency = String(fieldValue('agency') || '').trim();
+        var raw = (typed || agency).replace(/<[^>]*>/g, '').replace(/[<>]/g, '');
+        return raw.replace(/\s+/g, ' ').trim().slice(0, 40);
+      },
+
       badgeTooltipText: function () {
         void this.formEpoch;
         var typed = String(fieldValue('badge_text') || '').trim();
@@ -256,6 +264,9 @@
         var tip = this.badgeTooltipText();
         var kind = spec.kind || 'letter';
         var mark = spec.mark || (boot.brand && boot.brand.letter) || 'B';
+        if (kind === 'wordmark') {
+          mark = this.badgeNameText() || 'Ad';
+        }
         var face;
         if (spec.svg) {
           face = spec.svg;

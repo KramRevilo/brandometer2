@@ -275,7 +275,7 @@ python3 tools/seed_demo_data.py --project brandometer2 --purge --apply
 
 `--count` default 220 (minimum 200 so the list has 4+ pages at `HOMEPAGE_PAGE_SIZE=50`). `--seed` default 1 (also deterministic for themes). `--apply` overwrites the tagged batch (deterministic survey ids `demo_<seed>_<nnnn>`, including `custom_css` BV2 themes) then load-jobs NDJSON into BigQuery after deleting previous demo rows. `--purge` without `--apply` prints the DELETE SQL and counts tagged Firestore docs; `--purge --apply` deletes them. Theme-only refreshes need no App Engine deploy — Mark re-runs `--apply`.
 
-**What it creates.** Five fictional agencies (Northline Media, Cedar & Pine Collective, Riverbend Insights, Halcyon Street, Oak & Anchor) with `.example` creator emails and fictional grocery / auto / games / computer / restaurant / apparel clients. Mix of Brand Lift and Brand Track, single and multi size, some `sample_plan` maps, some archived. Each client has a brand palette (`css_theme` `BV2_THEME` block: `--bv2-bg`, question/answer colours, accent, panel, font, optional pattern / STYLE_PRESET) with campaign variation; every combo is checked for WCAG AA contrast (question on panel-over-background, answer text on button and on the next-button accent). The list page does not render `custom_css`; Preview / zip do. Response volumes and last-received dates are consistent with homepage **Active** / **Stale** / **Timed out** / **No data** (`STATUS_ACTIVE_DAYS=3`, `STATUS_STALE_DAYS=7`). Control/exposed is roughly 50/50. Respondent ids match app dedupe (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`).
+**What it creates.** Five fictional agencies (Northline Media, Cedar & Pine Collective, Riverbend Insights, Halcyon Street, Oak & Anchor) with `.example` creator emails and fictional grocery / auto / games / computer / restaurant / apparel clients. Mix of Brand Lift and Brand Track, single and multi size, some `sample_plan` maps, some archived. Each client has a brand palette (`css_theme` `BV2_THEME` block: `--bv2-bg`, question/answer colours, accent, panel, font, optional pattern / STYLE_PRESET) with campaign variation; every combo is checked for WCAG AA contrast (question on panel-over-background, answer text on button and on the next-button accent). The list page does not render `custom_css`; Preview / zip do. Demo surveys set `badge_name` to that survey's fictional agency and rotate **B** / **B2** / **Name** icons. Response volumes and last-received dates are consistent with homepage **Active** / **Stale** / **Timed out** / **No data** (`STATUS_ACTIVE_DAYS=3`, `STATUS_STALE_DAYS=7`). Control/exposed is roughly 50/50. Respondent ids match app dedupe (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`).
 
 **Tags (purge is exact).** Firestore Surveys: `demo_seed: true`, `demo_batch: demo-<seed>`, document id `demo_*`. AuditLog: `demo_seed: true` and id `demo_audit_<survey_id>` (or `survey_id` starting `demo_`). `DemoSeed/current` bookmark. StatsCache docs whose ids are those surveys. BigQuery: `ID` starts with `demo_` **and** `RandomTimeStamp` starts with `demo_seed:` (plus a 800-day `CreatedAt` window so partitioned tables can prune). Non-demo surveys and rows are never touched.
 
@@ -303,7 +303,7 @@ The admin UI is self-hosted Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12
 
 **Answers.** 2–5 answers on 300×250 / 336×280 / 970×250; up to 8 (a–h) when **every** selected size is 160×600 or 300×600. Empty rows are skipped. Answer text wraps (always-injected layout CSS overrides old `.AText { height: 27px }` in stored `custom_css`). Reporting and the receiver treat `1:F` the same as `1:A` (Response is a string).
 
-**Ad badge.** Every creative and the preview has a bottom-left disclosure badge. Default icon is the bevelled **B** (first letter of `APP_BRAND_NAME`, overridable with `APP_BRAND_BADGE_LETTER`). Per-survey **Disclosure badge** on create/edit picks **B**, **B2**, **Ad**, or **Dentsu** (plain-text wordmark in the same bevelled pill; not Dentsu’s official logo). Stored as `badge_icon` / `badge_text`. Blank or missing fields behave as the default tooltip `Survey Type {brand} Ad - powered by Google` (`APP_BRAND_BADGE_TOOLTIP` to override the default string). Popup text is max 120 characters and HTML-escaped. Hover / focus / tap still show the tooltip; it does not fire clickTag. Copy and zip version snapshots keep the fields. Add more faces in `brand.BADGE_ICONS` (reserved `svg` for an uploaded logo).
+**Ad badge.** Every creative and the preview has a bottom-left disclosure badge. Default icon is the bevelled **B** (first letter of `APP_BRAND_NAME`, overridable with `APP_BRAND_BADGE_LETTER`). Per-survey **Disclosure badge** on create/edit picks **B**, **B2**, **Ad**, or **Name** (plain-text agency wordmark in the same bevelled pill). **Name** uses `badge_name` (max 40, sanitized), prefilled from Agency when blank. Stored as `badge_icon` / `badge_name` / `badge_text`. Blank or missing tooltip behaves as `Survey Type {brand} Ad - powered by Google` (`APP_BRAND_BADGE_TOOLTIP` to override the default string). Popup text is max 120 characters and HTML-escaped. Hover / focus / tap still show the tooltip; it does not fire clickTag. Copy and zip version snapshots keep the fields. Add more faces in `brand.BADGE_ICONS` (reserved `svg` for an uploaded logo). Redeploy App Engine (`--app-only`) for this editor/creative change.
 
 **Brand.** `export APP_BRAND_NAME=Brandometer2` (that is the default). Navbar, page titles, login, and the badge letter/tooltip use it. Tag sheets and response CSVs do not embed the product name (survey name only). There is no branded email.
 
@@ -558,7 +558,7 @@ Same start (`DISABLE_BASIC_AUTH=1`, `cd creative/app`, `flask --app main run --p
 2. Homepage: that two-size survey has Sizes chips. Click the eye: a modal iframe (`?embed=1`) with a size switcher. **Open page** still loads `/survey/preview/<id>`. Pick **970×250** from **⋯** → Preview size. A one-size survey still has a plain eye button and no modal size switcher. Filter Size = 970×250 hides surveys that do not include it; combine with page 2 / Show archived.
 3. Theme preset dropdown: Classic green first; groups Classic / Loud solids / Complementary / Patterns. Hazard stripes should show a striped background with readable answer panels.
 4. Download zip with two sizes: outer zip contains two inner zips plus `html5_qa.txt`; each inner has only `index.html`, `ad.size` matching that size, a **B** badge bottom-left. Hover/tap the badge for the tooltip. Inner filenames ≤ 50 chars. Editor **HTML5 spec QA** should say no warnings (or list them, with **What does this mean?**). The survey receiver URL is `[info]`, not a warning. Download flashes if the report has warnings (info-only does not flash).
-5. **Disclosure badge.** Create survey: Icon picker shows B / B2 / Ad / Dentsu. Default B looks like the current bevelled letter. Pick **Dentsu** and 160×600 — the wordmark is a small pill, not overlapping answers. Change popup text; preview updates immediately. **Use default** restores the `Survey Type Brandometer2 Ad - powered by Google` string. Leave text blank and save — creative still uses that default. Copy the survey; badge choices come along.
+5. **Disclosure badge.** Create survey: Icon picker shows B / B2 / Ad / Name. Default B looks like the current bevelled letter. Pick **Name**, type an agency (or leave blank to use the Agency field) and 160×600 — the wordmark is a small pill, not overlapping answers. Live preview updates as you type. **Use default** restores the `Survey Type Brandometer2 Ad - powered by Google` popup. Leave popup text blank and save — creative still uses that default. Copy the survey; badge choices and `badge_name` come along.
 6. Homepage speed: the survey table should appear immediately with **Loading…** in count / last-received-days / status; those cells fill in after `/index/stats-partial` (check Network: `/index` returns before the stats request). A failed/timed-out stats request shows **—**, not eternal Loading…. Flask debug log lines `index.request_ms` (bq=deferred), `stats.bq_ms`, and on failure `index.stats_partial_error`.
 7. Trafficking: in CM360, **Upload HTML5** (batch) the inner zips. Brand Lift is two copies of the same survey per size (`default_control` / `default_expose`) — assign those to Control vs Expose **audiences**, not a PSA. One placement per size with two ads is enough for overall lift. Extra placements/line items are only for breakouts or a cost join. Do not upload the outer zip as a creative. Match placement dimensions to 300×250 / 160×600 / 300×600 / 336×280 / 970×250. Preview still does not post to BigQuery.
 
@@ -717,26 +717,26 @@ python3 creative/app/reporting_views.py summary brandometer2 \
 ```shell
 # 1. Project-level jobs (required to run queries / Looker Studio).
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
-  --member="user:ana@dentsu.com" \
+  --member="user:ana@example.com" \
   --role="roles/bigquery.jobUser" \
   --condition=None
 
 # Group instead of a user:
-#   --member="group:dentsu-bq@example.com"
+#   --member="group:analysts@example.com"
 
 # 2. READER on the reporting dataset only (not responses).
 PYTHONWARNINGS=ignore bq --format=prettyjson --quiet show --dataset \
   "$PROJECT_ID:brandometer_reporting" > /tmp/brandometer-reporting.json
 python3 creative/app/bq_dataset_iam.py merge-reader \
-  /tmp/brandometer-reporting.json user:ana@dentsu.com
-# or: ... merge-reader /tmp/brandometer-reporting.json group:dentsu-bq@example.com
+  /tmp/brandometer-reporting.json user:ana@example.com
+# or: ... merge-reader /tmp/brandometer-reporting.json group:analysts@example.com
 bq --quiet update --source /tmp/brandometer-reporting.json \
   "$PROJECT_ID:brandometer_reporting"
 python3 creative/app/bq_dataset_iam.py verify-reader \
-  /tmp/brandometer-reporting.json user:ana@dentsu.com
+  /tmp/brandometer-reporting.json user:ana@example.com
 ```
 
-**Connect Looker Studio manually:** Create → Data source → BigQuery → project `$PROJECT_ID` → dataset `brandometer_reporting` → table `deduped_responses` (or `survey_summaries`). Filter `survey_id` to one study. Do not add the `responses.responses` table to a Dentsu-shared report.
+**Connect Looker Studio manually:** Create → Data source → BigQuery → project `$PROJECT_ID` → dataset `brandometer_reporting` → table `deduped_responses` (or `survey_summaries`). Filter `survey_id` to one study. Do not add the `responses.responses` table to a shared report.
 
 Do **not** grant `READER` / `dataViewer` on `responses`. If an analyst can `SELECT` from `responses.responses` directly, the authorized-view boundary is bypassed.
 

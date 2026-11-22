@@ -161,6 +161,13 @@ class SeedDemoDataTest(unittest.TestCase):
         data['custom_css'].strip(),
         '#master_container { background-color:#008000; }')
 
+  def test_demo_surveys_set_agency_badge_names(self):
+    names = {spec.doc['badge_name'] for spec in self.world.surveys}
+    agencies = {spec.doc['agency'] for spec in self.world.surveys}
+    self.assertEqual(names, agencies)
+    self.assertTrue(any(spec.doc['badge_icon'] == 'Name' for spec in self.world.surveys))
+    self.assertNotIn('Dentsu', {spec.doc['badge_icon'] for spec in self.world.surveys})
+
   def test_no_real_agency_or_brand_names(self):
     blob = ' '.join(
         spec.doc['agency'] + ' ' + spec.doc['client'] + ' ' + spec.doc['displayname']

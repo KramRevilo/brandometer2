@@ -197,6 +197,7 @@ _VERSION_SCALAR_FIELDS = (
     'responsetype',
     'badge_icon',
     'badge_text',
+    'badge_name',
 )
 
 

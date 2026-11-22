@@ -875,7 +875,9 @@ def generate_world(count: int, seed: int, now: datetime.datetime | None = None) 
             'Submit Responses after each Question' if extra_incomplete
             else 'Submit Responses at End of Survey'),
         'custom_css': survey_custom_css(theme),
-        'badge_icon': 'B2' if index % 4 == 0 else 'B',
+        'badge_icon': (
+            'Name' if index % 3 == 0 else ('B2' if index % 4 == 0 else 'B')),
+        'badge_name': client['agency'],
         'badge_text': '',
         'demo_seed': True,
         'demo_batch': batch,

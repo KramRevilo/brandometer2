@@ -67,7 +67,7 @@ Create or edit a survey in the browser (Bootstrap 5.3.3, Alpine.js, live iframe 
 * **Sizes:** 300×250 (default for old surveys), 160×600, 300×600, 336×280, 970×250. You can select more than one. 970×250 lays answers in a wrapping grid. Not 728×90 / 320×50 / 320×100.
 * **Answers:** 2–5 on 300×250 / 336×280 / 970×250; up to 8 (a–h) when **every** selected size is 160×600 or 300×600. Empty rows are skipped. Answer text wraps.
 * **Themes:** grouped presets (Classic, Loud solids, Complementary, Patterns). Classic green is the default. Pickers write `--bv2-*` CSS variables (`--bv2-bg`, `--bv2-accent`, …) inside `BV2_THEME_START` / `BV2_THEME_END`. Each answer is its own bordered button with spacing (theme block + layout overlay), including when leftover default CSS is absent. Free-form CSS stays under Advanced. Custom CSS written for the old names is not applied — re-pick a preset (or rewrite the variables) for new zips.
-* **Disclosure badge:** bottom-left **B** / **B2** / **Ad** / **Dentsu** pill on the creative (not an official Dentsu logo). Optional tooltip (max 120 characters).
+* **Disclosure badge:** bottom-left **B** / **B2** / **Ad** / **Name** pill on the creative. **Name** is an editable agency wordmark (prefilled from Agency, max 40 characters, HTML-escaped). Optional tooltip (max 120 characters).
 * **Identity:** optional display name, client, agency, campaign ID, placement ID, and **ad server** (CM360 default, DV360, GAM, or generic). Display name is the homepage label; the survey name still drives zip filenames. Campaign/placement IDs show on the report, the tag sheet, response CSV (fallback when the pixel did not send them), and as pixel fallbacks when the ad-server macro does not expand.
 * **Ad-server macros:** each zip sets `clickTag` and cachebuster / campaign / placement / site / creative / user-id / GDPR / US-privacy placeholders for the selected ad server. Expanded IDs are sent on the pixel (`camp`, `plc`, `site`, `crid`). Unexpanded placeholders are not sent. GDPR/US privacy strings stay in the creative for the ad environment; they are **not** stored in BigQuery. Generic mode keeps a static clickTag.
 * **Tag sheet:** editors download CSV or XLSX listing each inner zip (size × Brand Lift segment), filenames, survey campaign/placement IDs, macros, the next zip snapshot version (`ver=`), and trafficking notes.
@@ -82,6 +82,10 @@ Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (
 ![Survey editor identity fields, size checkboxes, theme preset, and live preview](docs/images/editor.png)
 
 *Editor: identity, multi-size checkboxes, Classic green preset, and live iframe preview.*
+
+![Disclosure badge section with B, B2, Ad, and Name icon choices plus an agency name field](docs/images/editor-badge.png)
+
+*Disclosure badge: **B** / **B2** / **Ad** / **Name**. **Name** uses the Agency name on badge field (prefilled from Agency, max 40 characters).*
 
 ![HTML5 spec QA panel with an expanded What does this mean? note](docs/images/editor-html5-qa.png)
 
@@ -361,7 +365,7 @@ Dry-run prints the patches. `--apply` writes only missing values from `AuditLog`
 
 `tools/seed_demo_data.py` loads a fictional agency-world homepage dataset into the **live** project (`brandometer2`) so you can page the list (default **220** surveys, `HOMEPAGE_PAGE_SIZE` 50 → 4+ pages). **Dry-run is the default.** This environment must not run `--apply` / `--purge --apply`; Mark runs those in Cloud Shell.
 
-Each fictional client has a consistent brand palette written as a `BV2_THEME` block (`--bv2-bg`, text, button, accent, font, optional pattern) with campaign-to-campaign variation (Harbor Grocer greens, Voltway Motors electric blue, Neon Circuit Games neon/dark, and so on). Combinations meet WCAG AA. The homepage list does not paint those colours; open **Preview** after seeding to see them. No App Engine deploy is required for theme updates — re-run `--apply`.
+Each fictional client has a consistent brand palette written as a `BV2_THEME` block (`--bv2-bg`, text, button, accent, font, optional pattern) with campaign-to-campaign variation (Harbor Grocer greens, Voltway Motors electric blue, Neon Circuit Games neon/dark, and so on). Combinations meet WCAG AA. The homepage list does not paint those colours; open **Preview** after seeding to see them. Demo surveys also set `badge_name` to the fictional agency (and rotate **B** / **B2** / **Name** icons). No App Engine deploy is required for theme or badge-name updates — re-run `--apply`.
 
 **Warning: `--apply` writes to production Firestore and `brandometer2.responses.responses`.** `--purge --apply` deletes **only** tagged demo records.
 

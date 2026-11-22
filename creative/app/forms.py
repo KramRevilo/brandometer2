@@ -403,6 +403,9 @@ class QuestionForm(FlaskForm):
       'badgeIcon',
       choices=brand.badge_icon_choices(),
       default=brand.DEFAULT_BADGE_ICON)
+  badge_name = StringField(
+      'badgeName',
+      validators=[Length(max=brand.BADGE_NAME_MAX)])
   badge_text = StringField(
       'badgeText',
       validators=[Length(max=brand.BADGE_TEXT_MAX)])

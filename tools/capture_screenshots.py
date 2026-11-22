@@ -28,6 +28,7 @@ DEFAULT_PORT = 43147
 PORT = DEFAULT_PORT
 UI_MAX_WIDTH = 1400
 DESKTOP_WIDTH = 1400
+ONLY_NAMES: set[str] | None = None
 
 
 def _prepare_env() -> None:
@@ -68,6 +69,7 @@ def _survey(doc_id, **fields):
   sizes = fields.pop('sizes', ['300x250'])
   preset = fields.pop('preset', 'classic')
   answers = fields.pop('answers', ['Example Cola', 'Other Cola'])
+  agency = fields.pop('agency', 'Example Media')
   payload = {
       'surveyname': fields.pop('surveyname', doc_id),
       'displayname': fields.pop('displayname', ''),
@@ -78,13 +80,14 @@ def _survey(doc_id, **fields):
       'updated_at': now,
       'updated_by': 'admin@example.com',
       'client': fields.pop('client', 'Acme'),
-      'agency': fields.pop('agency', 'Example Media'),
+      'agency': agency,
       'language': 'en',
       'responsetype': 'Submit Responses at End of Survey',
       'question1': fields.pop('question1', 'Which brand did you see?'),
       'question1type': 'SINGLE_OPTION',
       'question1order': 'ORDERED',
       'badge_icon': fields.pop('badge_icon', 'B'),
+      'badge_name': fields.pop('badge_name', agency),
       'badge_text': '',
       'custom_css': _theme_css(preset),
       'creativesizes': sizes,
@@ -372,6 +375,8 @@ def _optimize_png(path: Path, max_width: int | None) -> None:
 
 
 def capture(page, path: Path, *, full_page=True, clip=None, max_width=UI_MAX_WIDTH):
+  if ONLY_NAMES and path.name not in ONLY_NAMES:
+    return
   path.parent.mkdir(parents=True, exist_ok=True)
   page.screenshot(path=str(path), full_page=full_page, clip=clip)
   _optimize_png(path, None if clip else max_width)
@@ -445,6 +450,19 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_selector('iframe')
     page.wait_for_timeout(800)
     capture(page, out / 'editor.png', full_page=False)
+
+    badge = page.locator('#disclosure-badge')
+    badge.scroll_into_view_if_needed()
+    page.locator('label.badge-icon-choice', has=page.locator('#badge_icon-Name')).click()
+    page.wait_for_timeout(400)
+    box = badge.bounding_box()
+    if not box:
+      raise RuntimeError('Disclosure badge card not visible')
+    capture(
+        page, out / 'editor-badge.png', full_page=False, clip=box,
+        max_width=UI_MAX_WIDTH)
+    page.locator('label.badge-icon-choice', has=page.locator('#badge_icon-B')).click()
+    page.wait_for_timeout(200)
 
     qa = page.locator('#html5-spec-qa')
     qa.scroll_into_view_if_needed()
@@ -571,9 +589,13 @@ def main(argv: list[str] | None = None) -> int:
   parser = argparse.ArgumentParser(description=__doc__)
   parser.add_argument('--out-dir', default=str(DEFAULT_OUT))
   parser.add_argument('--port', type=int, default=DEFAULT_PORT)
+  parser.add_argument(
+      '--only', nargs='+', default=None,
+      help='Basenames to write (e.g. editor.png editor-badge.png). Default: all.')
   args = parser.parse_args(argv)
-  global PORT
+  global PORT, ONLY_NAMES
   PORT = args.port
+  ONLY_NAMES = {Path(name).name for name in args.only} if args.only else None
   _prepare_env()
   fs = install_firestore()
   import main as flask_main

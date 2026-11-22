@@ -51,6 +51,7 @@ TEMPLATE_COLUMNS = (
     'creativesize',
     'badge_icon',
     'badge_text',
+    'badge_name',
 ) + tuple(
     item
     for q in range(1, 6)
@@ -74,6 +75,7 @@ EXAMPLE_ROW = {
     'creativesize': '300x250',
     'badge_icon': 'B',
     'badge_text': '',
+    'badge_name': 'Example Media',
     'question1': 'Which cola did you see advertised recently?',
     'answer1a': 'Example Cola',
     'answer1b': 'Other Cola',
@@ -194,6 +196,7 @@ def validate_row(row, line_number):
       'creativesize': sizes or [creative_size.DEFAULT_SIZE],
       'badge_icon': _cell(row, 'badge_icon') or brand.DEFAULT_BADGE_ICON,
       'badge_text': _cell(row, 'badge_text'),
+      'badge_name': _cell(row, 'badge_name'),
       'custom_css': DEFAULT_CSS,
   }
   for q in range(1, 6):

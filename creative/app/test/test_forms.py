@@ -99,12 +99,20 @@ class QuestionFormTest(unittest.TestCase):
         form = self.create_form({})
         self.assertEqual(form.badge_icon.data, 'B')
         self.assertFalse(form.badge_text.data)
+        self.assertFalse(form.badge_name.data)
         ok, valid = self._validate(self._valid_survey(badge_icon='Ad', badge_text='Hi'))
         self.assertTrue(ok, valid.errors)
         too_long = 'x' * 121
         ok, long_form = self._validate(self._valid_survey(badge_text=too_long))
         self.assertFalse(ok)
         self.assertTrue(long_form.badge_text.errors)
+        ok, name_form = self._validate(self._valid_survey(
+            badge_icon='Name', badge_name='Northline Media'))
+        self.assertTrue(ok, name_form.errors)
+        ok, long_name = self._validate(self._valid_survey(
+            badge_name='n' * 41))
+        self.assertFalse(ok)
+        self.assertTrue(long_name.badge_name.errors)
 
     def test_creativesize_coerces_legacy_string(self):
         form = self.create_form({'creativesize': '160x600'})

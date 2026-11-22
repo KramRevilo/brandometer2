@@ -253,6 +253,7 @@ def _editor_context(form):
       },
       'badge_icons': brand.badge_icon_list(),
       'badge_text_max': brand.BADGE_TEXT_MAX,
+      'badge_name_max': brand.BADGE_NAME_MAX,
       'badge_text_default': brand.badge_tooltip(),
   }
 
@@ -287,6 +288,7 @@ def _render_editor(form, page_title, survey_id=None, versions=None,
       size_overlay_css=ctx.get('size_overlay_css') or {},
       badge_icons=ctx.get('badge_icons') or brand.badge_icon_list(),
       badge_text_max=ctx.get('badge_text_max') or brand.BADGE_TEXT_MAX,
+      badge_name_max=ctx.get('badge_name_max') or brand.BADGE_NAME_MAX,
       badge_text_default=ctx.get('badge_text_default') or brand.badge_tooltip(),
       qa_findings=qa_findings)
 

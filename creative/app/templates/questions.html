@@ -292,7 +292,7 @@
       </div>
     </div>
 
-    <section class="card mb-4">
+    <section class="card mb-4" id="disclosure-badge">
       <div class="card-body">
         <h2 class="h5 mb-3">Disclosure badge</h2>
         <p class="form-text mt-0 mb-3">Shown bottom-left on every size. Hover, focus, or tap for the popup. It does not fire the ad click-through.</p>
@@ -331,6 +331,15 @@
           {% for error in form.badge_icon.errors %}
           <div class="text-danger small">{{ error }}</div>
           {% endfor %}
+        </div>
+        <div class="mb-3">
+          <label class="form-label" for="badge_name">Agency name on badge</label>
+          {{ form.badge_name(class="form-control", id="badge_name", maxlength=badge_name_max,
+             placeholder="Prefills from Agency", autocomplete="organization") }}
+          {% for error in form.badge_name.errors %}
+          <div class="text-danger small">{{ error }}</div>
+          {% endfor %}
+          <div class="form-text">Used when <strong>Name</strong> is selected (same bevelled pill). Leave blank to use the Agency field, or <strong>Ad</strong> if that is blank too. Max {{ badge_name_max }} characters.</div>
         </div>
         <div class="mb-0">
           <label class="form-label" for="badge_text">Popup text</label>

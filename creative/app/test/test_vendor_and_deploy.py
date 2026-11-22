@@ -390,25 +390,25 @@ class DeployIamTest(unittest.TestCase):
       open(path, 'w', encoding='utf-8').write(payload)
       helper = os.path.join(_APP_DIR, 'bq_dataset_iam.py')
       first = subprocess.run(
-          [sys.executable, helper, 'merge-reader', path, 'ana@dentsu.com'],
+          [sys.executable, helper, 'merge-reader', path, 'ana@example.com'],
           capture_output=True, text=True)
       self.assertEqual(first.returncode, 2, first.stderr)
       data = json.loads(open(path, encoding='utf-8').read())
       self.assertEqual(data['access'][0]['role'], 'READER')
-      self.assertEqual(data['access'][0]['userByEmail'], 'ana@dentsu.com')
+      self.assertEqual(data['access'][0]['userByEmail'], 'ana@example.com')
       group = subprocess.run(
           [sys.executable, helper, 'merge-reader', path,
-           'group:dentsu-bq@example.com'],
+           'group:analysts@example.com'],
           capture_output=True, text=True)
       self.assertEqual(group.returncode, 2, group.stderr)
       data = json.loads(open(path, encoding='utf-8').read())
-      self.assertEqual(data['access'][1]['groupByEmail'], 'dentsu-bq@example.com')
+      self.assertEqual(data['access'][1]['groupByEmail'], 'analysts@example.com')
       verified = subprocess.check_output(
-          [sys.executable, helper, 'verify-reader', path, 'ana@dentsu.com'],
+          [sys.executable, helper, 'verify-reader', path, 'ana@example.com'],
           text=True)
       self.assertEqual(verified.strip(), 'READER')
       again = subprocess.run(
-          [sys.executable, helper, 'merge-reader', path, 'ana@dentsu.com'],
+          [sys.executable, helper, 'merge-reader', path, 'ana@example.com'],
           capture_output=True, text=True)
       self.assertEqual(again.returncode, 0, again.stderr)
 
@@ -518,6 +518,7 @@ class ReadmeImagesTest(unittest.TestCase):
         'docs/images/home-actions-menu.png',
         'docs/images/home-preview-modal.png',
         'docs/images/editor.png',
+        'docs/images/editor-badge.png',
         'docs/images/preview-300x250.png',
         'docs/images/creative-300x250-classic.png',
         'docs/images/creative-160x600-hazard.png',

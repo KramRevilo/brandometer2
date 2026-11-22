@@ -238,6 +238,21 @@ class PresetAndBrandTest(unittest.TestCase):
 
 class DisclosureBadgeTest(unittest.TestCase):
 
+  def test_badge_name_prefills_from_agency_and_strips_markup(self):
+    spec = brand.badge_for_survey({
+        'badge_icon': 'Name', 'agency': 'Harbor Grocer'})
+    self.assertEqual(spec['mark'], 'Harbor Grocer')
+    spec = brand.badge_for_survey({
+        'badge_icon': 'Name',
+        'badge_name': '  <b>Voltway Motors</b>  ',
+        'agency': 'Ignored',
+    })
+    self.assertEqual(spec['mark'], 'Voltway Motors')
+    saved = brand.persist_badge({
+        'badge_icon': 'Name', 'agency': 'Oak & Anchor'})
+    self.assertEqual(saved['badge_name'], 'Oak & Anchor')
+    self.assertEqual(saved['badge_icon'], 'Name')
+
   def test_defaults_match_current_b_badge(self):
     spec = brand.badge_for_survey({})
     self.assertEqual(spec['id'], 'B')
@@ -247,10 +262,14 @@ class DisclosureBadgeTest(unittest.TestCase):
     self.assertEqual(brand.persist_badge({})['badge_icon'], 'B')
     self.assertEqual(brand.persist_badge({'badge_text': '  '})['badge_text'], '')
 
-  def test_unknown_icon_falls_back_to_b(self):
-    spec = brand.badge_for_survey({'badge_icon': 'not-a-real-icon'})
-    self.assertEqual(spec['id'], 'B')
-    self.assertEqual(spec['kind'], 'letter')
+  def test_unknown_icon_becomes_name_wordmark(self):
+    spec = brand.badge_for_survey({
+        'badge_icon': 'not-a-real-icon',
+        'agency': 'Northline Media',
+    })
+    self.assertEqual(spec['id'], 'Name')
+    self.assertEqual(spec['kind'], 'wordmark')
+    self.assertEqual(spec['mark'], 'Northline Media')
 
   def test_each_icon_renders_in_html(self):
     with main.app.app_context():
@@ -258,7 +277,7 @@ class DisclosureBadgeTest(unittest.TestCase):
           ('B', '>B</text>', 'letter'),
           ('B2', 'B2', 'pill'),
           ('Ad', 'Ad', 'pill'),
-          ('Dentsu', 'Dentsu', 'wordmark'),
+          ('Name', 'Northline Media', 'wordmark'),
       ):
         html = survey_service.get_html_template('sid', {
             'surveyname': 'Badge',
@@ -266,6 +285,8 @@ class DisclosureBadgeTest(unittest.TestCase):
             'answer1a': 'A',
             'answer1b': 'B',
             'badge_icon': icon,
+            'badge_name': 'Northline Media',
+            'agency': 'Northline Media',
         }, '')
         self.assertIn('brand-badge', html)
         self.assertIn('badge-kind-%s' % kind, html)
@@ -277,10 +298,26 @@ class DisclosureBadgeTest(unittest.TestCase):
           self.assertIn('id="badgeBevel"', html)
         else:
           self.assertIn('brand-badge-face', html)
-        if icon == 'Dentsu':
+        if icon == 'Name':
           self.assertIn('badge-kind-wordmark', html)
-          self.assertNotIn('dentsu-logo', html.lower())
+          self.assertIn('Northline Media', html)
           self.assertIn('brand-badge-face', html)
+
+  def test_badge_name_is_sanitized_and_escaped_in_creative(self):
+    with main.app.app_context():
+      html = survey_service.get_html_template('sid', {
+          'surveyname': 'Badge',
+          'question1': 'Q',
+          'answer1a': 'A',
+          'answer1b': 'B',
+          'badge_icon': 'Name',
+          'badge_name': '<img src=x onerror=alert(1)>Oak & Anchor',
+      }, '')
+    self.assertIn('Oak &amp; Anchor', html)
+    self.assertNotIn('<img src=x', html)
+    self.assertNotIn('onerror=', html)
+    self.assertNotIn('Oak & Anchor', html)
+    self.assertIn('badge-kind-wordmark', html)
 
   def test_custom_text_is_html_escaped(self):
     with main.app.app_context():
@@ -328,10 +365,12 @@ class DisclosureBadgeTest(unittest.TestCase):
           'question1': 'Q',
           'badge_icon': 'Ad',
           'badge_text': 'Custom popup',
+          'badge_name': 'Halcyon Street',
       })
       snap = survey_collection.add_version(ref.id, ref.get().to_dict())
     self.assertEqual(snap['badge_icon'], 'Ad')
     self.assertEqual(snap['badge_text'], 'Custom popup')
+    self.assertEqual(snap['badge_name'], 'Halcyon Street')
 
   @mock.patch.object(survey_service.survey_collection, 'add_version')
   def test_zip_uses_survey_badge(self, _version_mock):
@@ -342,7 +381,8 @@ class DisclosureBadgeTest(unittest.TestCase):
           'answer1a': 'A',
           'answer1b': 'B',
           'creativesize': ['300x250', '160x600'],
-          'badge_icon': 'Dentsu',
+          'badge_icon': 'Name',
+          'badge_name': 'Northline Media',
           'badge_text': 'Custom tip <x>',
       })
     outer = zipfile.ZipFile(data)
@@ -351,7 +391,7 @@ class DisclosureBadgeTest(unittest.TestCase):
     for name in zips:
       html = zipfile.ZipFile(__import__('io').BytesIO(outer.read(name))).read(
           'index.html').decode('utf-8')
-      self.assertIn('Dentsu', html)
+      self.assertIn('Northline Media', html)
       self.assertIn('badge-kind-wordmark', html)
       self.assertIn('&lt;x&gt;', html)
       self.assertNotIn('<x>', html)

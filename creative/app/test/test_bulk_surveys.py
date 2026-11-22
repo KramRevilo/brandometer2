@@ -33,6 +33,24 @@ class BulkSurveyParseTest(unittest.TestCase):
     self.assertTrue(text.startswith('surveyname,'))
     self.assertIn('Acme lift 300x250', text)
     self.assertIn('brand_lift', text)
+    self.assertIn('badge_name', text)
+    self.assertIn('Example Media', text)
+
+  def test_badge_name_column_is_stored_on_payload(self):
+    header = (
+        'surveyname,surveytype,creativesize,question1,answer1a,answer1b,'
+        'agency,badge_icon,badge_name\n')
+    raw = (
+        header +
+        'Sky,brand_track,300x250,Q?,Yes,No,Northline Media,Name,'
+        'Northline Media\n').encode('utf-8')
+    rows, errors = bulk_surveys.parse_csv(raw)
+    self.assertEqual(errors, [])
+    self.assertTrue(rows[0]['ok'])
+    payload = rows[0]['payload']
+    self.assertEqual(payload['badge_icon'], 'Name')
+    self.assertEqual(payload['badge_name'], 'Northline Media')
+    self.assertEqual(payload['agency'], 'Northline Media')
 
   def test_valid_row_and_aliases(self):
     rows, errors = bulk_surveys.parse_csv(_csv(
