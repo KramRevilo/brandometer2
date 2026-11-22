@@ -313,7 +313,7 @@ BOOTSTRAP_ADMIN_EMAIL='you@example.com' \
 
 **To rotate the OAuth client secret:** create a new secret on the OAuth client (or a new Web client), then rerun `./deploy … --app-only` and paste the new id/secret when prompted (or set `OAUTH_CLIENT_ID` / `OAUTH_CLIENT_SECRET`). Enter / `--skip-oauth-prompts` keeps the old values.
 
-If a new project is still provisioning, wait a few minutes and rerun. `--app-only` is enough for App Engine code, yaml, favicon, and most IAM/dataset fixes; redeploy the receiver as well when its Python or HMAC wiring changes (see DEVELOPERS.md).
+If a new project is still provisioning, wait a few minutes and rerun. `--app-only` is enough for App Engine code, yaml, favicon, and most IAM/dataset fixes; redeploy the receiver as well when its Python or HMAC wiring changes (see DEVELOPERS.md). Re-running `./deploy` (including `--app-only`) also runs `bq update --description` on the `responses` and `brandometer_reporting` datasets (and the `responses.responses` table) so existing projects pick up the Brandometer2 descriptions without recreating data.
 
 ## Local development
 

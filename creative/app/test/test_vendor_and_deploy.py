@@ -179,6 +179,14 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn(
         'Removing project roles/bigquery.dataEditor from $member', script)
     self.assertIn('MAX_INSTANCES', script)
+    self.assertIn('ensure_dataset_descriptions()', script)
+    self.assertIn('bq update --description', script)
+    self.assertIn('Main response dataset for Brandometer2', script)
+    self.assertIn(
+        'Authorized Brandometer2 reporting views for Looker Studio', script)
+    self.assertIn('Survey response rows for Brandometer2', script)
+    self.assertNotIn('Main response data set for Brandometer"', script)
+    self.assertNotIn('Survey response rows for Brandometer"', script)
 
   def test_deploy_rejects_known_invalid_command_forms(self):
     script = open(os.path.join(_REPO_ROOT, 'deploy'), encoding='utf-8').read()

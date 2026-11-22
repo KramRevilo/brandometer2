@@ -69,13 +69,13 @@ gcloud firestore databases create \
 # BigQuery dataset + responses table (same schema as the receiver).
 # New tables are partitioned by CreatedAt and clustered by ID. Skip this
 # `bq mk --table` if the table already exists; do not migrate an existing table.
-bq --location=us-central1 mk --dataset --description "Main response data set for Brandometer" "$PROJECT_ID:responses"
+bq --location=us-central1 mk --dataset --description "Main response dataset for Brandometer2" "$PROJECT_ID:responses"
 bq mk --table \
   --schema receiver/responses.schema.json \
   --time_partitioning_field CreatedAt \
   --time_partitioning_type DAY \
   --clustering_fields ID \
-  --description "Survey response rows for Brandometer" \
+  --description "Survey response rows for Brandometer2" \
   "$PROJECT_ID:responses.responses"
 
 # Optional: deploy the HTTP receiver so survey creatives can post answers.
@@ -143,7 +143,7 @@ The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), da
 
 **Content-Security-Policy.** `app_security.install_security_headers` sets an **enforced** `Content-Security-Policy` on every Flask response (`default-src 'self'`). `frame-ancestors 'self'` lets the homepage modal iframe `/survey/preview/<id>?embed=1` (same origin only; not `'none'`). Google account avatars are `img-src https://*.googleusercontent.com`. Google Sign-In may navigate to `https://accounts.google.com` (`form-action` / `connect-src` also allow `oauth2.googleapis.com` and `www.googleapis.com`). Scripts and styles stay `'unsafe-inline'` because the editor, Chart.js bootstrap, and creative HTML (preview + iframe `srcdoc`) are inline; Alpine needs `'unsafe-eval'`. HTML5 zip downloads are attachments — once trafficked they are not under this header. If `GTAG_ID` is set, Tag Manager / analytics origins are added. `CSP_REPORT_ONLY=1` emits `Content-Security-Policy-Report-Only` instead (local debugging). Redeploy App Engine after this change (`--app-only`).
 
-**Re-running `./deploy`.** Safe end to end, or App Engine only with `--app-only`. Firestore Native, the `responses` dataset, the `responses.responses` table, the `brandometer_reporting` dataset, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not dropped or recreated. `ensure_respondent_columns` and `ensure_reporting_dataset` run on every deploy (including `--app-only`): `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for `RespondentID` / `RespondentIDSource` / trafficking IDs, then `CREATE OR REPLACE VIEW` for `deduped_responses` and `survey_summaries`. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret: paste to rotate, or press Enter / pass `--skip-oauth-prompts` to keep existing; `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL` skip the prompts when set. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries **transient** IAM errors only (SA “does not exist” / NOT_FOUND / INVALID_ARGUMENT, 409 concurrent policy). Usage errors (`Invalid choice`, `PERMISSION_DENIED`) fail immediately. Dataset IAM uses `bq --quiet show --dataset` to a file + `bq update --source` (not `gcloud bigquery`, which Cloud Shell gcloud does not have, and not `bq add-iam-policy-binding`, which requires allowlisting). Python warnings on stdout are ignored; JSON is parsed from the first `{`. A success line confirms each SA’s access entry. Verified dataset grants drop the project-level `roles/bigquery.dataEditor` fallback from a previous run. Dataset IAM for **both** the receiver SA and the App Engine SA runs on `--app-only`. `--condition=None` avoids the conditional-binding prompt. The same wait/retry applies to the App Engine default SA. If a previous run died on IAM lag, the old `gcloud bigquery` command, or `secret_environment_variables`, run `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
+**Re-running `./deploy`.** Safe end to end, or App Engine only with `--app-only`. Firestore Native, the `responses` dataset, the `responses.responses` table, the `brandometer_reporting` dataset, and generated secrets (`brandometer-secret-key`, `brandometer-receiver-hmac`, `brandometer-ip-hmac`) are created only if missing — existing datasets/tables are not dropped or recreated. Dataset (and table) **descriptions** are updated in place on every run (`bq update --description`) so live `responses` and `brandometer_reporting` pick up the Brandometer2 wording. `ensure_respondent_columns` and `ensure_reporting_dataset` run on every deploy (including `--app-only`): `ALTER TABLE … ADD COLUMN IF NOT EXISTS` for `RespondentID` / `RespondentIDSource` / trafficking IDs, then `CREATE OR REPLACE VIEW` for `deduped_responses` and `survey_summaries`. (`bq mk --dataset --force` never dropped a dataset; it only ignored ALREADY_EXISTS, but it still printed “successfully created”, which looked like a recreate. The script now skips with `already exists (not modified)`.) HMAC / `SECRET_KEY` values are never rotated on a later run. OAuth client id/secret: paste to rotate, or press Enter / pass `--skip-oauth-prompts` to keep existing; `OAUTH_CLIENT_ID`, `OAUTH_CLIENT_SECRET`, and `BOOTSTRAP_ADMIN_EMAIL` skip the prompts when set. After creating `brandometer-receiver`, the script waits until `gcloud iam service-accounts describe` succeeds, then retries **transient** IAM errors only (SA “does not exist” / NOT_FOUND / INVALID_ARGUMENT, 409 concurrent policy). Usage errors (`Invalid choice`, `PERMISSION_DENIED`) fail immediately. Dataset IAM uses `bq --quiet show --dataset` to a file + `bq update --source` (not `gcloud bigquery`, which Cloud Shell gcloud does not have, and not `bq add-iam-policy-binding`, which requires allowlisting). Python warnings on stdout are ignored; JSON is parsed from the first `{`. A success line confirms each SA’s access entry. Verified dataset grants drop the project-level `roles/bigquery.dataEditor` fallback from a previous run. Dataset IAM for **both** the receiver SA and the App Engine SA runs on `--app-only`. `--condition=None` avoids the conditional-binding prompt. The same wait/retry applies to the App Engine default SA. If a previous run died on IAM lag, the old `gcloud bigquery` command, or `secret_environment_variables`, run `./deploy "$PROJECT_ID" us-central1 us-central --app-only`.
 
 The App Engine service is only required for hosting, not for running Flask on your laptop.
 
@@ -336,7 +336,7 @@ If `/index` fails with `Not found: Table …responses.responses` (a dataset with
 ```shell
 bq mk --table \
   --schema receiver/responses.schema.json \
-  --description "Survey response rows for Brandometer" \
+  --description "Survey response rows for Brandometer2" \
   brandometer2:responses.responses
 ```
 
@@ -685,7 +685,7 @@ Cloud Shell: open a Brand Lift report with mixed sizes (or curl two sizes into B
 
 # Phase 7c / 60 (authorized views + Looker Studio)
 
-`./deploy` (including **`--app-only`**) creates dataset `$PROJECT_ID:brandometer_reporting` in the same location as the rest of the project, then:
+`./deploy` (including **`--app-only`**) creates dataset `$PROJECT_ID:brandometer_reporting` in the same location as the rest of the project (description **Authorized Brandometer2 reporting views for Looker Studio**), then:
 
 1. `CREATE OR REPLACE VIEW …deduped_responses` — one row per survey + respondent (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`). Columns include campaign/placement/site/creative ids, `CreativeSize`, and `CreativeVersion`. Does **not** expose `RandomTimeStamp` / IP hashes.
 2. `CREATE OR REPLACE VIEW …survey_summaries` — `survey_id`, `Segmentation`, respondent count, first/last `CreatedAt`, min/max `CreativeVersion`.

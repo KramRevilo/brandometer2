@@ -186,6 +186,29 @@ dataset_member_email() {
 BQ_DATASET_IAM_PY="$DEPLOY_ROOT/creative/app/bq_dataset_iam.py"
 REPORTING_VIEWS_PY="$DEPLOY_ROOT/creative/app/reporting_views.py"
 REPORTING_DATASET="brandometer_reporting"
+RESPONSES_DATASET_DESCRIPTION="Main response dataset for Brandometer2"
+REPORTING_DATASET_DESCRIPTION="Authorized Brandometer2 reporting views for Looker Studio (no raw responses table)"
+RESPONSES_TABLE_DESCRIPTION="Survey response rows for Brandometer2"
+
+update_bq_description() {
+    resource="$1"
+    desc="$2"
+    if ! bq show --format=none "$resource" >/dev/null 2>&1; then
+        echo "Skip description update; $resource does not exist"
+        return 0
+    fi
+    echo "Updating description on $resource"
+    bq update --description "$desc" "$resource"
+}
+
+ensure_dataset_descriptions() {
+    echo -e "\n-- Update BigQuery dataset descriptions (existing datasets too)"
+    update_bq_description "$PROJECT_ID:responses" "$RESPONSES_DATASET_DESCRIPTION"
+    update_bq_description "$PROJECT_ID:$REPORTING_DATASET" "$REPORTING_DATASET_DESCRIPTION"
+    if bq show --format=none "$PROJECT_ID:responses.responses" >/dev/null 2>&1; then
+        update_bq_description "$PROJECT_ID:responses.responses" "$RESPONSES_TABLE_DESCRIPTION"
+    fi
+}
 
 show_dataset_json() {
     dest="$1"
@@ -355,7 +378,7 @@ ensure_reporting_dataset() {
     else
         bq --location=$LOCATION mk \
             --dataset \
-            --description "Authorized Brandometer reporting views for Looker Studio (no raw responses table)" \
+            --description "$REPORTING_DATASET_DESCRIPTION" \
             "$dataset"
     fi
     echo "-- Create authorized reporting views on $dataset"
@@ -499,7 +522,7 @@ if [ "$APP_ONLY" != 1 ]; then
     else
         bq --location=$LOCATION mk \
             --dataset \
-            --description "Main response data set for Brandometer" \
+            --description "$RESPONSES_DATASET_DESCRIPTION" \
             $PROJECT_ID:responses
     fi
 
@@ -514,7 +537,7 @@ if [ "$APP_ONLY" != 1 ]; then
             --time_partitioning_field CreatedAt \
             --time_partitioning_type DAY \
             --clustering_fields ID \
-            --description "Survey response rows for Brandometer" \
+            --description "$RESPONSES_TABLE_DESCRIPTION" \
             "$PROJECT_ID:responses.responses"
     fi
 
@@ -654,6 +677,7 @@ grant_dataset_editor "serviceAccount:$RECEIVER_SA"
 grant_dataset_editor "serviceAccount:$GAE_SA"
 ensure_respondent_columns
 ensure_reporting_dataset
+ensure_dataset_descriptions
 # HMAC secrets were created before App Engine existed; bind GAE now.
 bind_secret_member brandometer-receiver-hmac "serviceAccount:$GAE_SA"
 if gcloud projects remove-iam-policy-binding "$PROJECT_ID" \
