@@ -267,6 +267,31 @@ python3 tools/backfill_created.py --project brandometer2 --apply
 
 Needs ADC that can read `AuditLog` and read/write `Surveys`. AuditLog was added with Google Sign-In on **2026-11-19**; `created_at` on new surveys started the same day. Anything created before that, or never copied/created through the app after audit existed, stays **Unknown** on the list.
 
+**Demo data.** `tools/seed_demo_data.py` is the Cloud Shell tool for load-testing the homepage against **production** Firestore + `brandometer2.responses.responses`. Agents and this VM must not run `--apply`. Dry-run (summary + sample surveys + estimated BQ row count) is the default:
+
+```shell
+# Cloud Shell, project brandometer2, from the repo root
+gcloud config set project brandometer2
+python3 tools/seed_demo_data.py --project brandometer2
+python3 tools/seed_demo_data.py --project brandometer2 --apply
+python3 tools/seed_demo_data.py --project brandometer2 --purge
+python3 tools/seed_demo_data.py --project brandometer2 --purge --apply
+```
+
+`--count` default 220 (minimum 200 so the list has 4+ pages at `HOMEPAGE_PAGE_SIZE=50`). `--seed` default 1. `--apply` overwrites the tagged batch (deterministic survey ids `demo_<seed>_<nnnn>`) then load-jobs NDJSON into BigQuery after deleting previous demo rows. `--purge` without `--apply` prints the DELETE SQL and counts tagged Firestore docs; `--purge --apply` deletes them.
+
+**What it creates.** Five fictional agencies (Northline Media, Cedar & Pine Collective, Riverbend Insights, Halcyon Street, Oak & Anchor) with `.example` creator emails and fictional grocery / auto / games / computer / restaurant / apparel clients. Mix of Brand Lift and Brand Track, single and multi size, some `sample_plan` maps, some archived. Response volumes and last-received dates are consistent with homepage **Active** / **Stale** / **Timed out** / **No data** (`STATUS_ACTIVE_DAYS=3`, `STATUS_STALE_DAYS=7`). Control/exposed is roughly 50/50. Respondent ids match app dedupe (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`).
+
+**Tags (purge is exact).** Firestore Surveys: `demo_seed: true`, `demo_batch: demo-<seed>`, document id `demo_*`. AuditLog: `demo_seed: true` and id `demo_audit_<survey_id>` (or `survey_id` starting `demo_`). `DemoSeed/current` bookmark. StatsCache docs whose ids are those surveys. BigQuery: `ID` starts with `demo_` **and** `RandomTimeStamp` starts with `demo_seed:` (plus a 800-day `CreatedAt` window so partitioned tables can prune). Non-demo surveys and rows are never touched.
+
+**IAM (Mark's Cloud Shell user, project `brandometer2`).** Application Default Credentials in Shell usually suffice after `gcloud config set project brandometer2`. Grant:
+
+* `roles/datastore.user` (Firestore `Surveys`, `AuditLog`, `StatsCache`, `DemoSeed`)
+* `roles/bigquery.jobUser` (load + DELETE jobs)
+* `roles/bigquery.dataEditor` on dataset `responses` (or table `responses.responses`)
+
+**Warning: this writes to the live project.** Load jobs are visible immediately and are deletable; streaming-insert buffer delay (~90 minutes) does not apply unless someone used `insert_rows_json` for demo rows.
+
 **View Survey.** The eye button (and Preview size items in **⋯**) open a Bootstrap modal (`#previewModal`) via `static/home.js`. The iframe loads `/survey/preview/<id>?embed=1` (and `&size=` when needed). `embed=1` hides the Back link and the page size switcher; the modal header owns the size buttons and an **Open page** link to the standalone preview. Modifier-click / middle-click still uses the `href`. The standalone page is unchanged: single-size URLs omit `?size=`; multi-size URLs use the first configured key by default; unknown `?size=` falls back to that first key. Preview still does not post (`receiver_url` empty). No control/exposed toggle on this pass.
 
 The admin UI is self-hosted Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12, Alpine.js 3.14.3, and Chart.js 4.4.6 under `creative/app/static/vendor/` (see `VERSIONS`). Style pickers write a theme block of `--bv2-*` CSS variables into `custom_css` (`BV2_THEME_START` / `BV2_THEME_END` sentinels); existing free-form CSS is kept in Advanced (CSS) and still used when zipping creatives. Custom CSS that still names the old variables is not applied. **Presets** are a grouped dropdown (Classic / Loud solids / Complementary / Patterns); Classic green is the default. Patterns are CSS gradients only, with a solid panel behind question and answer text. The live preview iframe resizes to the previewed **creative size** and has a size switcher when more than one size is selected. Set an optional **Display name** to show a friendly label on the homepage (survey name still drives zip filenames).

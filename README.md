@@ -357,6 +357,27 @@ python3 tools/backfill_created.py --project brandometer2 --apply
 
 Dry-run prints the patches. `--apply` writes only missing values from `AuditLog` create/copy rows. AuditLog starts 2026-11-19; older surveys likely stay Unknown. See DEVELOPERS.md.
 
+### Demo data (Firestore + BigQuery)
+
+`tools/seed_demo_data.py` loads a fictional agency-world homepage dataset into the **live** project (`brandometer2`) so you can page the list (default **220** surveys, `HOMEPAGE_PAGE_SIZE` 50 → 4+ pages). **Dry-run is the default.** This environment must not run `--apply` / `--purge --apply`; Mark runs those in Cloud Shell.
+
+**Warning: `--apply` writes to production Firestore and `brandometer2.responses.responses`.** `--purge --apply` deletes **only** tagged demo records.
+
+```shell
+# Cloud Shell, project brandometer2, from the repo root
+gcloud config set project brandometer2
+python3 tools/seed_demo_data.py --project brandometer2
+python3 tools/seed_demo_data.py --project brandometer2 --apply
+python3 tools/seed_demo_data.py --project brandometer2 --purge
+python3 tools/seed_demo_data.py --project brandometer2 --purge --apply
+```
+
+Optional: `--seed 1` (reproducible), `--count 220` (must be ≥ 200). Re-running `--apply` replaces the tagged batch (deterministic ids `demo_<seed>_<nnnn>`); it does not duplicate.
+
+Tags: Firestore `demo_seed: true` plus `demo_batch`, ids starting `demo_`; AuditLog `demo_audit_<id>`; BigQuery `ID` starts with `demo_` and `RandomTimeStamp` is `demo_seed:<batch>`; respondent ids `demo_<survey_id>_<seq>`. Rows load with a **load job** (NDJSON), not streaming inserts, so a later `DELETE` is not blocked by the streaming buffer. If anything was ever inserted with `insert_rows_json`, wait ~90 minutes before purge can remove those rows.
+
+Your Cloud Shell user needs Datastore User on the project, BigQuery Job User, and BigQuery Data Editor on dataset `responses`. See DEVELOPERS.md.
+
 ### Screenshots
 
 README images under `docs/images/` are captured from a local Flask process with **MockFirestore** and synthetic BigQuery rows. No GCP, no real client data, no real secrets.

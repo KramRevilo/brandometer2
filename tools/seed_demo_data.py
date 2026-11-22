@@ -1,0 +1,909 @@
+#!/usr/bin/env python3
+"""Load fictional agency-world demo surveys into Firestore + BigQuery.
+
+Dry-run by default. Writes only with --apply. --purge removes tagged demo
+rows only. Mark runs this in Cloud Shell against project brandometer2.
+
+  python3 tools/seed_demo_data.py --project brandometer2
+  python3 tools/seed_demo_data.py --project brandometer2 --apply
+  python3 tools/seed_demo_data.py --project brandometer2 --purge
+  python3 tools/seed_demo_data.py --project brandometer2 --purge --apply
+
+Every Firestore survey has demo_seed=true and a deterministic id demo_<seed>_<n>.
+Every BigQuery row has ID starting with demo_ and RandomTimeStamp demo_seed:<batch>.
+Re-running --apply overwrites the same ids and replaces demo BQ rows (load job,
+not streaming insert, so purge DELETE is not blocked by the streaming buffer).
+"""
+from __future__ import annotations
+
+import argparse
+import datetime
+import io
+import json
+import os
+import random
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Iterable
+
+ROOT = Path(__file__).resolve().parents[1]
+APP_DIR = ROOT / 'creative' / 'app'
+
+DEFAULT_PROJECT = 'brandometer2'
+DEFAULT_COUNT = 220
+MIN_COUNT = 200
+DEFAULT_SEED = 1
+ID_PREFIX = 'demo_'
+STAMP_PREFIX = 'demo_seed:'
+STATUS_ACTIVE_DAYS = 3
+STATUS_STALE_DAYS = 7
+BATCH_WRITES = 400
+
+# Preview CSS so seeded surveys still open in the editor / preview modal.
+_CREATIVE_CSS = """body { margin: 0; display: block; }
+.invisible { display: none; }
+#master_container {
+    background-color:#008000;
+    width: 300px;
+    height: 250px;
+    border: solid black 1px;
+}
+"""
+
+# Fictional shops only — no real holding companies or consumer brands.
+AGENCIES = (
+    {
+        'name': 'Northline Media',
+        'domain': 'northline.example',
+        'people': ('jess.harper', 'marco.vell', 'priya.sundaram'),
+        'clients': (
+            ('Harbor Grocer', 'groceries', 'Harbor Grocer',
+             ('River Market', 'Oak Barrel Foods', 'Not sure')),
+            ('Peak Motor Co', 'cars', 'Peak Motor Co',
+             ('Summit Auto', 'Cedar Wheels', 'Not sure')),
+            ('Arcade Forge', 'games', 'Arcade Forge',
+             ('Pixel Harbor', 'Quest Lantern', 'Not sure')),
+        ),
+    },
+    {
+        'name': 'Cedar & Pine Collective',
+        'domain': 'cedarpine.example',
+        'people': ('nina.brook', 'owen.lattimer', 'samira.cho'),
+        'clients': (
+            ('Brightbyte Computers', 'computers', 'Brightbyte',
+             ('Northpeak PCs', 'Lumen Boards', 'Not sure')),
+            ('Ember Kitchen', 'restaurants', 'Ember Kitchen',
+             ('Copper Spoon', 'Field Table', 'Not sure')),
+            ('Loom & Lattice', 'clothes', 'Loom & Lattice',
+             ('Threadwell', 'Harbor Cloth', 'Not sure')),
+        ),
+    },
+    {
+        'name': 'Riverbend Insights',
+        'domain': 'riverbend.example',
+        'people': ('theo.marsden', 'aisha.quen', 'lucas.fern'),
+        'clients': (
+            ('Maple Pantry', 'groceries', 'Maple Pantry',
+             ('Harbor Grocer', 'Cinder Mill', 'Not sure')),
+            ('Voltway Motors', 'cars', 'Voltway',
+             ('Peak Motor Co', 'Driftline Autos', 'Not sure')),
+            ('Neon Circuit Games', 'games', 'Neon Circuit',
+             ('Arcade Forge', 'Quiet Pixel', 'Not sure')),
+        ),
+    },
+    {
+        'name': 'Halcyon Street',
+        'domain': 'halcyon.example',
+        'people': ('mira.dalton', 'ben.okada', 'cleo.nunez'),
+        'clients': (
+            ('Nimbus Workstations', 'computers', 'Nimbus',
+             ('Brightbyte', 'Aero Desk', 'Not sure')),
+            ('Copper Spoon', 'restaurants', 'Copper Spoon',
+             ('Ember Kitchen', 'Nightbird Diner', 'Not sure')),
+            ('Threadwell Apparel', 'clothes', 'Threadwell',
+             ('Loom & Lattice', 'Pine & Wool', 'Not sure')),
+        ),
+    },
+    {
+        'name': 'Oak & Anchor',
+        'domain': 'oakanchor.example',
+        'people': ('ravi.holm', 'elena.pruitt'),
+        'clients': (
+            ('Field & Basket', 'groceries', 'Field & Basket',
+             ('Maple Pantry', 'Harbor Grocer', 'Not sure')),
+            ('Driftline Autos', 'cars', 'Driftline',
+             ('Voltway', 'Peak Motor Co', 'Not sure')),
+        ),
+    },
+)
+
+_NAME_TEMPLATES = {
+    'groceries': (
+        'Q3 Summer BBQ Sauce Awareness – {region}',
+        '{brand} Pasta Sauce Consideration Wave {wave}',
+        'Holiday Baking Mix Recall – {region}',
+        '{brand} Organic Produce Lift Wave {wave}',
+    ),
+    'cars': (
+        'EV Crossover Launch Consideration Wave {wave}',
+        '{brand} Hybrid Hatchback Recall – {region}',
+        'Q1 Truck Bed Accessory Awareness',
+        '{brand} Crossover Brand Lift – {region}',
+    ),
+    'games': (
+        'Autumn RPG Launch Awareness – {region}',
+        '{brand} Console Bundle Consideration Wave {wave}',
+        'Season Pass Brand Recall – {region}',
+        '{brand} Co-op Title Lift Wave {wave}',
+    ),
+    'computers': (
+        'Ultrabook Refresh Awareness Wave {wave}',
+        '{brand} Workstation Brand Lift – Enterprise',
+        'Back-to-Campus Laptop Consideration – {region}',
+        '{brand} Monitor Launch Recall Wave {wave}',
+    ),
+    'restaurants': (
+        'Late-Night Drive-Thru Awareness – {region}',
+        '{brand} Bowl Menu Consideration Wave {wave}',
+        'Breakfast Sandwich Recall – {region}',
+        '{brand} Loyalty App Lift Wave {wave}',
+    ),
+    'clothes': (
+        'Fall Denim Drop Awareness – {region}',
+        '{brand} Athleisure Launch Consideration Wave {wave}',
+        'Holiday Outerwear Recall – {region}',
+        '{brand} Knitwear Brand Lift Wave {wave}',
+    ),
+}
+
+_REGIONS = ('CA', 'TX', 'FL', 'NY', 'IL', 'WA', 'NA')
+_WAVES = ('1', '2', '3', '4')
+_SIZES_SINGLE = (
+    ('300x250',),
+    ('300x250',),
+    ('160x600',),
+    ('300x600',),
+    ('336x280',),
+    ('970x250',),
+)
+_SIZES_MULTI = (
+    ('300x250', '336x280'),
+    ('300x250', '970x250'),
+    ('160x600', '300x600'),
+)
+
+
+def classify_status(days):
+  if days is None:
+    return 'No data'
+  if days <= STATUS_ACTIVE_DAYS:
+    return 'Active'
+  if days <= STATUS_STALE_DAYS:
+    return 'Stale'
+  return 'Timed out'
+
+
+def survey_id(seed: int, index: int) -> str:
+  return '%s%s_%04d' % (ID_PREFIX, seed, index)
+
+
+def batch_id(seed: int) -> str:
+  return 'demo-%s' % seed
+
+
+def is_demo_survey_id(sid: str) -> bool:
+  return bool(sid) and str(sid).startswith(ID_PREFIX)
+
+
+def is_demo_bq_row(row: dict) -> bool:
+  sid = str(row.get('ID') or '')
+  stamp = str(row.get('RandomTimeStamp') or '')
+  rid = str(row.get('RespondentID') or '')
+  return (
+      sid.startswith(ID_PREFIX)
+      and stamp.startswith(STAMP_PREFIX)
+      and (not rid or rid.startswith(ID_PREFIX)))
+
+
+def bq_purge_sql(table_id: str) -> str:
+  """DELETE only tagged demo rows. CreatedAt filter satisfies partition tables."""
+  return (
+      'DELETE FROM `%s`\n'
+      'WHERE CreatedAt >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 800 DAY)\n'
+      '  AND STARTS_WITH(ID, "%s")\n'
+      '  AND STARTS_WITH(RandomTimeStamp, "%s")'
+      % (table_id, ID_PREFIX, STAMP_PREFIX)
+  )
+
+
+@dataclass
+class SurveySpec:
+  id: str
+  index: int
+  doc: dict
+  audit: dict
+  last_days: int | None
+  last_at: datetime.datetime | None
+  counts: dict
+  n_rows: int
+  extra_incomplete: bool
+  omit_rid: bool
+  p_control: float
+  p_expose: float
+  n_questions: int
+  expected_status: str = field(init=False)
+
+  def __post_init__(self):
+    self.expected_status = classify_status(self.last_days)
+
+
+@dataclass
+class World:
+  seed: int
+  count: int
+  now: datetime.datetime
+  batch: str
+  surveys: list
+  n_rows: int
+  n_archived: int
+  n_lift: int
+
+
+def _email(local: str, domain: str) -> str:
+  return '%s@%s' % (local, domain)
+
+
+def _flat_clients():
+  out = []
+  for agency in AGENCIES:
+    people = [_email(p, agency['domain']) for p in agency['people']]
+    for i, client in enumerate(agency['clients']):
+      out.append({
+          'agency': agency['name'],
+          'domain': agency['domain'],
+          'client': client[0],
+          'category': client[1],
+          'brand': client[2],
+          'rivals': client[3],
+          'creators': people,
+          'creator': people[i % len(people)],
+      })
+  return out
+
+
+def _pick_datetime(rng: random.Random, now: datetime.datetime, lo: int, hi: int):
+  """Weekday-weighted, business-hours, with campaign-season bursts."""
+  burst_months = {1, 2, 6, 7, 8, 11}
+  picked = None
+  for _ in range(60):
+    days = rng.randint(lo, hi)
+    hour = rng.choice([8, 9, 10, 11, 13, 14, 15, 16, 17] + [12, 18] * 1)
+    minute = rng.randint(0, 59)
+    second = rng.randint(0, 59)
+    base = now - datetime.timedelta(days=days)
+    candidate = base.replace(hour=hour, minute=minute, second=second, microsecond=0)
+    if candidate > now:
+      continue
+    weekday = candidate.weekday()
+    if weekday >= 5 and rng.random() > 0.22:
+      continue
+    if candidate.month in burst_months or rng.random() < 0.55:
+      return candidate
+    picked = candidate
+  return picked or now - datetime.timedelta(days=lo, hours=3)
+
+
+def _lifecycle(index: int) -> str:
+  return (
+      'none', 'tiny', 'tiny', 'small', 'small',
+      'small', 'medium', 'medium', 'large', 'xl',
+      'active', 'active', 'stale', 'timed', 'negative',
+      'flat', 'positive', 'new', 'archived', 'medium',
+  )[index % 20]
+
+
+def _band_n(rng: random.Random, band: str, lift: bool) -> tuple[int, int, int | None]:
+  """Return (n_control_or_track, n_expose, last_days). last_days None = no rows."""
+  if band in ('none', 'new') and rng.random() < 0.55:
+    return 0, 0, None
+  if band == 'none':
+    return 0, 0, None
+  if band in ('tiny', 'new'):
+    n = rng.randint(6, 24)
+    last = rng.randint(0, 2)
+  elif band == 'small':
+    n = rng.randint(40, 90)
+    last = rng.choice([0, 1, 2, 5, 9, 20])
+  elif band == 'stale':
+    n = rng.randint(80, 220)
+    last = rng.randint(4, 7)
+  elif band == 'timed':
+    n = rng.randint(120, 400)
+    last = rng.randint(14, 180)
+  elif band == 'archived':
+    n = rng.randint(60, 300)
+    last = rng.randint(40, 200)
+  elif band == 'large':
+    n = rng.randint(600, 1200)
+    last = rng.randint(0, 3)
+  elif band == 'xl':
+    n = rng.randint(1800, 3200)
+    last = rng.randint(0, 2)
+  elif band == 'active':
+    n = rng.randint(150, 500)
+    last = rng.randint(0, 3)
+  else:
+    n = rng.randint(120, 420)
+    last = rng.randint(0, 10)
+  if not lift:
+    return n, 0, last
+  n_c = int(round(n * rng.uniform(0.47, 0.53)))
+  n_e = max(0, n - n_c)
+  return n_c, n_e, last
+
+
+def _lift_rates(band: str, rng: random.Random) -> tuple[float, float]:
+  p_c = rng.uniform(0.18, 0.24)
+  if band == 'negative':
+    return p_c, max(0.08, p_c - rng.uniform(0.06, 0.10))
+  if band == 'flat':
+    return p_c, p_c + rng.uniform(-0.01, 0.01)
+  if band in ('positive', 'xl', 'large', 'active'):
+    return p_c, min(0.45, p_c + rng.uniform(0.07, 0.14))
+  return p_c, min(0.40, p_c + rng.uniform(0.02, 0.08))
+
+
+def _sizes(rng: random.Random, n_answers: int) -> list[str]:
+  if n_answers > 5:
+    return list(rng.choice((('160x600',), ('300x600',), ('160x600', '300x600'))))
+  if rng.random() < 0.28:
+    return list(rng.choice(_SIZES_MULTI))
+  return list(rng.choice(_SIZES_SINGLE))
+
+
+def _questions(client: dict, n_answers: int, n_questions: int, lift: bool):
+  brand = client['brand']
+  options = [brand] + list(client['rivals'])
+  while len(options) < n_answers:
+    options.append('None of these')
+  options = options[:n_answers]
+  if lift:
+    q1 = 'Which of these brands did you notice recently?'
+  else:
+    q1 = 'Which would you consider next time you shop?'
+  questions = [{'text': q1, 'answers': options}]
+  if n_questions >= 2:
+    questions.append({
+        'text': 'Did you see an ad for %s in the last week?' % brand,
+        'answers': ['Yes', 'No', 'Not sure', 'Prefer not to say'][:max(2, min(4, n_answers))],
+    })
+  if n_questions >= 3:
+    questions.append({
+        'text': 'How likely are you to choose %s?' % brand,
+        'answers': ['Very likely', 'Somewhat likely', 'Not likely', 'Not sure'][:max(2, min(4, n_answers))],
+    })
+  return questions
+
+
+def _fill_question_fields(doc: dict, questions: list) -> None:
+  letters = 'abcdefgh'
+  for i, q in enumerate(questions, start=1):
+    doc['question%s' % i] = q['text']
+    doc['question%stype' % i] = 'radio'
+    doc['question%sorder' % i] = 'SHUFFLED'
+    for j, ans in enumerate(q['answers']):
+      letter = letters[j]
+      doc['answer%s%s' % (i, letter)] = ans
+      doc['answer%s%snext' % (i, letter)] = 'end'
+
+
+def generate_world(count: int, seed: int, now: datetime.datetime | None = None) -> World:
+  if now is None:
+    now = datetime.datetime.now(datetime.timezone.utc)
+  if now.tzinfo is None:
+    now = now.replace(tzinfo=datetime.timezone.utc)
+  rng = random.Random(seed)
+  clients = _flat_clients()
+  batch = batch_id(seed)
+  surveys = []
+  n_rows = 0
+  n_archived = 0
+  n_lift = 0
+  for index in range(count):
+    client = clients[index % len(clients)]
+    creator = client['creator']
+    band = _lifecycle(index)
+    lift = client['category'] in ('groceries', 'cars', 'computers') and (index % 5 != 1)
+    if client['category'] in ('games', 'restaurants', 'clothes'):
+      lift = index % 3 == 0
+    n_answers = 8 if (lift is False and index % 17 == 0) else rng.choice((3, 4, 4, 5))
+    n_questions = 1 if lift else rng.choice((1, 1, 2, 3))
+    sizes = _sizes(rng, n_answers)
+    n_c, n_e, last_days = _band_n(rng, band, lift)
+    archived = band == 'archived' or (
+        last_days is not None and last_days > 90 and rng.random() < 0.35)
+    if archived:
+      n_archived += 1
+    created_hi = 520 if archived or band in ('timed',) else 280
+    created_lo = (last_days or 0) + 5
+    if created_lo >= created_hi:
+      created_hi = created_lo + 20
+    created = _pick_datetime(rng, now, created_lo, created_hi)
+    last_at = None
+    if last_days is not None and (n_c + n_e) > 0:
+      last_at = now - datetime.timedelta(
+          days=last_days, hours=rng.randint(0, 8), minutes=rng.randint(0, 59))
+      if last_at < created:
+        last_at = created + datetime.timedelta(hours=6)
+        last_days = max(0, (now - last_at).days)
+    p_c, p_e = _lift_rates(band, rng)
+    sid = survey_id(seed, index)
+    region = _REGIONS[index % len(_REGIONS)]
+    wave = _WAVES[index % len(_WAVES)]
+    template = _NAME_TEMPLATES[client['category']][index % 4]
+    display = template.format(brand=client['brand'], region=region, wave=wave)
+    name = '%s-%s-%04d' % (
+        client['client'].lower().replace(' ', '-').replace('&', 'and'),
+        'lift' if lift else 'track', index)
+    extra_incomplete = (not lift) and n_questions > 1 and (n_c + n_e) >= 20 and index % 11 == 0
+    omit_rid = index % 23 == 0
+    counts = {}
+    rows = 0
+    if lift:
+      if n_c:
+        counts['default_control'] = n_c
+      if n_e:
+        counts['default_expose'] = n_e
+      rows = n_c + n_e
+      n_lift += 1
+    else:
+      if n_c:
+        counts['survey'] = n_c
+      rows = n_c
+    if extra_incomplete:
+      rows += max(1, int(0.12 * (n_c + n_e)))
+    n_rows += rows
+    questions = _questions(client, n_answers, n_questions, lift)
+    doc = {
+        'surveyname': name[:80],
+        'displayname': display,
+        'surveytype': 'brand_lift' if lift else 'brand_track',
+        'archived': archived,
+        'client': client['client'],
+        'agency': client['agency'],
+        'created_at': created.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'created_by': creator,
+        'updated_at': (last_at or created).strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'updated_by': creator,
+        'creativesizes': sizes,
+        'creativesize': sizes[0] if len(sizes) == 1 else sizes,
+        'language': 'en',
+        'responsetype': (
+            'Submit Responses after each Question' if extra_incomplete
+            else 'Submit Responses at End of Survey'),
+        'custom_css': _CREATIVE_CSS,
+        'badge_icon': 'B2' if index % 4 == 0 else 'B',
+        'badge_text': '',
+        'demo_seed': True,
+        'demo_batch': batch,
+        'campaign_id': 'cmp-%s' % sid if index % 6 == 0 else '',
+        'placement_id': 'plc-%s' % sid if index % 6 == 0 else '',
+        'adserver': 'cm360',
+    }
+    _fill_question_fields(doc, questions)
+    if lift and index % 9 == 0 and (n_c + n_e) >= 80:
+      doc['sample_plan'] = {
+          'baseline': 0.2,
+          'mde_mode': 'relative',
+          'mde_relative': 0.1,
+          'mde_absolute': 0.05,
+          'confidence': 0.95,
+          'power': 0.8,
+          'comparisons': 1,
+          'response_rate': 0.01,
+          'control_share': 0.5,
+          'n_control': max(30, n_c or 200),
+          'n_expose': max(30, n_e or 200),
+          'n_total': max(60, (n_c or 200) + (n_e or 200)),
+      }
+    audit = {
+        'action': 'create',
+        'actor': creator,
+        'survey_id': sid,
+        'detail': name[:80],
+        'created_at': doc['created_at'],
+        'demo_seed': True,
+        'demo_batch': batch,
+    }
+    spec = SurveySpec(
+        id=sid,
+        index=index,
+        doc=doc,
+        audit=audit,
+        last_days=last_days,
+        last_at=last_at,
+        counts=counts,
+        n_rows=rows,
+        extra_incomplete=extra_incomplete,
+        omit_rid=omit_rid,
+        p_control=p_c,
+        p_expose=p_e,
+        n_questions=n_questions,
+    )
+    surveys.append(spec)
+  return World(
+      seed=seed, count=count, now=now, batch=batch, surveys=surveys,
+      n_rows=n_rows, n_archived=n_archived, n_lift=n_lift)
+
+
+def _answer_letter(positive: bool, n_answers: int, rng: random.Random) -> str:
+  if positive:
+    return 'A'
+  choices = [chr(ord('A') + i) for i in range(1, max(2, n_answers))]
+  return rng.choice(choices)
+
+
+def _response_text(spec: SurveySpec, positive: bool, rng: random.Random, complete: bool) -> str:
+  n_answers = 4
+  letters = []
+  limit = spec.n_questions if complete else 1
+  for q in range(1, limit + 1):
+    letter = _answer_letter(positive if q == 1 else rng.random() < 0.5, n_answers, rng)
+    letters.append('%s:%s' % (q, letter))
+  return '|'.join(letters)
+
+
+def _spread_times(created, last_at, n, rng):
+  if n <= 0 or last_at is None:
+    return []
+  start = created
+  end = last_at
+  if end <= start:
+    end = start + datetime.timedelta(hours=2)
+  span = (end - start).total_seconds()
+  times = []
+  for i in range(n):
+    frac = (i + 0.5) / n
+    jitter = rng.uniform(-0.4, 0.4) / max(n, 1)
+    t = start + datetime.timedelta(seconds=max(0, span * (frac + jitter)))
+    if t > end:
+      t = end - datetime.timedelta(seconds=rng.randint(0, 90))
+    if t < start:
+      t = start
+    times.append(t.replace(microsecond=0))
+  times.sort()
+  times[-1] = end.replace(microsecond=0)
+  return times
+
+
+def iter_response_rows(world: World, spec: SurveySpec | None = None) -> Iterable[dict]:
+  targets = [spec] if spec is not None else world.surveys
+  for item in targets:
+    rng = random.Random(world.seed * 100003 + item.index)
+    created = datetime.datetime.strptime(
+        item.doc['created_at'], '%Y-%m-%dT%H:%M:%SZ').replace(
+            tzinfo=datetime.timezone.utc)
+    last_at = item.last_at or created
+    sizes = item.doc.get('creativesizes') or ['300x250']
+    size = sizes[0]
+    lift = item.doc.get('surveytype') == 'brand_lift'
+    segments = []
+    if lift:
+      segments = (
+          [('default_control', item.counts.get('default_control', 0), item.p_control)]
+          + [('default_expose', item.counts.get('default_expose', 0), item.p_expose)])
+    else:
+      segments = [('survey', item.counts.get('survey', 0), item.p_control)]
+    seq = 0
+    for seg, n, p_pos in segments:
+      times = _spread_times(created, last_at, n, rng)
+      for i, when in enumerate(times):
+        seq += 1
+        positive = rng.random() < p_pos
+        rid = '%s%s_%06d' % (ID_PREFIX, item.id, seq)
+        bom = rid
+        row = {
+            'CreatedAt': when.strftime('%Y-%m-%dT%H:%M:%S'),
+            'Type': 'survey',
+            'ID': item.id,
+            'Segmentation': seg,
+            'Response': _response_text(item, positive, rng, complete=True),
+            'Visual': '',
+            'CreativeSize': size,
+            'RandomTimeStamp': STAMP_PREFIX + world.batch,
+            'BomID': bom,
+            'RespondentID': '' if item.omit_rid else rid,
+            'RespondentIDSource': '' if item.omit_rid else 'bomid',
+            'CampaignID': item.doc.get('campaign_id') or '',
+            'PlacementID': item.doc.get('placement_id') or '',
+            'SiteID': '',
+            'AdCreativeID': '',
+            'CreativeVersion': 1,
+        }
+        yield row
+        if item.extra_incomplete and i < max(1, int(0.12 * n)):
+          earlier = when - datetime.timedelta(minutes=rng.randint(2, 40))
+          if earlier < created:
+            earlier = created
+          incomplete = dict(row)
+          incomplete['CreatedAt'] = earlier.strftime('%Y-%m-%dT%H:%M:%S')
+          incomplete['Response'] = _response_text(item, positive, rng, complete=False)
+          incomplete['BomID'] = bom
+          incomplete['RespondentID'] = row['RespondentID']
+          yield incomplete
+
+
+def counts_frame_from_world(world: World, ids=None):
+  """Homepage stats-shaped rows from plans (no BQ)."""
+  import pandas
+  rows = []
+  wanted = set(ids) if ids else None
+  for spec in world.surveys:
+    if wanted is not None and spec.id not in wanted:
+      continue
+    if not spec.counts:
+      continue
+    last_date = (
+        spec.last_at.date().isoformat() if spec.last_at is not None
+        else world.now.date().isoformat())
+    for seg, n in spec.counts.items():
+      rows.append({
+          'ID': spec.id,
+          'Segmentation': seg,
+          'max_date': last_date,
+          'days_since_response': spec.last_days,
+          'response_count': n,
+      })
+  if not rows:
+    return pandas.DataFrame(
+        columns=['ID', 'Segmentation', 'max_date', 'days_since_response',
+                 'response_count'])
+  return pandas.DataFrame(rows)
+
+
+def mock_survey_docs(world: World):
+  from unittest import mock
+  docs = []
+  for spec in world.surveys:
+    doc = mock.Mock()
+    doc.id = spec.id
+    doc.to_dict.return_value = spec.doc
+    doc.exists = True
+    docs.append(doc)
+  return docs
+
+
+def summary_lines(world: World, sample: int = 8) -> list[str]:
+  lines = [
+      'Demo batch %s  seed=%s  surveys=%s  lift=%s  archived=%s  bq_rows≈%s'
+      % (world.batch, world.seed, world.count, world.n_lift, world.n_archived,
+         world.n_rows),
+      'Agencies: ' + ', '.join(a['name'] for a in AGENCIES),
+      'Tag: Firestore demo_seed=true demo_batch=%s; BQ ID %s* and RandomTimeStamp %s%s'
+      % (world.batch, ID_PREFIX, STAMP_PREFIX, world.batch),
+      'Sample surveys:',
+  ]
+  for spec in world.surveys[:sample]:
+    lines.append(
+        '  %s  %s  %s / %s  %s  last=%s  %s  rows≈%s  counts=%s'
+        % (spec.id, spec.doc['displayname'][:48], spec.doc['agency'],
+           spec.doc['client'], spec.doc['surveytype'], spec.last_days,
+           spec.expected_status, spec.n_rows, spec.counts or '{}'))
+  return lines
+
+
+def _fs_client(project: str):
+  from google.cloud import firestore
+  return firestore.Client(project=project)
+
+
+def _bq_client(project: str):
+  from google.cloud import bigquery
+  return bigquery.Client(project=project)
+
+
+def _new_batch(db):
+  maker = getattr(db, 'batch', None)
+  if callable(maker):
+    try:
+      return maker()
+    except Exception:
+      return None
+  return None
+
+
+def apply_firestore(db, world: World) -> int:
+  """Overwrite tagged demo surveys. Other docs are left alone."""
+  purge_firestore(db, dry_run=False)
+  col = db.collection('Surveys')
+  audit = db.collection('AuditLog')
+  batch = _new_batch(db)
+  pending = 0
+  written = 0
+
+  def flush():
+    nonlocal batch, pending
+    if batch is not None and pending:
+      batch.commit()
+      batch = _new_batch(db)
+      pending = 0
+
+  for spec in world.surveys:
+    survey_ref = col.document(spec.id)
+    audit_ref = audit.document('demo_audit_%s' % spec.id)
+    if batch is None:
+      survey_ref.set(spec.doc)
+      audit_ref.set(spec.audit)
+    else:
+      batch.set(survey_ref, spec.doc)
+      pending += 1
+      batch.set(audit_ref, spec.audit)
+      pending += 1
+      if pending >= BATCH_WRITES:
+        flush()
+    written += 1
+  flush()
+  meta = db.collection('DemoSeed').document('current')
+  meta.set({
+      'demo_seed': True,
+      'demo_batch': world.batch,
+      'seed': world.seed,
+      'count': world.count,
+      'n_rows': world.n_rows,
+      'applied_at': world.now.strftime('%Y-%m-%dT%H:%M:%SZ'),
+  })
+  return written
+
+
+def _is_tagged_survey(doc) -> bool:
+  data = doc.to_dict() or {}
+  return data.get('demo_seed') is True and is_demo_survey_id(doc.id)
+
+
+def _is_tagged_audit(doc) -> bool:
+  data = doc.to_dict() or {}
+  sid = data.get('survey_id') or ''
+  return data.get('demo_seed') is True and (
+      is_demo_survey_id(sid) or str(doc.id).startswith('demo_audit_'))
+
+
+def purge_firestore(db, dry_run: bool = True) -> dict:
+  surveys = [
+      doc for doc in db.collection('Surveys').stream() if _is_tagged_survey(doc)
+  ]
+  audits = [
+      doc for doc in db.collection('AuditLog').stream() if _is_tagged_audit(doc)
+  ]
+  cache_ids = [doc.id for doc in surveys]
+  deleted = {'surveys': 0, 'audits': 0, 'stats_cache': 0, 'versions': 0}
+  if dry_run:
+    deleted['surveys'] = len(surveys)
+    deleted['audits'] = len(audits)
+    deleted['stats_cache'] = len(cache_ids)
+    return deleted
+  for doc in surveys:
+    for ver in doc.reference.collection('versions').stream():
+      ver.reference.delete()
+      deleted['versions'] += 1
+    doc.reference.delete()
+    deleted['surveys'] += 1
+  for doc in audits:
+    doc.reference.delete()
+    deleted['audits'] += 1
+  cache = db.collection('StatsCache')
+  for sid in cache_ids:
+    ref = cache.document(sid)
+    snap = ref.get()
+    if getattr(snap, 'exists', False):
+      ref.delete()
+      deleted['stats_cache'] += 1
+  meta = db.collection('DemoSeed').document('current')
+  if getattr(meta.get(), 'exists', False):
+    meta.delete()
+  return deleted
+
+
+def apply_bigquery(client, table_id: str, world: World) -> int:
+  from google.cloud import bigquery
+  job = client.query(bq_purge_sql(table_id))
+  job.result()
+  buf = io.BytesIO()
+  n = 0
+  for row in iter_response_rows(world):
+    buf.write((json.dumps(row) + '\n').encode('utf-8'))
+    n += 1
+  if n == 0:
+    return 0
+  buf.seek(0)
+  config = bigquery.LoadJobConfig(
+      source_format=bigquery.SourceFormat.NEWLINE_DELIMITED_JSON,
+      write_disposition=bigquery.WriteDisposition.WRITE_APPEND,
+      ignore_unknown_values=True,
+  )
+  load = client.load_table_from_file(buf, table_id, job_config=config)
+  load.result()
+  if load.errors:
+    raise RuntimeError('BigQuery load errors: %s' % load.errors)
+  return n
+
+
+def purge_bigquery(client, table_id: str, dry_run: bool = True) -> str:
+  sql = bq_purge_sql(table_id)
+  if dry_run:
+    return sql
+  client.query(sql).result()
+  return sql
+
+
+def _prepare_env(project: str) -> None:
+  os.environ['GOOGLE_CLOUD_PROJECT'] = project
+  os.environ.setdefault('PROJECT_ID', project)
+  os.environ.setdefault('TABLE_ID', '%s.responses.responses' % project)
+  sys.path.insert(0, str(APP_DIR))
+
+
+def main(argv: list[str] | None = None) -> int:
+  parser = argparse.ArgumentParser(description=__doc__)
+  parser.add_argument('--project', default=DEFAULT_PROJECT)
+  parser.add_argument('--table', default='')
+  parser.add_argument('--count', type=int, default=DEFAULT_COUNT)
+  parser.add_argument('--seed', type=int, default=DEFAULT_SEED)
+  parser.add_argument('--apply', action='store_true',
+                      help='Write (or, with --purge, actually delete).')
+  parser.add_argument('--purge', action='store_true',
+                      help='Remove tagged demo data only. Dry-run unless --apply.')
+  args = parser.parse_args(argv)
+  if args.count < MIN_COUNT:
+    print('error: --count must be >= %s (need 4+ homepage pages at 50/page)'
+          % MIN_COUNT, file=sys.stderr)
+    return 2
+  _prepare_env(args.project)
+  table_id = args.table or os.environ['TABLE_ID']
+  now = datetime.datetime.now(datetime.timezone.utc)
+
+  if args.purge:
+    print('PURGE demo data from project %s table %s' % (args.project, table_id))
+    print('SQL:\n%s' % bq_purge_sql(table_id))
+    if not args.apply:
+      print('Dry run. Re-run with --purge --apply to delete tagged rows only.')
+      db = _fs_client(args.project)
+      planned = purge_firestore(db, dry_run=True)
+      print('Would delete Firestore: %s' % planned)
+      return 0
+    db = _fs_client(args.project)
+    bq = _bq_client(args.project)
+    deleted = purge_firestore(db, dry_run=False)
+    sql = purge_bigquery(bq, table_id, dry_run=False)
+    print('Deleted Firestore: %s' % deleted)
+    print('Ran: %s' % sql)
+    print('Load-job rows are immediately deletable. If anything was ever '
+          'inserted with insert_rows_json, wait ~90 minutes for the streaming '
+          'buffer before DELETE can remove those rows.')
+    return 0
+
+  world = generate_world(args.count, args.seed, now=now)
+  for line in summary_lines(world):
+    print(line)
+  print('Estimated BigQuery rows: %s (load job, not streaming).' % world.n_rows)
+  if world.n_rows > 400000:
+    print('error: estimated rows > 400000; lower --count', file=sys.stderr)
+    return 2
+  if not args.apply:
+    print('Dry run. Re-run with --apply to write Firestore + BigQuery.')
+    print('WARNING: --apply writes to the live project (%s).' % args.project)
+    return 0
+  print('APPLY to live project %s' % args.project)
+  db = _fs_client(args.project)
+  bq = _bq_client(args.project)
+  n_docs = apply_firestore(db, world)
+  print('Wrote %s survey docs (plus audit rows).' % n_docs)
+  n_rows = apply_bigquery(bq, table_id, world)
+  print('Loaded %s BigQuery rows into %s (after deleting previous demo rows).'
+        % (n_rows, table_id))
+  print('Done. Homepage should paginate; stats fill from /index/stats-partial.')
+  return 0
+
+
+if __name__ == '__main__':
+  sys.exit(main())
