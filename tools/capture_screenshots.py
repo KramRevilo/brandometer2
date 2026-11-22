@@ -228,26 +228,32 @@ def patch_bigquery() -> None:
       {
           'ID': 'lift-demo', 'Segmentation': 'default_control',
           'max_date': now, 'days_since_response': 1, 'response_count': 40,
+          'n_q1': 40, 'k_q1_a': 26,
       },
       {
           'ID': 'lift-demo', 'Segmentation': 'default_expose',
           'max_date': now, 'days_since_response': 1, 'response_count': 42,
+          'n_q1': 42, 'k_q1_a': 21,
       },
       {
           'ID': 'track-two', 'Segmentation': 'survey',
           'max_date': now, 'days_since_response': 2, 'response_count': 24,
+          'n_q1': 24, 'k_q1_a': 12,
       },
       {
           'ID': 'tall-eight', 'Segmentation': 'survey',
           'max_date': now, 'days_since_response': 4, 'response_count': 18,
+          'n_q1': 18, 'k_q1_a': 9,
       },
       {
           'ID': 'halfpage-dark', 'Segmentation': 'survey',
           'max_date': now, 'days_since_response': 8, 'response_count': 11,
+          'n_q1': 11, 'k_q1_a': 5,
       },
       {
           'ID': 'mrec-pink', 'Segmentation': 'survey',
           'max_date': now, 'days_since_response': 1, 'response_count': 30,
+          'n_q1': 30, 'k_q1_a': 15,
       },
   ]
   counts = pandas.DataFrame(counts_rows)

@@ -1,9 +1,13 @@
-{% from 'stats_macros.html' import count_content, last_content, status_content %}
+{% from 'stats_macros.html' import count_content, last_content, status_content, progress_content, result_content %}
 {% for item in stat_array %}
 <div id="count-{{ item.id }}" hx-swap-oob="true">{{ count_content(item) }}</div>
 <div id="last-{{ item.id }}" hx-swap-oob="true">{{ last_content(item) }}</div>
 <div id="status-{{ item.id }}" hx-swap-oob="true">{{ status_content(item) }}</div>
+<div id="progress-{{ item.id }}" hx-swap-oob="true">{{ progress_content(item) }}</div>
+<div id="result-{{ item.id }}" hx-swap-oob="true">{{ result_content(item) }}</div>
 <div id="count-card-{{ item.id }}" hx-swap-oob="true">{{ count_content(item) }}</div>
 <span id="last-card-{{ item.id }}" hx-swap-oob="true">{{ last_content(item) }}</span>
 <div id="status-card-{{ item.id }}" hx-swap-oob="true">{{ status_content(item) }}</div>
+<div id="progress-card-{{ item.id }}" hx-swap-oob="true">{{ progress_content(item) }}</div>
+<div id="result-card-{{ item.id }}" hx-swap-oob="true">{{ result_content(item) }}</div>
 {% endfor %}

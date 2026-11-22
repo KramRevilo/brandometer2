@@ -315,6 +315,30 @@ ENTRIES = {
             'the always-valid status.'
         ),
     },
+    'list.progress': {
+        'title': 'Homepage progress',
+        'body': (
+            'Brand Lift: the smaller arm as a percent of the saved sample-plan '
+            'n per arm. With no plan, the bar is versus the 30-per-arm report '
+            'minimum (percentages jump until both sides reach 30). Brand Track: '
+            'how close the Wilson 95% margin on Q1 answer A is to the target '
+            '(default ±3 percentage points). Tooltip shows n and the current '
+            'margin. Save a plan on the sample-size page to change the Lift '
+            'target; set TRACK_TARGET_MOE to change the Track target.'
+        ),
+    },
+    'list.result': {
+        'title': 'Homepage result',
+        'body': (
+            'Brand Lift uses the same sequential test as the report on Q1 '
+            'answer A: Significant lift, Not yet, Flat/negative (significant '
+            'negative or futility at the planned end), Below min n (under 30 '
+            'per arm), or No data. Brand Track shows the current Wilson 95% '
+            'margin on Q1 answer A, with Precise when that margin is at or '
+            'inside the target. Safe to read on every refresh; peeking at '
+            'fixed-horizon p-values is not.'
+        ),
+    },
 }
 
 

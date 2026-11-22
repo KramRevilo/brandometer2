@@ -78,6 +78,18 @@ def consolidate_frame(df):
   return out.drop(columns=['_complete', '_session'])
 
 
+def wilson_margin(successes, n, z=Z_95):
+  """Half-width of the Wilson score interval before clipping to [0, 1]."""
+  if n is None or n <= 0:
+    return float('nan')
+  successes = max(0, min(int(successes), int(n)))
+  n = float(n)
+  p = successes / n
+  z2 = z * z
+  denom = 1.0 + z2 / n
+  return z * math.sqrt((p * (1.0 - p) + z2 / (4.0 * n)) / n) / denom
+
+
 def wilson_interval(successes, n, z=Z_95):
   """Wilson score 95% CI for a binomial proportion. Returns (lo, hi)."""
   if n is None or n <= 0:
@@ -88,7 +100,7 @@ def wilson_interval(successes, n, z=Z_95):
   z2 = z * z
   denom = 1.0 + z2 / n
   center = (p + z2 / (2.0 * n)) / denom
-  margin = z * math.sqrt((p * (1.0 - p) + z2 / (4.0 * n)) / n) / denom
+  margin = wilson_margin(successes, n, z=z)
   return (max(0.0, center - margin), min(1.0, center + margin))
 
 

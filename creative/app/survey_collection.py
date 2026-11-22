@@ -63,6 +63,7 @@ LIST_FIELDS = (
     'created_by',
     'creativesize',
     'creativesizes',
+    'sample_plan',
 )
 
 IDENTITY_SUGGESTION_FIELDS = ('client', 'agency')

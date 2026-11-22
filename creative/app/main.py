@@ -93,6 +93,7 @@ def _filter_args():
       'size': (request.args.get('size') or '').strip(),
       'created_by': (request.args.get('created_by') or '').strip(),
       'status': survey_service.parse_status_filter(request.args.get('status')),
+      'result': survey_service.parse_result_filter(request.args.get('result')),
   }
 
 
@@ -109,7 +110,8 @@ def _index_query(
   if page:
     args['page'] = page
   filters = filters or {}
-  for key in ('q', 'client', 'agency', 'year', 'size', 'created_by', 'status'):
+  for key in (
+      'q', 'client', 'agency', 'year', 'size', 'created_by', 'status', 'result'):
     value = (filters.get(key) or '').strip()
     if value:
       args[key] = value
@@ -168,24 +170,40 @@ def index():
       created_by=filters['created_by'])
   status_filter_notice = None
   bq_mode = 'deferred'
-  if filters['status']:
-    status_started = time.perf_counter()
+  counts_df = None
+  stats_by_id = {}
+  needs_list_stats = survey_service.list_stats_needed(
+      filters['status'], filters['result'], sort_key)
+  if needs_list_stats:
+    list_stats_started = time.perf_counter()
     try:
-      status_ids = [survey.id for survey in surveys]
-      counts_df = survey_service.get_response_counts(status_ids)
-      surveys = survey_service.apply_status_filter(
-          surveys, filters['status'], counts_df)
-      bq_mode = 'status_filter'
+      list_ids = [survey.id for survey in surveys]
+      counts_df = survey_service.get_response_counts(list_ids)
+      if filters['status']:
+        surveys = survey_service.apply_status_filter(
+            surveys, filters['status'], counts_df)
+      if filters['result']:
+        surveys = survey_service.apply_result_filter(
+            surveys, filters['result'], counts_df)
+      stats_by_id = survey_service.stats_map_from_counts(surveys, counts_df)
+      bq_mode = 'list_stats'
       _log_index_timing(
-          'status_filter', status_started, n=len(surveys),
-          n_ids=len(status_ids))
+          'list_stats', list_stats_started, n=len(surveys),
+          n_ids=len(list_ids), status=filters['status'] or '-',
+          result=filters['result'] or '-', sort=sort_key)
     except Exception as exc:
-      bq_mode = 'status_filter_failed'
-      status_filter_notice = survey_service.STATUS_FILTER_UNAVAILABLE
+      bq_mode = 'list_stats_failed'
+      if filters['status']:
+        status_filter_notice = survey_service.STATUS_FILTER_UNAVAILABLE
+      elif filters['result']:
+        status_filter_notice = survey_service.RESULT_FILTER_UNAVAILABLE
+      elif sort_key in survey_service.STATS_SORT_KEYS:
+        status_filter_notice = survey_service.STATS_SORT_UNAVAILABLE
       _index_log.exception(
-          'index.status_filter_error n_ids=%d type=%s error=%r',
+          'index.list_stats_error n_ids=%d type=%s error=%r',
           len(surveys), type(exc).__name__, exc)
-  surveys = survey_service.sort_surveys(surveys, sort_key, sort_dir)
+  surveys = survey_service.sort_surveys(
+      surveys, sort_key, sort_dir, stats_by_id=stats_by_id)
   _log_index_timing('filter', filter_started, n=len(surveys))
 
   def index_query(archived_flag, page=None, sort=None, direction=None):
@@ -208,13 +226,17 @@ def index():
       page=_page_arg(request.args.get('page')),
       page_size=survey_service.HOMEPAGE_PAGE_SIZE)
   survey_ids = [survey.id for survey in page_surveys]
-  # Do not wait on BigQuery. Count/last/status cells load via htmx on page load.
+  page_stats = {
+      sid: stats_by_id[sid] for sid in survey_ids if sid in stats_by_id
+  }
+  stats_pending = not page_stats
+  # Do not wait on BigQuery unless status/result/progress sort already fetched.
   render_started = time.perf_counter()
   html = render_template(
       'index.html',
       all_surveys=page_surveys,
-      stats_by_id={},
-      stats_pending=True,
+      stats_by_id=page_stats,
+      stats_pending=stats_pending,
       show_archived=show_archived,
       pager=pager,
       stats_poll_seconds=survey_service.STATS_POLL_SECONDS,
@@ -228,6 +250,7 @@ def index():
       filter_options=filter_options,
       size_choices=creative_size.SIZE_CHOICES,
       status_choices=survey_service.homepage_status_choices(),
+      result_choices=survey_service.homepage_result_choices(),
       filters_active=any(filters.values()),
       unfiltered_count=unfiltered_count,
       status_filter_notice=status_filter_notice,
@@ -240,15 +263,17 @@ def index():
 
 @app.route('/index/stats-partial')
 def index_stats_partial():
-  """Load count / last-received-days / status cells (BQ, cached) after the list paints.
+  """Load count / last / status / progress / result cells after the list paints.
 
   Always 200 with OOB cells so htmx can swap. BigQuery errors become an
   unavailable row (—) instead of a 500 that would leave Loading… forever.
+  Progress and Result reuse the same cached counts frame (no per-survey BQ).
   """
   started = time.perf_counter()
   survey_ids = [sid for sid in request.args.get('ids', '').split(',') if sid]
   try:
-    stat_array = survey_service.build_stat_array(survey_ids)
+    surveys = survey_service.get_list_docs_by_ids(survey_ids)
+    stat_array = survey_service.build_stat_array(survey_ids, surveys=surveys)
   except Exception as exc:
     _index_log.exception(
         'index.stats_partial_error n_ids=%d type=%s error=%r',

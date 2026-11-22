@@ -46,9 +46,12 @@ class ReportingMathTest(unittest.TestCase):
     self.assertAlmostEqual(lo, 0.403832, places=4)
     self.assertAlmostEqual(hi, 0.596168, places=4)
     self.assertTrue(lo < 0.5 < hi)
+    margin = reporting.wilson_margin(50, 100)
+    self.assertAlmostEqual((hi - lo) / 2.0, margin, places=6)
     nan_lo, nan_hi = reporting.wilson_interval(0, 0)
     self.assertTrue(math.isnan(nan_lo))
     self.assertTrue(math.isnan(nan_hi))
+    self.assertTrue(math.isnan(reporting.wilson_margin(0, 0)))
 
   def test_two_proportion_pvalue_detects_difference(self):
     p_sig = reporting.two_proportion_pvalue(60, 100, 40, 100)

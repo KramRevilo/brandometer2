@@ -269,6 +269,9 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('id="count-card-s1"', html)
     self.assertIn('id="status-card-s1"', html)
     self.assertIn('id="last-card-s1"', html)
+    self.assertIn('id="progress-card-s1"', html)
+    self.assertIn('id="result-card-s1"', html)
+    self.assertIn('id="filter-result"', html)
     self.assertIn('Last received data (days)', html)
     self.assertIn('actions-card-s1', html)
     self.assertIn('d-none d-xl-table-cell', html)
@@ -306,6 +309,8 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('Last Rcvd', html)
     self.assertIn('Data (days)', html)
     self.assertIn('Last Rcvd<br>Data (days)', html)
+    self.assertIn('sort=progress', html)
+    self.assertIn('sort=result', html)
     self.assertIn('data-stats-pending', html)
     self.assertIn('hx-timeout=', html)
     self.assertNotIn('badge text-bg-light', html)
@@ -370,6 +375,10 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'id="count-card-s1"', response.data)
     self.assertIn(b'id="last-card-s1"', response.data)
     self.assertIn(b'id="status-card-s1"', response.data)
+    self.assertIn(b'id="progress-s1"', response.data)
+    self.assertIn(b'id="result-s1"', response.data)
+    self.assertIn(b'id="progress-card-s1"', response.data)
+    self.assertIn(b'id="result-card-s1"', response.data)
     self.assertIn(b'hx-swap-oob="true"', response.data)
     self.assertIn(b'9', response.data)
     self.assertIn(b'E 9', response.data)
@@ -655,6 +664,122 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'Keep two', response.data)
     self.assertIn(b'2 surveys', response.data)
     self.assertIn(b'status=active', response.data)
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_sorts_progress_from_cached_counts(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('low', {
+            'surveyname': 'Low progress',
+            'displayname': 'Low progress',
+            'surveytype': 'brand_lift',
+            'created_at': '2026-11-20T00:00:00Z',
+            'question1': 'Q1',
+            'sample_plan': {'n_control': 100, 'n_expose': 100},
+        }),
+        self._survey('high', {
+            'surveyname': 'High progress',
+            'displayname': 'High progress',
+            'surveytype': 'brand_lift',
+            'created_at': '2026-11-19T00:00:00Z',
+            'question1': 'Q1',
+            'sample_plan': {'n_control': 100, 'n_expose': 100},
+        }),
+        self._survey('empty', {
+            'surveyname': 'No responses',
+            'displayname': 'No responses',
+            'surveytype': 'brand_lift',
+            'created_at': '2026-11-21T00:00:00Z',
+            'question1': 'Q1',
+        }),
+    ]
+    counts_mock.return_value = pandas.DataFrame({
+        'ID': ['low', 'low', 'high', 'high'],
+        'Segmentation': [
+            'default_control', 'default_expose',
+            'default_control', 'default_expose'],
+        'max_date': ['2026-11-18'] * 4,
+        'days_since_response': [1, 1, 1, 1],
+        'response_count': [20, 20, 90, 90],
+        'n_q1': [20, 20, 90, 90],
+        'k_q1_a': [5, 6, 40, 50],
+    })
+
+    response = self.client.get('/index?sort=progress&dir=asc')
+    html = response.data.decode('utf-8')
+    self.assertEqual(response.status_code, 200)
+    self.assertLess(html.find('Low progress'), html.find('High progress'))
+    self.assertLess(html.find('High progress'), html.find('No responses'))
+    self.assertIn('20%', html)
+    self.assertIn('90%', html)
+    self.assertIn('sort=progress', html)
+    self.assertIn('id="filter-result"', html)
+    counts_mock.assert_called_once()
+    self.assertEqual(
+        sorted(counts_mock.call_args[0][0]), ['empty', 'high', 'low'])
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_filters_by_result(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('sig', {
+            'surveyname': 'Sig lift',
+            'displayname': 'Sig lift',
+            'surveytype': 'brand_lift',
+            'created_at': '2026-11-20T00:00:00Z',
+            'question1': 'Q1',
+            'sample_plan': {
+                'n_control': 40, 'n_expose': 40, 'confidence': 0.95,
+                'comparisons': 1, 'baseline': 0.2, 'mde_relative': 0.5,
+                'mde_mode': 'relative', 'power': 0.8, 'response_rate': 0.01,
+                'control_share': 0.5,
+            },
+        }),
+        self._survey('empty', {
+            'surveyname': 'Empty lift',
+            'displayname': 'Empty lift',
+            'surveytype': 'brand_lift',
+            'created_at': '2026-11-19T00:00:00Z',
+            'question1': 'Q1',
+        }),
+    ]
+    counts_mock.return_value = pandas.DataFrame({
+        'ID': ['sig', 'sig'],
+        'Segmentation': ['default_control', 'default_expose'],
+        'max_date': ['2026-11-18', '2026-11-18'],
+        'days_since_response': [1, 1],
+        'response_count': [40, 40],
+        'n_q1': [40, 40],
+        'k_q1_a': [10, 30],
+    })
+    response = self.client.get('/index?result=significant_lift')
+    html = response.data.decode('utf-8')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn('1 survey', html)
+    self.assertIn('Sig lift', html)
+    self.assertNotIn('Empty lift', html)
+    self.assertIn('result=significant_lift', html)
+    self.assertIn('Significant lift', html)
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_result_filter_fail_open_never_500(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('s1', {
+            'surveyname': 'Keep me',
+            'displayname': 'Keep me',
+            'question1': 'Q',
+        }),
+    ]
+    counts_mock.side_effect = RuntimeError('bq down')
+    response = self.client.get('/index?result=precise')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'id="status-filter-notice"', response.data)
+    self.assertIn(b'Keep me', response.data)
+    self.assertIn(b'result=precise', response.data)
 
   @mock.patch.object(survey_service, '_fetch_all_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')

@@ -39,7 +39,9 @@ import bulk_upload
 import html5_qa
 import reporting
 import respondent
+import sequential
 import survey_collection
+import ui_help
 from forms import ANSWER_LETTERS
 from forms import BRAND_LIFT
 from forms import BRAND_TRACK
@@ -52,7 +54,9 @@ DEFAULT_SORT_KEY = 'created_at'
 DEFAULT_SORT_DIR = 'desc'
 SORT_KEYS = (
     'created_at', 'name', 'id', 'client', 'agency', 'created_by', 'sizes',
+    'progress', 'result',
 )
+STATS_SORT_KEYS = ('progress', 'result')
 _IDENTITY_KEYS = (
     'client', 'agency', 'campaign_id', 'placement_id', 'ad_server')
 _FORM_META_KEYS = ('csrf_token', 'submit', 'last_update_time')
@@ -71,6 +75,32 @@ HOMEPAGE_STATUS_LABELS = dict(HOMEPAGE_STATUS_CHOICES)
 STATUS_FILTER_UNAVAILABLE = (
     'Status filter could not be applied because response counts are unavailable. '
     'Showing every survey that matches the other filters.')
+RESULT_FILTER_UNAVAILABLE = (
+    'Result filter could not be applied because response counts are unavailable. '
+    'Showing every survey that matches the other filters.')
+STATS_SORT_UNAVAILABLE = (
+    'Progress and result could not be loaded because response counts are '
+    'unavailable. Surveys with missing stats sort last.')
+HOMEPAGE_RESULT_CHOICES = (
+    ('significant_lift', 'Significant lift'),
+    ('not_yet', 'Not yet'),
+    ('flat_negative', 'Flat/negative'),
+    ('below_min_n', 'Below min n'),
+    ('no_data', 'No data'),
+    ('precise', 'Precise'),
+)
+HOMEPAGE_RESULT_LABELS = dict(HOMEPAGE_RESULT_CHOICES)
+RESULT_SORT_RANK = {
+    'significant_lift': 5,
+    'precise': 5,
+    'not_yet': 3,
+    'flat_negative': 2,
+    'below_min_n': 1,
+    'no_data': 0,
+}
+# Brand Track homepage target margin of error (proportion, ±3pp at 95%).
+# TRACK_TARGET_MOE=0.03 or TRACK_TARGET_MOE=3 (treated as 3pp).
+_DEFAULT_TRACK_TARGET_MOE = 0.03
 # Homepage list page size. Not an env var — change this constant to retune.
 HOMEPAGE_PAGE_SIZE = 50
 STATS_POLL_SECONDS = 30
@@ -114,8 +144,11 @@ _RESPONSE_SELECT = """
         WHERE ID = @survey_id
     """
 _EMPTY_COUNTS_COLUMNS = [
-    'ID', 'Segmentation', 'max_date', 'days_since_response', 'response_count'
+    'ID', 'Segmentation', 'max_date', 'days_since_response', 'response_count',
+    'n_q1', 'k_q1_a',
 ]
+_COUNTS_INT_COLUMNS = (
+    'days_since_response', 'response_count', 'n_q1', 'k_q1_a')
 
 
 def _empty_frame(columns):
@@ -410,6 +443,47 @@ def homepage_status_choices():
   return list(HOMEPAGE_STATUS_CHOICES)
 
 
+def parse_result_filter(value):
+  """Canonical homepage result slug, or '' for All results / unknown."""
+  key = (value or '').strip().lower().replace('-', '_').replace(' ', '_')
+  if key in HOMEPAGE_RESULT_LABELS:
+    return key
+  aliases = {
+      'significant': 'significant_lift',
+      'flat': 'flat_negative',
+      'negative': 'flat_negative',
+      'below_min': 'below_min_n',
+      'min_n': 'below_min_n',
+  }
+  return aliases.get(key, '')
+
+
+def homepage_result_choices():
+  return list(HOMEPAGE_RESULT_CHOICES)
+
+
+def track_target_moe():
+  """Brand Track target Wilson margin as a proportion (default 0.03 = ±3pp)."""
+  raw = os.environ.get('TRACK_TARGET_MOE', str(_DEFAULT_TRACK_TARGET_MOE))
+  try:
+    value = float(raw)
+  except (TypeError, ValueError):
+    return _DEFAULT_TRACK_TARGET_MOE
+  if value > 1.0:
+    value = value / 100.0
+  if value <= 0.0 or value >= 0.5:
+    return _DEFAULT_TRACK_TARGET_MOE
+  return value
+
+
+def list_stats_needed(status_key='', result_key='', sort_key=''):
+  """True when GET /index must classify every remaining id from cached counts."""
+  if parse_status_filter(status_key) or parse_result_filter(result_key):
+    return True
+  key, _ = parse_sort(sort_key, 'asc')
+  return key in STATS_SORT_KEYS
+
+
 def status_map_from_counts(survey_ids, counts_df):
   """survey_id -> classify_status label from one batched counts frame."""
   stats = build_stat_array(survey_ids, counts_df=counts_df)
@@ -428,6 +502,23 @@ def apply_status_filter(surveys, status_key, counts_df):
   for survey in surveys:
     sid = getattr(survey, 'id', '')
     if by_id.get(sid) == wanted:
+      matched.append(survey)
+  return matched
+
+
+def apply_result_filter(surveys, result_key, counts_df):
+  """Keep surveys whose homepage result slug matches (one counts frame)."""
+  result_key = parse_result_filter(result_key)
+  if not result_key:
+    return list(surveys)
+  stats = build_stat_array(
+      [getattr(survey, 'id', '') for survey in surveys],
+      counts_df=counts_df, surveys=surveys)
+  by_id = {item['id']: item.get('result_key') for item in stats}
+  matched = []
+  for survey in surveys:
+    sid = getattr(survey, 'id', '')
+    if by_id.get(sid) == result_key:
       matched.append(survey)
   return matched
 
@@ -483,10 +574,13 @@ def parse_sort(sort_key, direction):
   return key, direction
 
 
-def sort_surveys(surveys, sort_key=DEFAULT_SORT_KEY, direction=DEFAULT_SORT_DIR):
-  """Sort the homepage list. Missing created_at / created_by always sort last."""
+def sort_surveys(
+    surveys, sort_key=DEFAULT_SORT_KEY, direction=DEFAULT_SORT_DIR,
+    stats_by_id=None):
+  """Sort the homepage list. Missing created_at / created_by / stats sort last."""
   key, direction = parse_sort(sort_key, direction)
   reverse = direction == 'desc'
+  stats_by_id = stats_by_id or {}
 
   def _text(value):
     return (value or '').strip().lower()
@@ -507,6 +601,18 @@ def sort_surveys(surveys, sort_key=DEFAULT_SORT_KEY, direction=DEFAULT_SORT_DIR)
       else:
         stamp = (0, -parsed.timestamp() if reverse else parsed.timestamp())
       return stamp + (sid,)
+    if key == 'progress':
+      item = stats_by_id.get(sid) or {}
+      pct = item.get('progress_sort')
+      if pct is None:
+        return (1, 0.0, sid)
+      return (0, -float(pct) if reverse else float(pct), sid)
+    if key == 'result':
+      item = stats_by_id.get(sid) or {}
+      rank = item.get('result_sort')
+      if rank is None:
+        return (1, 0, sid)
+      return (0, -int(rank) if reverse else int(rank), sid)
     if key == 'name':
       label = _text(data.get('displayname') or data.get('surveyname'))
       return ((1, '') if not label else (0, label), sid)
@@ -523,7 +629,7 @@ def sort_surveys(surveys, sort_key=DEFAULT_SORT_KEY, direction=DEFAULT_SORT_DIR)
       return (_missing_last(','.join(sizes)), sid)
     return (sid,)
 
-  if key == 'created_at':
+  if key in ('created_at', 'progress', 'result'):
     return sorted(surveys, key=sort_item)
   if key in ('name', 'client', 'agency', 'created_by', 'sizes'):
     return sorted(surveys, key=sort_item, reverse=reverse)
@@ -638,8 +744,25 @@ def last_received_title(days, max_date=None):
   return 'Last received data (%s %s ago)' % (days, unit)
 
 
+def _empty_progress_result():
+  return {
+      'progress_pct': None,
+      'progress_sort': None,
+      'progress_text': '',
+      'progress_title': '',
+      'result_key': '',
+      'result_sort': None,
+      'result_text': '',
+      'result_badge': '',
+      'result_class': 'secondary',
+      'result_kind': '',
+      'result_title': '',
+  }
+
+
 def unavailable_stat_array(survey_ids):
   """OOB cells when BigQuery (or the stats route) fails."""
+  base = _empty_progress_result()
   return [{
       'id': sid,
       'stats': [],
@@ -648,10 +771,295 @@ def unavailable_stat_array(survey_ids):
       'last_title': STATS_UNAVAILABLE_TITLE,
       'status': 'Unavailable',
       'status_label': 'secondary',
+      **base,
   } for sid in survey_ids]
 
 
-def build_stat_array(survey_ids, counts_df=None):
+def _coerce_int(value, default=0):
+  if value is None:
+    return default
+  try:
+    if isinstance(value, float) and math.isnan(value):
+      return default
+    return int(value)
+  except (TypeError, ValueError):
+    return default
+
+
+def _help_sentence(help_id):
+  entry = ui_help.entry(help_id) or {}
+  body = (entry.get('body') or '').strip()
+  if not body:
+    return ''
+  return body.split('. ')[0].rstrip('.') + '.'
+
+
+def _surveys_by_id(surveys):
+  by_id = {}
+  for survey in surveys or []:
+    sid = getattr(survey, 'id', None)
+    if sid:
+      by_id[sid] = survey
+  return by_id
+
+
+def _headline_arms(item):
+  """n / n_q1 / k_q1_a split by control vs expose from one cached counts item."""
+  n_c = n_e = k_c = k_e = 0
+  n_q1_c = n_q1_e = 0
+  n_total = k_total = n_q1_total = 0
+  has_rows = False
+  for seg in (item or {}).get('stats') or []:
+    has_rows = True
+    n = _coerce_int(seg.get('response_count'))
+    if 'n_q1' in seg and seg.get('n_q1') is not None:
+      n_q1 = _coerce_int(seg.get('n_q1'))
+    else:
+      n_q1 = n
+    k = _coerce_int(seg.get('k_q1_a'))
+    role = reporting.segment_role(seg.get('Segmentation'))
+    n_total += n
+    n_q1_total += n_q1
+    k_total += k
+    if role == 'control':
+      n_c += n
+      n_q1_c += n_q1
+      k_c += k
+    elif role == 'expose':
+      n_e += n
+      n_q1_e += n_q1
+      k_e += k
+  if not has_rows:
+    return None
+  return {
+      'n_control': n_c,
+      'n_expose': n_e,
+      'n_q1_control': n_q1_c,
+      'n_q1_expose': n_q1_e,
+      'k_control': k_c,
+      'k_expose': k_e,
+      'n': n_total,
+      'n_q1': n_q1_total,
+      'k': k_total,
+  }
+
+
+def _format_pp(margin):
+  if margin is None or not math.isfinite(margin):
+    return '—'
+  return '±%.1fpp' % (float(margin) * 100.0)
+
+
+def _lift_progress(arms, plan):
+  """min(n_c/target_c, n_e/target_e) as 0–100. No plan → MIN_N with a hint."""
+  n_c = arms['n_control']
+  n_e = arms['n_expose']
+  if n_c <= 0 and n_e <= 0:
+    return None, '', ''
+  plan_c, plan_e = sequential.planned_ns(plan if isinstance(plan, dict) else None)
+  if plan_c is None or plan_e is None:
+    plan_c = plan_e = reporting.MIN_N
+    hint = (
+        'No saved sample plan. Progress is vs the %s-per-arm report minimum — '
+        'percentages can jump until both arms reach %s. Save a plan on the '
+        'sample-size page to track a planned n.'
+        % (reporting.MIN_N, reporting.MIN_N))
+  else:
+    hint = _help_sentence('seq.progress')
+  pct = 100.0 * min(n_c / float(plan_c), n_e / float(plan_e))
+  pct = max(0.0, min(100.0, pct))
+  title = (
+      'Control %s / %s · Exposed %s / %s. %s'
+      % (n_c, plan_c, n_e, plan_e, hint)).strip()
+  return pct, '%s%%' % int(round(pct)), title
+
+
+def _track_progress(arms, target_moe):
+  n = arms['n_q1'] or arms['n']
+  k = arms['k']
+  if n <= 0:
+    return None, '', ''
+  margin = reporting.wilson_margin(k, n)
+  if not math.isfinite(margin) or margin <= 0:
+    pct = 100.0
+  else:
+    pct = min(100.0, 100.0 * float(target_moe) / margin)
+  title = (
+      'Wilson 95%% margin on Q1 answer A is %s (n=%s). Target %s. %s'
+      % (_format_pp(margin), n, _format_pp(target_moe),
+         _help_sentence('report.ci'))).strip()
+  return pct, '%s%%' % int(round(pct)), title
+
+
+def _lift_result(arms, plan):
+  n_c = arms['n_q1_control'] or arms['n_control']
+  n_e = arms['n_q1_expose'] or arms['n_expose']
+  k_c = arms['k_control']
+  k_e = arms['k_expose']
+  if n_c <= 0 and n_e <= 0:
+    return {
+        'result_key': 'no_data',
+        'result_text': 'No data',
+        'result_class': 'secondary',
+        'result_title': _help_sentence('report.no_data'),
+    }
+  seq = sequential.evaluate(k_c, n_c, k_e, n_e, plan=plan)
+  status = seq.get('status')
+  n_note = 'Control n=%s · Exposed n=%s (Q1 answer A). ' % (n_c, n_e)
+  if status == sequential.STATUS_NOT_ENOUGH:
+    return {
+        'result_key': 'below_min_n',
+        'result_text': 'Below min n',
+        'result_class': 'secondary',
+        'result_title': n_note + _help_sentence('report.min_n'),
+    }
+  if status == sequential.STATUS_POSITIVE:
+    return {
+        'result_key': 'significant_lift',
+        'result_text': 'Significant lift',
+        'result_class': 'success',
+        'result_title': n_note + _help_sentence('seq.status'),
+    }
+  if status in (sequential.STATUS_NEGATIVE, sequential.STATUS_FUTILITY):
+    return {
+        'result_key': 'flat_negative',
+        'result_text': 'Flat/negative',
+        'result_class': 'warning',
+        'result_title': (
+            n_note +
+            'Significant negative lift, or the saved plan finished without a '
+            'meaningful lift. ' + _help_sentence('seq.status')),
+    }
+  return {
+      'result_key': 'not_yet',
+      'result_text': 'Not yet',
+      'result_class': 'info',
+      'result_title': n_note + _help_sentence('seq.status'),
+  }
+
+
+def _track_result(arms, target_moe):
+  n = arms['n_q1'] or arms['n']
+  k = arms['k']
+  if n <= 0:
+    return {
+        'result_key': 'no_data',
+        'result_text': 'No data',
+        'result_class': 'secondary',
+        'result_badge': '',
+        'result_title': _help_sentence('report.no_data'),
+    }
+  margin = reporting.wilson_margin(k, n)
+  text = _format_pp(margin)
+  precise = math.isfinite(margin) and margin <= float(target_moe)
+  title = (
+      'Wilson 95%% margin on Q1 answer A is %s (n=%s, k=%s). Target %s. %s'
+      % (text, n, k, _format_pp(target_moe), _help_sentence('report.ci')))
+  if precise:
+    title += ' Precise: at or inside the target margin.'
+  return {
+      'result_key': 'precise' if precise else 'not_yet',
+      'result_text': text,
+      'result_class': 'success' if precise else 'secondary',
+      'result_badge': 'Precise' if precise else '',
+      'result_title': title.strip(),
+  }
+
+
+def compute_progress_result(item, survey=None):
+  """Progress / Result cells from cached counts + survey type / sample_plan."""
+  out = _empty_progress_result()
+  if not item or item.get('unavailable'):
+    return out
+  arms = _headline_arms(item)
+  if arms is None:
+    out.update({
+        'result_key': 'no_data',
+        'result_sort': RESULT_SORT_RANK['no_data'],
+        'result_text': 'No data',
+        'result_class': 'secondary',
+        'result_kind': 'empty',
+        'result_title': _help_sentence('report.no_data'),
+    })
+    return out
+  if survey is None:
+    return out
+  data = _survey_data(survey)
+  plan = data.get('sample_plan') if isinstance(data.get('sample_plan'), dict) else None
+  target = track_target_moe()
+  if is_brand_lift(data):
+    pct, text, title = _lift_progress(arms, plan)
+    result = _lift_result(arms, plan)
+    kind = 'lift'
+  else:
+    pct, text, title = _track_progress(arms, target)
+    result = _track_result(arms, target)
+    kind = 'track'
+  out['progress_pct'] = pct
+  out['progress_sort'] = None if pct is None else float(pct)
+  out['progress_text'] = text
+  out['progress_title'] = title
+  out['result_key'] = result.get('result_key') or ''
+  out['result_sort'] = RESULT_SORT_RANK.get(out['result_key'])
+  out['result_text'] = result.get('result_text') or ''
+  out['result_badge'] = result.get('result_badge') or ''
+  out['result_class'] = result.get('result_class') or 'secondary'
+  out['result_kind'] = kind
+  out['result_title'] = result.get('result_title') or ''
+  return out
+
+
+def attach_progress_result(stat_array, surveys=None):
+  """Fill progress/result on each stats item. Missing survey → — cells."""
+  by_id = _surveys_by_id(surveys)
+  for item in stat_array or []:
+    item.update(compute_progress_result(item, by_id.get(item.get('id'))))
+  return stat_array
+
+
+def stats_map_from_counts(surveys, counts_df):
+  """survey_id -> stats item including progress/result (one counts frame)."""
+  ids = [getattr(survey, 'id', '') for survey in surveys]
+  return {
+      item['id']: item
+      for item in build_stat_array(ids, counts_df=counts_df, surveys=surveys)
+  }
+
+
+def get_list_docs_by_ids(survey_ids):
+  """Firestore snapshots for homepage stats (type + sample_plan).
+
+  Skips constructing a new Firestore client when none exists (unit tests).
+  """
+  ids = [sid for sid in survey_ids or [] if sid]
+  if not ids or survey_collection._db is None:
+    return []
+  try:
+    refs = [survey_collection.get_by_id(sid) for sid in ids]
+    db = survey_collection.get_db()
+    getter = getattr(db, 'get_all', None)
+    if callable(getter):
+      snaps = list(getter(refs))
+    else:
+      snaps = [ref.get() for ref in refs]
+    by_id = {
+        snap.id: snap for snap in snaps if getattr(snap, 'exists', False)
+    }
+    return [by_id[sid] for sid in ids if sid in by_id]
+  except Exception:
+    _log.debug('stats.survey_lookup_failed', exc_info=True)
+    docs = []
+    for sid in ids:
+      try:
+        snap = survey_collection.get_by_id(sid).get()
+      except Exception:
+        continue
+      if snap is not None and getattr(snap, 'exists', False):
+        docs.append(snap)
+    return docs
+
+
+def build_stat_array(survey_ids, counts_df=None, surveys=None):
   """Per-survey count / last-received-days / status from the (cached) BQ summary."""
   if counts_df is None:
     counts_df = get_response_counts(survey_ids)
@@ -667,10 +1075,19 @@ def build_stat_array(survey_ids, counts_df=None):
       max_date = None
       if 'max_date' in segmentation_rows:
         max_date = segmentation_rows['max_date'][x]
+      n_q1 = None
+      if 'n_q1' in segmentation_rows:
+        n_q1 = _coerce_int(segmentation_rows['n_q1'][x], default=None)
+      k_q1_a = 0
+      if 'k_q1_a' in segmentation_rows:
+        k_q1_a = _coerce_int(segmentation_rows['k_q1_a'][x])
+      response_count = segmentation_rows['response_count'][x]
       segs.append({
           'Segmentation': segmentation_rows['Segmentation'][x],
-          'response_count': segmentation_rows['response_count'][x],
+          'response_count': response_count,
           'days_since_response': days,
+          'n_q1': n_q1 if n_q1 is not None else _coerce_int(response_count),
+          'k_q1_a': k_q1_a,
       })
       if days is not None and days < most_recent_change:
         most_recent_change = days
@@ -682,7 +1099,7 @@ def build_stat_array(survey_ids, counts_df=None):
       days_since = most_recent_change
       last_change_display = most_recent_change
     status_text, status_label = classify_status(days_since)
-    stat_array.append({
+    item = {
         'id': survey_id,
         'stats': segs,
         'unavailable': False,
@@ -690,7 +1107,10 @@ def build_stat_array(survey_ids, counts_df=None):
         'last_title': last_received_title(days_since, last_at),
         'status': status_text,
         'status_label': status_label,
-    })
+    }
+    item.update(_empty_progress_result())
+    stat_array.append(item)
+  attach_progress_result(stat_array, surveys)
   return stat_array
 
 
@@ -1162,6 +1582,16 @@ def _l2_available():
   return shared_stats_cache_enabled() and survey_collection._db is not None
 
 
+def _l2_rows_current(rows):
+  """Reject pre-headline StatsCache docs so Result/Progress refetch k_q1_a."""
+  if not rows:
+    return True
+  for rec in rows:
+    if not isinstance(rec, dict) or 'k_q1_a' not in rec or 'n_q1' not in rec:
+      return False
+  return True
+
+
 def _counts_frame_from_rows(rows):
   if not rows:
     return _empty_counts_frame()
@@ -1190,21 +1620,14 @@ def _counts_rows_from_frame(frame, survey_id):
     seg = rec.get('Segmentation')
     if seg is None or (isinstance(seg, float) and math.isnan(seg)):
       seg = ''
-    try:
-      days = int(rec.get('days_since_response') or 0)
-    except (TypeError, ValueError):
-      days = 0
-    try:
-      count = int(rec.get('response_count') or 0)
-    except (TypeError, ValueError):
-      count = 0
-    rows.append({
+    row = {
         'ID': str(rec.get('ID') or survey_id or ''),
         'Segmentation': str(seg),
         'max_date': max_text,
-        'days_since_response': days,
-        'response_count': count,
-    })
+    }
+    for col in _COUNTS_INT_COLUMNS:
+      row[col] = _coerce_int(rec.get(col))
+    rows.append(row)
   return rows
 
 
@@ -1218,6 +1641,8 @@ def _l2_get(survey_ids):
     return {}
   out = {}
   for sid, rows in (stored or {}).items():
+    if not _l2_rows_current(rows):
+      continue
     out[sid] = _counts_frame_from_rows(rows)
   return out
 
@@ -1302,7 +1727,9 @@ def _fetch_all_response_counts(survey_ids=None):
       Segmentation,
       EXTRACT(DATE FROM MAX(CreatedAt)) AS max_date,
       DATE_DIFF(CURRENT_DATE(), EXTRACT(DATE FROM MAX(CreatedAt)), DAY) AS days_since_response,
-      COUNT(*) AS response_count
+      COUNT(*) AS response_count,
+      COUNTIF(REGEXP_CONTAINS(IFNULL(Response, ''), r'(?:^|\\|)1:[^|]+')) AS n_q1,
+      COUNTIF(REGEXP_EXTRACT(IFNULL(Response, ''), r'(?:^|\\|)1:([^|]*)') = 'A') AS k_q1_a
     FROM best
     GROUP BY 1, 2
     ORDER BY 1, 2

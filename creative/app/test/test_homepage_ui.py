@@ -109,9 +109,16 @@ class HomepageBrowserTest(unittest.TestCase):
     self._list.start()
     self._doc.start()
     self._counts.start()
+    def _docs_for_ids(ids):
+      by_id = {item.id: item for item in survey_service.list_surveys.return_value}
+      return [by_id[sid] for sid in ids if sid in by_id]
+    self._list_docs = mock.patch.object(
+        survey_service, 'get_list_docs_by_ids', side_effect=_docs_for_ids)
+    self._list_docs.start()
     self.addCleanup(self._list.stop)
     self.addCleanup(self._doc.stop)
     self.addCleanup(self._counts.stop)
+    self.addCleanup(self._list_docs.stop)
 
   def tearDown(self):
     main.app.config['AUTH_BYPASS'] = False
@@ -351,6 +358,102 @@ class HomepageBrowserTest(unittest.TestCase):
           browser.close()
       finally:
         server.shutdown()
+
+  def test_progress_result_sort_on_seeded_lift_surveys(self):
+    sync_playwright = _playwright_or_skip()
+    plan = {'n_control': 100, 'n_expose': 100}
+    surveys = []
+    counts_ids = []
+    segs = []
+    ns = []
+    ks = []
+    for sid, n, created in (
+        ('prog-low', 20, '2026-11-22T12:00:00Z'),
+        ('prog-mid', 50, '2026-11-21T12:00:00Z'),
+        ('prog-high', 90, '2026-11-20T12:00:00Z'),
+    ):
+      surveys.append(_survey(sid, {
+          'surveyname': 'Progress %s' % sid,
+          'displayname': 'Progress %s' % sid,
+          'surveytype': 'brand_lift',
+          'client': 'Acme',
+          'agency': 'Example Media',
+          'created_at': created,
+          'created_by': 'editor@example.com',
+          'question1': 'Q',
+          'answer1a': 'A',
+          'creativesizes': ['300x250'],
+          'sample_plan': plan,
+      }))
+      counts_ids.extend([sid, sid])
+      segs.extend(['default_control', 'default_expose'])
+      ns.extend([n, n])
+      ks.extend([max(1, n // 4), max(1, n // 2)])
+    surveys.append(_survey('prog-empty', {
+        'surveyname': 'Progress empty',
+        'displayname': 'Progress empty',
+        'surveytype': 'brand_lift',
+        'client': 'Acme',
+        'agency': 'Example Media',
+        'created_at': '2026-11-23T12:00:00Z',
+        'created_by': 'editor@example.com',
+        'question1': 'Q',
+        'creativesizes': ['300x250'],
+    }))
+    survey_service.list_surveys.return_value = surveys
+    survey_service.get_response_counts.return_value = pandas.DataFrame({
+        'ID': counts_ids,
+        'Segmentation': segs,
+        'max_date': ['2026-11-22'] * len(counts_ids),
+        'days_since_response': [1] * len(counts_ids),
+        'response_count': ns,
+        'n_q1': ns,
+        'k_q1_a': ks,
+    })
+
+    server, port = _start_app(main.app)
+    base = 'http://127.0.0.1:%s' % port
+    try:
+      with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1400, 'height': 900})
+        page.goto(base + '/index?sort=progress&dir=asc', wait_until='networkidle')
+        page.wait_for_selector('#mainTable')
+        names = page.evaluate(
+            """() => Array.from(document.querySelectorAll('#mainTable tbody tr td.cell-name'))
+                 .map(el => el.textContent.trim())""")
+        self.assertEqual(
+            names,
+            ['Progress prog-low', 'Progress prog-mid', 'Progress prog-high',
+             'Progress empty'])
+        self.assertIn('20%', page.locator('#progress-prog-low').inner_text())
+        self.assertIn('50%', page.locator('#progress-prog-mid').inner_text())
+        self.assertIn('90%', page.locator('#progress-prog-high').inner_text())
+        self.assertIn('—', page.locator('#progress-prog-empty').inner_text())
+        page.locator('a.sort-link', has_text='Progress').click()
+        page.wait_for_function(
+            """() => {
+              const q = window.location.search;
+              return q.indexOf('sort=progress') !== -1 && q.indexOf('dir=desc') !== -1;
+            }""")
+        names_desc = page.evaluate(
+            """() => Array.from(document.querySelectorAll('#mainTable tbody tr td.cell-name'))
+                 .map(el => el.textContent.trim())""")
+        self.assertEqual(
+            names_desc,
+            ['Progress prog-high', 'Progress prog-mid', 'Progress prog-low',
+             'Progress empty'])
+        page.set_viewport_size({'width': 767, 'height': 900})
+        page.wait_for_timeout(200)
+        cards = page.locator('#survey-cards').inner_text()
+        self.assertIn('Progress:', cards)
+        self.assertTrue(
+            page.locator('#progress-card-prog-high').is_visible())
+        self.assertTrue(
+            page.locator('#result-card-prog-high').is_visible())
+        browser.close()
+    finally:
+      server.shutdown()
 
   def test_stats_cells_leave_loading_after_partial(self):
     sync_playwright = _playwright_or_skip()

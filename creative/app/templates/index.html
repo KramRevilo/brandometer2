@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from 'stats_macros.html' import count_content, last_content, status_content %}
+{% from 'stats_macros.html' import count_content, last_content, status_content, progress_content, result_content %}
 {% from 'survey_row_actions.html' import survey_actions with context %}
 {% block styles %}
 <style>
@@ -18,6 +18,8 @@
   #mainTable td.cell-created-by { max-width: 10rem; }
   #mainTable td.cell-questions { max-width: 12rem; }
   #mainTable td.cell-count { min-width: 6.5rem; }
+  #mainTable td.cell-progress { min-width: 3.25rem; }
+  #mainTable td.cell-result { min-width: 5.5rem; }
   .survey-card .survey-card-title { min-width: 0; }
   #previewModalFrame { border: 0; background: #fff; display: block; }
 </style>
@@ -96,6 +98,15 @@
                 {% endfor %}
             </select>
         </div>
+        <div class="col-6 col-lg-auto">
+            <label class="form-label" for="filter-result">Result</label>
+            <select class="form-select" id="filter-result" name="result" style="min-width: 9.5rem;">
+                <option value="">All results</option>
+                {% for value, label in result_choices %}
+                <option value="{{ value }}"{% if filters.result == value %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="col-auto d-flex gap-2">
             <button type="submit" class="btn btn-primary">Filter</button>
             {% if filters_active %}
@@ -169,6 +180,8 @@
                 </div>
                 <div class="small text-muted mt-1" id="count-card-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}{% else %}{{ count_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
                 <div class="small text-muted">Last received data (days): <span id="last-card-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ last_content(stats_by_id.get(survey.id)) }}{% endif %}</span></div>
+                <div class="small text-muted">Progress: <span id="progress-card-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ progress_content(stats_by_id.get(survey.id)) }}{% endif %}</span></div>
+                <div class="small mt-1" id="result-card-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ result_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
                 <div class="mt-2">
                     {{ survey_actions(survey, sizes, show_archived, 'actions-card-' + survey.id) }}
                 </div>
@@ -193,6 +206,8 @@
                     <th scope="col" class="table_header d-none d-lg-table-cell cell-count" title="Response count (segment:count)">Count</th>
                     <th scope="col" class="table_header d-none d-lg-table-cell cell-last" title="Days since last received response">Last Rcvd<br>Data (days)</th>
                     <th scope="col" class="table_header">Status</th>
+                    <th scope="col" class="table_header d-none d-xl-table-cell cell-progress" aria-sort="{{ 'descending' if sort_key == 'progress' and sort_dir == 'desc' else 'ascending' if sort_key == 'progress' else 'none' }}" title="Sample progress (saved plan or ±3pp target)">{{ sort_link('progress', 'Progress') }}</th>
+                    <th scope="col" class="table_header cell-result" aria-sort="{{ 'descending' if sort_key == 'result' and sort_dir == 'desc' else 'ascending' if sort_key == 'result' else 'none' }}">{{ sort_link('result', 'Result') }}</th>
             </tr>
         </thead>
         <tbody>
@@ -230,6 +245,12 @@
             </td>
             <td class="text-center text-nowrap">
                 <div id="status-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ status_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
+            </td>
+            <td class="text-center small text-nowrap d-none d-xl-table-cell cell-progress">
+                <div id="progress-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ progress_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
+            </td>
+            <td class="text-center small text-nowrap cell-result">
+                <div id="result-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ result_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
         </tr>
         {% endfor %}

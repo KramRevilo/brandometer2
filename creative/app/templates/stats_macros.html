@@ -2,6 +2,10 @@
   <span class="text-muted" title="{{ title }}" aria-label="unavailable">—</span>
 {% endmacro %}
 
+{% macro dash_mark(title, label) %}
+  <span class="text-muted" title="{{ title }}" aria-label="{{ label }}">—</span>
+{% endmacro %}
+
 {% macro count_content(item) %}
   {% if item and item.unavailable %}
   {{ unavailable_mark(item.last_title) }}
@@ -26,5 +30,29 @@
   {{ unavailable_mark(item.last_title) }}
   {% elif item %}
     <span class="badge text-bg-{{ item.status_label }} text-nowrap">{{ item.status }}</span>
+  {% endif %}
+{% endmacro %}
+
+{% macro progress_content(item) %}
+  {% if item and item.unavailable %}
+  {{ unavailable_mark(item.last_title) }}
+  {% elif item and item.progress_text %}
+  <span class="text-nowrap" title="{{ item.progress_title }}" aria-label="{{ item.progress_title }}">{{ item.progress_text }}</span>
+  {% else %}
+  {{ dash_mark(item.progress_title if item else '', 'no progress') }}
+  {% endif %}
+{% endmacro %}
+
+{% macro result_content(item) %}
+  {% if item and item.unavailable %}
+  {{ unavailable_mark(item.last_title) }}
+  {% elif item and item.result_text %}
+    {% if item.result_kind == 'track' %}
+    <span class="text-nowrap" title="{{ item.result_title }}" aria-label="{{ item.result_title }}">{{ item.result_text }}{% if item.result_badge %} <span class="badge text-bg-{{ item.result_class }}">{{ item.result_badge }}</span>{% endif %}</span>
+    {% else %}
+    <span class="badge text-bg-{{ item.result_class }} text-nowrap" title="{{ item.result_title }}">{{ item.result_text }}</span>
+    {% endif %}
+  {% else %}
+  {{ dash_mark(item.result_title if item else '', 'no result') }}
   {% endif %}
 {% endmacro %}

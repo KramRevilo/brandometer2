@@ -27,6 +27,8 @@ from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from mockfirestore import MockFirestore
 import pandas
+import reporting
+import sequential
 import survey_collection
 import survey_service
 
@@ -443,7 +445,7 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(
         list(df.columns),
         ['ID', 'Segmentation', 'max_date', 'days_since_response',
-         'response_count'])
+         'response_count', 'n_q1', 'k_q1_a'])
 
   def _missing_survey_doc(self):
     doc = mock.Mock()
@@ -776,6 +778,179 @@ class TestSurveyService(unittest.TestCase):
         [d.id for d in survey_service.apply_status_filter(docs, '', counts)],
         ['a', 's', 't', 'n'])
 
+  def test_parse_result_filter_and_track_target_moe(self):
+    self.assertEqual(survey_service.parse_result_filter(''), '')
+    self.assertEqual(
+        survey_service.parse_result_filter('Significant-Lift'),
+        'significant_lift')
+    self.assertEqual(survey_service.parse_result_filter('flat'), 'flat_negative')
+    self.assertEqual(
+        [item[0] for item in survey_service.homepage_result_choices()],
+        ['significant_lift', 'not_yet', 'flat_negative', 'below_min_n',
+         'no_data', 'precise'])
+    self.assertAlmostEqual(survey_service.track_target_moe(), 0.03)
+    with mock.patch.dict(os.environ, {'TRACK_TARGET_MOE': '2.5'}):
+      self.assertAlmostEqual(survey_service.track_target_moe(), 0.025)
+    with mock.patch.dict(os.environ, {'TRACK_TARGET_MOE': '0.04'}):
+      self.assertAlmostEqual(survey_service.track_target_moe(), 0.04)
+
+  def test_homepage_lift_progress_and_result_match_report_sequential(self):
+    t = datetime.datetime(2026, 11, 18)
+    rows = []
+    for i in range(40):
+      rows.append({
+          'CreatedAt': t, 'Segmentation': 'default_control',
+          'Response': '1:A' if i < 10 else '1:B', 'BomID': 'c%s' % i,
+      })
+    for i in range(40):
+      rows.append({
+          'CreatedAt': t, 'Segmentation': 'default_expose',
+          'Response': '1:A' if i < 30 else '1:B', 'BomID': 'e%s' % i,
+      })
+    df = pandas.DataFrame(rows)
+    survey = {
+        'question1': 'Aware?', 'answer1a': 'Yes', 'answer1b': 'No',
+        'surveytype': 'brand_lift',
+        'sample_plan': {
+            'baseline': 0.2, 'mde_mode': 'relative', 'mde_relative': 0.1,
+            'confidence': 0.95, 'power': 0.8, 'comparisons': 1,
+            'response_rate': 0.01, 'control_share': 0.5,
+            'n_control': 200, 'n_expose': 200,
+        },
+    }
+    report = reporting.build_report(df, survey, is_lift=True)
+    counts = pandas.DataFrame({
+        'ID': ['lift1', 'lift1'],
+        'Segmentation': ['default_control', 'default_expose'],
+        'max_date': ['2026-11-18', '2026-11-18'],
+        'days_since_response': [1, 1],
+        'response_count': [40, 40],
+        'n_q1': [40, 40],
+        'k_q1_a': [10, 30],
+    })
+    stats = survey_service.build_stat_array(
+        ['lift1'], counts_df=counts,
+        surveys=[self._survey_doc('lift1', survey)])
+    item = stats[0]
+    self.assertEqual(item['progress_text'], '20%')
+    self.assertEqual(item['progress_sort'], 20.0)
+    self.assertEqual(report['sequential']['status'], sequential.STATUS_POSITIVE)
+    self.assertEqual(item['result_key'], 'significant_lift')
+    self.assertEqual(item['result_text'], 'Significant lift')
+    q1a = report['questions'][0]['answers'][0]
+    self.assertEqual(q1a['k_control'], 10)
+    self.assertEqual(q1a['k_expose'], 30)
+
+  def test_homepage_lift_no_plan_uses_min_n_and_below_min_badge(self):
+    counts = pandas.DataFrame({
+        'ID': ['s', 's'],
+        'Segmentation': ['default_control', 'default_expose'],
+        'max_date': ['2026-11-18', '2026-11-18'],
+        'days_since_response': [1, 1],
+        'response_count': [15, 20],
+        'n_q1': [15, 20],
+        'k_q1_a': [4, 8],
+    })
+    survey = self._survey_doc('s', {'surveytype': 'brand_lift'})
+    item = survey_service.build_stat_array(
+        ['s'], counts_df=counts, surveys=[survey])[0]
+    self.assertEqual(item['progress_text'], '50%')
+    self.assertIn('30-per-arm', item['progress_title'])
+    self.assertEqual(item['result_key'], 'below_min_n')
+    self.assertEqual(item['result_text'], 'Below min n')
+
+  def test_homepage_track_progress_and_margin_match_report_wilson(self):
+    t = datetime.datetime(2026, 11, 18)
+    rows = [{'CreatedAt': t, 'Segmentation': 'survey',
+             'Response': '1:A' if i < 200 else '1:B', 'BomID': 'r%s' % i}
+            for i in range(400)]
+    df = pandas.DataFrame(rows)
+    survey = {
+        'question1': 'Aware?', 'answer1a': 'Yes', 'answer1b': 'No',
+        'surveytype': 'brand_track',
+    }
+    report = reporting.build_report(df, survey, is_lift=False)
+    q1a = report['questions'][0]['answers'][0]
+    margin = reporting.wilson_margin(200, 400)
+    self.assertAlmostEqual(
+        (q1a['ci'][1] - q1a['ci'][0]) / 2.0, margin, places=6)
+    counts = pandas.DataFrame({
+        'ID': ['track1'],
+        'Segmentation': ['survey'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [1],
+        'response_count': [400],
+        'n_q1': [400],
+        'k_q1_a': [200],
+    })
+    item = survey_service.build_stat_array(
+        ['track1'], counts_df=counts,
+        surveys=[self._survey_doc('track1', survey)])[0]
+    self.assertAlmostEqual(item['progress_sort'], min(100.0, 100.0 * 0.03 / margin), places=4)
+    self.assertIn('±', item['result_text'])
+    self.assertEqual(item['result_key'], 'not_yet')
+    self.assertEqual(item['result_badge'], '')
+    precise_counts = pandas.DataFrame({
+        'ID': ['track1'],
+        'Segmentation': ['survey'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [1],
+        'response_count': [2000],
+        'n_q1': [2000],
+        'k_q1_a': [1000],
+    })
+    precise = survey_service.build_stat_array(
+        ['track1'], counts_df=precise_counts,
+        surveys=[self._survey_doc('track1', survey)])[0]
+    self.assertEqual(precise['result_key'], 'precise')
+    self.assertEqual(precise['result_badge'], 'Precise')
+    self.assertEqual(precise['progress_text'], '100%')
+
+  def test_sort_progress_and_result_missing_last(self):
+    docs = [
+        self._survey_doc('low', {'surveyname': 'Low', 'created_at': '2026-01-01T00:00:00Z'}),
+        self._survey_doc('high', {'surveyname': 'High', 'created_at': '2026-01-02T00:00:00Z'}),
+        self._survey_doc('none', {'surveyname': 'None', 'created_at': '2026-01-03T00:00:00Z'}),
+    ]
+    stats = {
+        'low': {'progress_sort': 10.0, 'result_sort': 1},
+        'high': {'progress_sort': 90.0, 'result_sort': 5},
+    }
+    by_progress = survey_service.sort_surveys(
+        docs, 'progress', 'asc', stats_by_id=stats)
+    self.assertEqual([d.id for d in by_progress], ['low', 'high', 'none'])
+    by_result = survey_service.sort_surveys(
+        docs, 'result', 'desc', stats_by_id=stats)
+    self.assertEqual([d.id for d in by_result], ['high', 'low', 'none'])
+
+  def test_apply_result_filter_uses_one_counts_frame(self):
+    docs = [
+        self._survey_doc('lift', {
+            'surveyname': 'Lift', 'surveytype': 'brand_lift',
+            'sample_plan': {'n_control': 40, 'n_expose': 40, 'confidence': 0.95,
+                            'comparisons': 1, 'baseline': 0.2, 'mde_relative': 0.5,
+                            'mde_mode': 'relative', 'power': 0.8, 'response_rate': 0.01,
+                            'control_share': 0.5},
+        }),
+        self._survey_doc('empty', {
+            'surveyname': 'Empty', 'surveytype': 'brand_lift',
+        }),
+    ]
+    counts = pandas.DataFrame({
+        'ID': ['lift', 'lift'],
+        'Segmentation': ['default_control', 'default_expose'],
+        'max_date': ['2026-11-18', '2026-11-18'],
+        'days_since_response': [1, 1],
+        'response_count': [40, 40],
+        'n_q1': [40, 40],
+        'k_q1_a': [10, 30],
+    })
+    matched = survey_service.apply_result_filter(
+        docs, 'significant_lift', counts)
+    self.assertEqual([d.id for d in matched], ['lift'])
+    none = survey_service.apply_result_filter(docs, 'no_data', counts)
+    self.assertEqual([d.id for d in none], ['empty'])
+
   def test_is_brand_lift_requires_explicit_type(self):
     self.assertFalse(survey_service.is_brand_lift({}))
     self.assertFalse(survey_service.is_brand_lift({'surveytype': 'brand_track'}))
@@ -812,7 +987,7 @@ class TestSurveyService(unittest.TestCase):
       for name in (
           'surveyname', 'displayname', 'archived', 'surveytype', 'question1',
           'client', 'agency', 'created_at', 'created_by', 'creativesize',
-          'creativesizes'):
+          'creativesizes', 'sample_plan'):
         self.assertIn(name, fields)
       self.assertNotIn('campaign_id', fields)
       self.assertNotIn('placement_id', fields)
