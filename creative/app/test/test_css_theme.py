@@ -14,6 +14,7 @@
 
 import unittest
 
+import creative_size
 import css_theme
 from forms import DEFAULT_CSS
 
@@ -79,6 +80,17 @@ class CssThemeTest(unittest.TestCase):
     self.assertIn('--bv2-bg-image: none;', block)
     self.assertNotIn('javascript:', block)
 
+  def test_theme_and_layout_style_separate_answer_boxes(self):
+    block = css_theme.generate_theme_block(css_theme.DEFAULT_THEME)
+    self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', block)
+    self.assertIn('padding: 3px 15px', block)
+    self.assertIn('#ad_text {', block)
+    layout = creative_size.layout_fix_css()
+    self.assertIn('gap: 6px', layout)
+    self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', layout)
+    self.assertIn('#next_button {', layout)
+    self.assertIn('Arial, Helvetica, sans-serif', layout)
+
   def test_generated_theme_uses_bv2_variables_and_sentinels(self):
     block = css_theme.generate_theme_block(css_theme.DEFAULT_THEME)
     self.assertTrue(block.startswith(css_theme.THEME_START))
@@ -122,3 +134,5 @@ class CssThemeTest(unittest.TestCase):
     self.assertIn('/* BV2_THEME_START */', source)
     self.assertIn('--bv2-bg:', source)
     self.assertIn('var(--bv2-accent)', source)
+    self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', source)
+    self.assertIn('#next_button', source)

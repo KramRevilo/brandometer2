@@ -50,8 +50,20 @@ BATCH_WRITES = 400
 WCAG_AA_CONTRAST = 4.5
 
 # Layout leftover kept beside the generated BV2_THEME block (no hardcoded green).
+# Answer chrome (borders/gaps) also lives in the theme block and layout_fix overlay.
 _LAYOUT_CSS = """body { margin: 0; display: block; }
 .invisible { display: none; }
+.Abox {
+    border: 1px solid rgba(0, 0, 0, 0.35);
+    border-radius: 5px;
+    margin: 0;
+}
+#next_button {
+    padding: 3px 15px;
+    border-radius: 4px;
+    display: inline-block;
+}
+#ad_text { font-family: Arial, Helvetica, sans-serif; }
 """
 
 _RGBA_RE = re.compile(
