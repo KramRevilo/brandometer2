@@ -40,11 +40,11 @@ List with search plus **client / agency / created by / year / size / status / re
 
 ![Home page with sample surveys, status chips, and action buttons](docs/images/home.png)
 
-*Home (1400px, `xxl`): fluid list, two-line **Last Rcvd** header, Status chips, Result badges, Progress %, one-line rows, no horizontal scrollbar.*
+*Home (1400px, `xxl`): 20 seeded surveys, fluid list, Status + Result filters, two-line **Last Rcvd** header, Result badges, Progress %, one-line rows, no horizontal scrollbar.*
 
 ![Home page filtered to client Acme, size 300×250, and Active status](docs/images/home-filters.png)
 
-*Status filter (`status=active`) plus client **Acme** and size **300×250**. Options are Active, Stale, Timed out, and No data. Clear appears once a filter is set.*
+*Status filter set to **Active**, plus client **Acme** and size **300×250**. Matching Active Acme 300×250 rows from the 20-survey seed. Clear appears once a filter is set.*
 
 ![Home page sorted by Progress with Result badges](docs/images/home-progress.png)
 

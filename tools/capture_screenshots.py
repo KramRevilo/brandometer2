@@ -202,6 +202,200 @@ def seed(fs) -> None:
           created_at='2026-11-12T16:45:00Z',
           created_by='viewer@example.com',
       ),
+      _survey(
+          'lift-coffee',
+          surveyname='morning-blend-lift',
+          displayname='Morning blend awareness',
+          surveytype='brand_lift',
+          sizes=['300x250'],
+          preset='classic',
+          answers=['House blend', 'Store brand', 'Not sure'],
+          question1='Which coffee did you notice?',
+          client='Acme',
+          agency='Brightline',
+          created_at='2026-11-18T10:00:00Z',
+          created_by='editor@example.com',
+          sample_plan={
+              'n_control': 200, 'n_expose': 200, 'n_total': 400,
+              'baseline': 0.18, 'mde_relative': 0.10, 'confidence': 0.95,
+              'power': 0.80, 'comparisons': 1, 'response_rate': 0.01,
+              'control_share': 0.50, 'mde_mode': 'relative',
+              'mde_absolute': 0.05,
+          },
+      ),
+      _survey(
+          'track-maple',
+          surveyname='maple-consideration-track',
+          displayname='Maple syrup consideration',
+          sizes=['300x250'],
+          preset='ocean',
+          answers=['Yes', 'No'],
+          question1='Would you consider this syrup?',
+          client='Acme',
+          agency='Oak & Iron',
+          created_at='2026-11-17T14:00:00Z',
+          created_by='admin@example.com',
+      ),
+      _survey(
+          'lift-cereal',
+          surveyname='breakfast-cereal-lift',
+          displayname='Breakfast cereal lift',
+          surveytype='brand_lift',
+          sizes=['300x250'],
+          preset='classic',
+          answers=['Crunch Co', 'Other', 'Not sure'],
+          question1='Which cereal brand did you notice?',
+          client='Acme',
+          agency='Example Media',
+          created_at='2026-11-16T09:30:00Z',
+          created_by='editor@example.com',
+      ),
+      _survey(
+          'track-tools',
+          surveyname='workshop-tools-track',
+          displayname='Workshop tools awareness',
+          sizes=['300x250'],
+          preset='ocean',
+          answers=['Yes', 'No'],
+          question1='Have you heard of this tool brand?',
+          client='Acme',
+          agency='Brightline',
+          created_at='2026-11-18T08:00:00Z',
+          created_by='editor@example.com',
+      ),
+      _survey(
+          'lift-yogurt',
+          surveyname='cultured-yogurt-lift',
+          displayname='Cultured yogurt lift',
+          surveytype='brand_lift',
+          sizes=['336x280'],
+          preset='classic',
+          answers=['Dairy Co', 'Other', 'Not sure'],
+          question1='Which yogurt did you notice?',
+          client='Globex',
+          agency='North Star',
+          created_at='2026-11-13T11:00:00Z',
+          created_by='admin@example.com',
+      ),
+      _survey(
+          'track-auto',
+          surveyname='city-commute-track',
+          displayname='City commute consideration',
+          sizes=['300x250'],
+          preset='ocean',
+          answers=['Yes', 'No'],
+          question1='Would you consider this service?',
+          client='Initech',
+          agency='Fieldwork',
+          created_at='2026-11-10T16:00:00Z',
+          created_by='editor@example.com',
+      ),
+      _survey(
+          'track-bank',
+          surveyname='neighbourhood-bank-track',
+          displayname='Neighbourhood bank track',
+          sizes=['970x250'],
+          preset='classic',
+          answers=['Yes', 'No'],
+          question1='Would you consider this bank?',
+          client='Blue Harbor',
+          agency='Oak & Iron',
+          created_at='2026-11-11T12:00:00Z',
+          created_by='admin@example.com',
+      ),
+      _survey(
+          'track-travel',
+          surveyname='weekend-travel-track',
+          displayname='Weekend travel intent',
+          sizes=['300x600'],
+          preset='dark',
+          answers=['Yes', 'Maybe', 'No'],
+          question1='Planning a weekend trip?',
+          client='Contoso',
+          agency='Pixel Shop',
+          created_at='2026-11-09T09:00:00Z',
+          created_by='viewer@example.com',
+      ),
+      _survey(
+          'lift-soap',
+          surveyname='hand-soap-lift',
+          displayname='Hand soap lift (small n)',
+          surveytype='brand_lift',
+          sizes=['300x250'],
+          preset='classic',
+          answers=['Foam Co', 'Other'],
+          question1='Which soap brand did you notice?',
+          client='Umbrella Foods',
+          agency='Harbour Ads',
+          created_at='2026-11-08T15:00:00Z',
+          created_by='editor@example.com',
+      ),
+      _survey(
+          'track-pet',
+          surveyname='pet-treats-track',
+          displayname='Pet treats track (no data)',
+          sizes=['160x600'],
+          preset='hazard',
+          answers=['Yes', 'No'],
+          question1='Would you buy these treats?',
+          client='Maple Retail',
+          agency='North Star',
+          created_at='2026-11-07T10:00:00Z',
+          created_by='admin@example.com',
+      ),
+      _survey(
+          'track-retail',
+          surveyname='aisle-endcap-track',
+          displayname='Aisle endcap recall',
+          sizes=['336x280'],
+          preset='hot-pink',
+          answers=['Saw it', 'Did not'],
+          question1='Do you recall the endcap?',
+          client='Globex',
+          agency='Brightline',
+          created_at='2026-11-06T13:00:00Z',
+          created_by='editor@example.com',
+      ),
+      _survey(
+          'lift-phone',
+          surveyname='handset-launch-lift',
+          displayname='Handset launch lift',
+          surveytype='brand_lift',
+          sizes=['300x250'],
+          preset='classic',
+          answers=['Pixel brand', 'Other', 'Not sure'],
+          question1='Which handset brand did you notice?',
+          client='Initech',
+          agency='Example Media',
+          created_at='2026-11-05T11:30:00Z',
+          created_by='admin@example.com',
+      ),
+      _survey(
+          'track-stream',
+          surveyname='streaming-bundle-track',
+          displayname='Streaming bundle consideration',
+          sizes=['300x250'],
+          preset='ocean',
+          answers=['Yes', 'No'],
+          question1='Would you consider this bundle?',
+          client='Contoso',
+          agency='Harbour Ads',
+          created_at='2026-11-04T17:00:00Z',
+          created_by='viewer@example.com',
+      ),
+      _survey(
+          'track-air',
+          surveyname='regional-air-track',
+          displayname='Regional air consideration',
+          sizes=['970x250'],
+          preset='classic',
+          answers=['Yes', 'No'],
+          question1='Would you fly this airline?',
+          client='Blue Harbor',
+          agency='Fieldwork',
+          created_at='2026-11-03T08:45:00Z',
+          created_by='editor@example.com',
+      ),
   ]
   for doc_id, payload in surveys:
     fs.collection('Surveys').document(doc_id).set(payload)
@@ -254,6 +448,96 @@ def patch_bigquery() -> None:
           'ID': 'mrec-pink', 'Segmentation': 'survey',
           'max_date': now, 'days_since_response': 1, 'response_count': 30,
           'n_q1': 30, 'k_q1_a': 15,
+      },
+      {
+          'ID': 'lift-coffee', 'Segmentation': 'default_control',
+          'max_date': now, 'days_since_response': 1, 'response_count': 36,
+          'n_q1': 36, 'k_q1_a': 18,
+      },
+      {
+          'ID': 'lift-coffee', 'Segmentation': 'default_expose',
+          'max_date': now, 'days_since_response': 1, 'response_count': 38,
+          'n_q1': 38, 'k_q1_a': 22,
+      },
+      {
+          'ID': 'track-maple', 'Segmentation': 'survey',
+          'max_date': now, 'days_since_response': 2, 'response_count': 44,
+          'n_q1': 44, 'k_q1_a': 20,
+      },
+      {
+          'ID': 'lift-cereal', 'Segmentation': 'default_control',
+          'max_date': now, 'days_since_response': 1, 'response_count': 32,
+          'n_q1': 32, 'k_q1_a': 14,
+      },
+      {
+          'ID': 'lift-cereal', 'Segmentation': 'default_expose',
+          'max_date': now, 'days_since_response': 1, 'response_count': 33,
+          'n_q1': 33, 'k_q1_a': 19,
+      },
+      {
+          'ID': 'track-tools', 'Segmentation': 'survey',
+          'max_date': now, 'days_since_response': 0, 'response_count': 28,
+          'n_q1': 28, 'k_q1_a': 11,
+      },
+      {
+          'ID': 'lift-yogurt', 'Segmentation': 'default_control',
+          'max_date': now, 'days_since_response': 5, 'response_count': 41,
+          'n_q1': 41, 'k_q1_a': 20,
+      },
+      {
+          'ID': 'lift-yogurt', 'Segmentation': 'default_expose',
+          'max_date': now, 'days_since_response': 5, 'response_count': 40,
+          'n_q1': 40, 'k_q1_a': 21,
+      },
+      {
+          'ID': 'track-auto', 'Segmentation': 'survey',
+          'max_date': now, 'days_since_response': 14, 'response_count': 22,
+          'n_q1': 22, 'k_q1_a': 9,
+      },
+      {
+          'ID': 'track-bank', 'Segmentation': 'survey',
+          'max_date': now, 'days_since_response': 2, 'response_count': 420,
+          'n_q1': 420, 'k_q1_a': 42,
+      },
+      {
+          'ID': 'track-travel', 'Segmentation': 'survey',
+          'max_date': now, 'days_since_response': 1, 'response_count': 55,
+          'n_q1': 55, 'k_q1_a': 18,
+      },
+      {
+          'ID': 'lift-soap', 'Segmentation': 'default_control',
+          'max_date': now, 'days_since_response': 2, 'response_count': 12,
+          'n_q1': 12, 'k_q1_a': 5,
+      },
+      {
+          'ID': 'lift-soap', 'Segmentation': 'default_expose',
+          'max_date': now, 'days_since_response': 2, 'response_count': 11,
+          'n_q1': 11, 'k_q1_a': 6,
+      },
+      {
+          'ID': 'track-retail', 'Segmentation': 'survey',
+          'max_date': now, 'days_since_response': 6, 'response_count': 19,
+          'n_q1': 19, 'k_q1_a': 8,
+      },
+      {
+          'ID': 'lift-phone', 'Segmentation': 'default_control',
+          'max_date': now, 'days_since_response': 4, 'response_count': 40,
+          'n_q1': 40, 'k_q1_a': 18,
+      },
+      {
+          'ID': 'lift-phone', 'Segmentation': 'default_expose',
+          'max_date': now, 'days_since_response': 4, 'response_count': 41,
+          'n_q1': 41, 'k_q1_a': 20,
+      },
+      {
+          'ID': 'track-stream', 'Segmentation': 'survey',
+          'max_date': now, 'days_since_response': 1, 'response_count': 61,
+          'n_q1': 61, 'k_q1_a': 30,
+      },
+      {
+          'ID': 'track-air', 'Segmentation': 'survey',
+          'max_date': now, 'days_since_response': 20, 'response_count': 16,
+          'n_q1': 16, 'k_q1_a': 7,
       },
   ]
   counts = pandas.DataFrame(counts_rows)
@@ -399,6 +683,52 @@ def wait_stats_ready(page, element_id='status-lift-demo'):
       arg=element_id)
 
 
+def assert_home_chrome(page):
+  """Fail capture if the homepage is missing current list chrome.
+
+  Guards against shipping screenshots from an older layout (no Status
+  filter, no Result/Progress columns, fixed .container).
+  """
+  missing = page.evaluate(
+      """() => {
+        const need = [];
+        if (!document.querySelector('select#filter-status')) {
+          need.push('#filter-status');
+        }
+        if (!document.querySelector('select#filter-result')) {
+          need.push('#filter-result');
+        }
+        if (!document.querySelector('.container-fluid')) {
+          need.push('.container-fluid');
+        }
+        if (!document.querySelector('#survey-table-wrap')) {
+          need.push('#survey-table-wrap');
+        }
+        if (document.querySelector('.table-responsive #mainTable')) {
+          need.push('unexpected .table-responsive around #mainTable');
+        }
+        if (!document.querySelector('#mainTable th.cell-result')) {
+          need.push('Result header');
+        }
+        if (!document.querySelector('#mainTable th.cell-progress')) {
+          need.push('Progress header');
+        }
+        if (!document.querySelector('#mainTable th.cell-status')) {
+          need.push('Status header');
+        }
+        const labels = Array.from(
+            document.querySelectorAll('#filter-status option'))
+            .map(opt => opt.textContent.trim());
+        for (const label of ['Active', 'Stale', 'Timed out', 'No data']) {
+          if (labels.indexOf(label) === -1) need.push('status option ' + label);
+        }
+        return need;
+      }""")
+  if missing:
+    raise RuntimeError(
+        'Home chrome missing before capture: %s' % ', '.join(missing))
+
+
 def run_browser(app, out: Path) -> None:
   from playwright.sync_api import sync_playwright
 
@@ -418,6 +748,7 @@ def run_browser(app, out: Path) -> None:
 
     page.goto(base + '/index', wait_until='networkidle')
     wait_stats_ready(page)
+    assert_home_chrome(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home.png')
 
@@ -428,12 +759,14 @@ def run_browser(app, out: Path) -> None:
           return sel && sel.value === 'active';
         }""")
     wait_stats_ready(page)
+    assert_home_chrome(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home-filters.png')
 
     page.goto(base + '/index?sort=progress&dir=desc', wait_until='networkidle')
     page.wait_for_selector('#mainTable')
     wait_stats_ready(page)
+    assert_home_chrome(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home-progress.png')
 
@@ -441,6 +774,7 @@ def run_browser(app, out: Path) -> None:
     page.goto(base + '/index', wait_until='networkidle')
     page.wait_for_selector('#mainTable')
     wait_stats_ready(page)
+    assert_home_chrome(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home-narrow.png')
 
@@ -448,6 +782,7 @@ def run_browser(app, out: Path) -> None:
     page.goto(base + '/index', wait_until='networkidle')
     page.wait_for_selector('#mainTable')
     wait_stats_ready(page)
+    assert_home_chrome(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home-1024.png')
 
@@ -455,12 +790,14 @@ def run_browser(app, out: Path) -> None:
     page.goto(base + '/index', wait_until='networkidle')
     page.wait_for_selector('#survey-cards .survey-card')
     wait_stats_ready(page, 'status-card-lift-demo')
+    assert_home_chrome(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home-cards.png')
     page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
 
     page.goto(base + '/index', wait_until='networkidle')
     wait_stats_ready(page)
+    assert_home_chrome(page)
     page.wait_for_selector('#actions-lift-demo')
     page.click('#actions-lift-demo')
     page.wait_for_selector('#actions-lift-demo + .dropdown-menu.show, .dropdown-menu.show')
@@ -469,6 +806,7 @@ def run_browser(app, out: Path) -> None:
 
     page.goto(base + '/index', wait_until='networkidle')
     wait_stats_ready(page)
+    assert_home_chrome(page)
     page.wait_for_selector('#mainTable a.js-preview-open')
     page.locator('#mainTable a.js-preview-open').first.click()
     page.wait_for_selector('#previewModal.show')
@@ -607,6 +945,7 @@ def run_browser(app, out: Path) -> None:
     page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
     page.goto(base + '/index', wait_until='networkidle')
     wait_stats_ready(page)
+    assert_home_chrome(page)
     page.wait_for_timeout(200)
     page.click('#userMenu')
     page.wait_for_selector('.dropdown-menu.show')
