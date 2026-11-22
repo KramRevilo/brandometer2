@@ -138,6 +138,8 @@ _EMPTY_RESPONSES_COLUMNS = [
 ]
 CSV_CHUNK_ROWS = 500
 _EXCLUDE_TEST_SQL = "AND IFNULL(Type, 'survey') != 'test'"
+_STATS_L1_TEST_SUFFIX = '|t'
+_STATS_L2_TEST_SUFFIX = '__incltest'
 _RESPONSE_SELECT = """
         SELECT CreatedAt, Segmentation, Response, BomID,
                RespondentID, RespondentIDSource,
@@ -448,8 +450,20 @@ def homepage_status_choices():
 
 
 def parse_include_test(value):
-  """True when report/CSV should keep Type=test preview rows."""
+  """True when homepage/report/CSV should keep Type=test preview rows."""
   return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on')
+
+
+def stats_cache_key(survey_id, include_test=False):
+  """L1 dict key. Exclude (default) stays the bare survey id."""
+  sid = survey_id or ''
+  return sid + _STATS_L1_TEST_SUFFIX if include_test else sid
+
+
+def stats_l2_doc_id(survey_id, include_test=False):
+  """Firestore StatsCache document id. Exclude stays the bare survey id."""
+  sid = survey_id or ''
+  return sid + _STATS_L2_TEST_SUFFIX if include_test else sid
 
 
 def parse_result_filter(value):
@@ -1068,10 +1082,11 @@ def get_list_docs_by_ids(survey_ids):
     return docs
 
 
-def build_stat_array(survey_ids, counts_df=None, surveys=None):
+def build_stat_array(survey_ids, counts_df=None, surveys=None,
+                     include_test=False):
   """Per-survey count / last-received-days / status from the (cached) BQ summary."""
   if counts_df is None:
-    counts_df = get_response_counts(survey_ids)
+    counts_df = get_response_counts(survey_ids, include_test=include_test)
   stat_array = []
   for survey_id in survey_ids:
     df = counts_df.loc[counts_df['ID'] == survey_id]
@@ -1707,30 +1722,33 @@ def _counts_rows_from_frame(frame, survey_id):
   return rows
 
 
-def _l2_get(survey_ids):
+def _l2_get(survey_ids, include_test=False):
   if not _l2_available():
     return {}
+  keys = [stats_l2_doc_id(sid, include_test) for sid in survey_ids or [] if sid]
   try:
-    stored = survey_collection.read_stats_cache(survey_ids)
+    stored = survey_collection.read_stats_cache(keys)
   except Exception:
     _log.debug('stats.l2_get_failed', exc_info=True)
     return {}
   out = {}
-  for sid, rows in (stored or {}).items():
-    if not _l2_rows_current(rows):
+  for sid in survey_ids or []:
+    rows = (stored or {}).get(stats_l2_doc_id(sid, include_test))
+    if rows is None or not _l2_rows_current(rows):
       continue
     out[sid] = _counts_frame_from_rows(rows)
   return out
 
 
-def _l2_put(frames_by_id, ttl):
+def _l2_put(frames_by_id, ttl, include_test=False):
   if not _l2_available() or ttl <= 0:
     return
   expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
       seconds=int(ttl))
   payload = {}
   for sid, frame in (frames_by_id or {}).items():
-    payload[sid] = _counts_rows_from_frame(frame, sid)
+    payload[stats_l2_doc_id(sid, include_test)] = _counts_rows_from_frame(
+        frame, sid)
   try:
     survey_collection.write_stats_cache(payload, expires)
   except Exception:
@@ -1747,12 +1765,13 @@ def _empty_counts_frame():
   return _empty_frame(_EMPTY_COUNTS_COLUMNS)
 
 
-def _fetch_all_response_counts(survey_ids=None):
+def _fetch_all_response_counts(survey_ids=None, include_test=False):
   """Homepage counts: one respondent per COALESCE(RespondentID, BomID).
 
   Restricted to the given survey IDs (current homepage page, or every
   remaining id when the Status filter needs a full-list classify) and, when
   STATS_LOOKBACK_DAYS > 0, a CreatedAt partition window so BigQuery can prune.
+  Type=test preview rows are excluded unless include_test is true.
   """
   ids = [sid for sid in (survey_ids or []) if sid]
   if not ids:
@@ -1766,6 +1785,7 @@ def _fetch_all_response_counts(survey_ids=None):
     partition = (
         'AND CreatedAt >= DATETIME_SUB(CURRENT_DATETIME(), '
         'INTERVAL @lookback_days DAY)')
+  test_filter = '' if include_test else _EXCLUDE_TEST_SQL
   query = f"""
     WITH numbered AS (
       SELECT
@@ -1780,7 +1800,7 @@ def _fetch_all_response_counts(survey_ids=None):
       FROM `{table_id}`
       WHERE ID IN UNNEST(@survey_ids)
         {partition}
-        {_EXCLUDE_TEST_SQL}
+        {test_filter}
     ),
     keyed AS (
       SELECT
@@ -1827,7 +1847,7 @@ def _fetch_all_response_counts(survey_ids=None):
   return df
 
 
-def get_response_counts(survey_ids=None):
+def get_response_counts(survey_ids=None, include_test=False):
   """Homepage BQ summary for the given survey IDs.
 
   L1 is in-process per instance. L2 is Firestore collection StatsCache with a
@@ -1835,6 +1855,9 @@ def get_response_counts(survey_ids=None):
   both caches. STATS_SHARED_CACHE=0 keeps L1 only. Stale values up to the TTL
   are acceptable. L2 is skipped until a Firestore client already exists so
   unit tests without a mock db never open a real client.
+
+  include_test uses a separate L1/L2 key so excluded counts are never served
+  when Type=test rows should be visible (and vice versa).
   """
   ids = []
   for sid in survey_ids or []:
@@ -1842,26 +1865,29 @@ def get_response_counts(survey_ids=None):
       ids.append(sid)
   if not ids:
     return _empty_counts_frame()
+  include_test = bool(include_test)
   ttl = stats_cache_seconds()
   if ttl <= 0:
-    return _fetch_all_response_counts(ids)
+    return _fetch_all_response_counts(ids, include_test=include_test)
   now = time.monotonic()
   with _stats_lock:
     if now >= _stats_cache['expires_at']:
       _stats_cache['by_id'] = {}
     by_id = _stats_cache['by_id']
-    missing = [sid for sid in ids if sid not in by_id]
+    missing = [
+        sid for sid in ids if stats_cache_key(sid, include_test) not in by_id]
     if not missing:
-      _log.debug('stats.bq_ms=0.0 cache=l1 n_ids=%d', len(ids))
-      frames = [by_id[sid] for sid in ids]
+      _log.debug('stats.bq_ms=0.0 cache=l1 n_ids=%d include_test=%s',
+                 len(ids), include_test)
+      frames = [by_id[stats_cache_key(sid, include_test)] for sid in ids]
     else:
       frames = None
   if frames is None:
-    l2_hits = _l2_get(missing)
+    l2_hits = _l2_get(missing, include_test=include_test)
     still = [sid for sid in missing if sid not in l2_hits]
     fetched_by_id = {}
     if still:
-      fetched = _fetch_all_response_counts(still)
+      fetched = _fetch_all_response_counts(still, include_test=include_test)
       empty = _empty_counts_frame()
       for sid in still:
         if fetched is None or fetched.empty or 'ID' not in fetched.columns:
@@ -1869,17 +1895,20 @@ def get_response_counts(survey_ids=None):
         else:
           slice_df = fetched.loc[fetched['ID'] == sid]
           fetched_by_id[sid] = slice_df if not slice_df.empty else empty
-      _l2_put(fetched_by_id, ttl)
+      _l2_put(fetched_by_id, ttl, include_test=include_test)
     elif l2_hits:
-      _log.debug('stats.bq_ms=0.0 cache=l2 n_ids=%d', len(ids))
+      _log.debug('stats.bq_ms=0.0 cache=l2 n_ids=%d include_test=%s',
+                 len(ids), include_test)
     with _stats_lock:
       by_id = _stats_cache['by_id']
       for sid, frame in l2_hits.items():
-        by_id[sid] = frame
+        by_id[stats_cache_key(sid, include_test)] = frame
       for sid, frame in fetched_by_id.items():
-        by_id[sid] = frame
+        by_id[stats_cache_key(sid, include_test)] = frame
       _stats_cache['expires_at'] = time.monotonic() + ttl
-      frames = [by_id[sid] for sid in ids if sid in by_id]
+      frames = [
+          by_id[stats_cache_key(sid, include_test)]
+          for sid in ids if stats_cache_key(sid, include_test) in by_id]
   if not frames:
     return _empty_counts_frame()
   combined = _concat_frames(frames, ignore_index=True)
@@ -1888,9 +1917,9 @@ def get_response_counts(survey_ids=None):
   return combined
 
 
-def get_all_response_counts(survey_ids=None):
+def get_all_response_counts(survey_ids=None, include_test=False):
   """Back-compat wrapper. Pass survey IDs; an empty list does not scan BigQuery."""
-  return get_response_counts(survey_ids)
+  return get_response_counts(survey_ids, include_test=include_test)
 
 
 def _segmentation_csv_column(surveyid):

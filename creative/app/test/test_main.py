@@ -104,6 +104,8 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'Loading', response.data)
     self.assertNotIn(b'>No data</span>', response.data)
     self.assertIn(b'filter-status', response.data)
+    self.assertIn(b'filter-include-test', response.data)
+    self.assertIn(b'Include test responses', response.data)
     self.assertIn(b'value="no_data"', response.data)
     self.assertIn(b'View survey stats', response.data)
     self.assertIn(b'Sizes', response.data)
@@ -500,6 +502,75 @@ class MainRoutesTest(unittest.TestCase):
 
   @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_include_test_checkbox_and_stats_partial(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('s1', {
+            'surveyname': 'Track one',
+            'question1': 'Q1',
+        })
+    ]
+    counts_mock.return_value = pandas.DataFrame({
+        'ID': ['s1'],
+        'Segmentation': ['survey'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [0],
+        'response_count': [3],
+    })
+
+    home = self.client.get('/index')
+    html = home.data.decode('utf-8')
+    self.assertEqual(home.status_code, 200)
+    self.assertIn('id="filter-include-test"', html)
+    self.assertIn('Include test responses', html)
+    self.assertNotIn('checked', html.split('id="filter-include-test"', 1)[1][:80])
+    self.assertIn('/index/stats-partial?ids=s1"', html)
+    self.assertNotIn('include_test=1', html)
+    self.assertNotIn('incl. test', html)
+    counts_mock.assert_not_called()
+
+    included = self.client.get('/index?include_test=1')
+    included_html = included.data.decode('utf-8')
+    self.assertEqual(included.status_code, 200)
+    self.assertIn('checked', included_html.split('id="filter-include-test"', 1)[1][:80])
+    self.assertIn('include_test=1', included_html)
+    self.assertIn('/index/stats-partial?ids=s1&amp;include_test=1', included_html)
+
+    self.client.get('/index/stats-partial?ids=s1')
+    self.client.get('/index/stats-partial?ids=s1&include_test=1')
+    calls = counts_mock.call_args_list
+    self.assertEqual(calls[-2].kwargs.get('include_test'), False)
+    self.assertEqual(calls[-1].kwargs.get('include_test'), True)
+
+    badge = self.client.get('/index/stats-partial?ids=s1&include_test=1')
+    self.assertIn(b'incl. test', badge.data)
+    none = self.client.get('/index/stats-partial?ids=s1')
+    self.assertNotIn(b'incl. test', none.data)
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_include_test_persists_on_pagination(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('s%s' % i, {
+            'surveyname': 'Survey %s' % i,
+            'question1': 'Q',
+            'created_at': '2026-11-%02dT00:00:00Z' % (20 - i),
+        })
+        for i in range(3)
+    ]
+    counts_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
+    with mock.patch.object(survey_service, 'HOMEPAGE_PAGE_SIZE', 2):
+      page1 = self.client.get('/index?include_test=1&q=Survey')
+      page2 = self.client.get('/index?include_test=1&q=Survey&page=2')
+    self.assertIn(b'include_test=1', page1.data)
+    self.assertIn(b'include_test=1', page2.data)
+    self.assertIn(b'page=2', page1.data)
+    self.assertIn('checked', page1.data.decode('utf-8').split(
+        'id="filter-include-test"', 1)[1][:80])
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
   def test_index_filters_by_size_and_shows_chips_and_split_view(
       self, list_mock, counts_mock):
     list_mock.return_value = [
@@ -793,7 +864,8 @@ class MainRoutesTest(unittest.TestCase):
         self._survey('s1', {'surveyname': 'Timed', 'question1': 'Q'})
     ]
 
-    def slow_fetch(survey_ids=None):
+    def slow_fetch(survey_ids=None, include_test=False):
+      del include_test
       time.sleep(0.35)
       return pandas.DataFrame(columns=_COUNTS_COLUMNS)
 
@@ -819,14 +891,15 @@ class MainRoutesTest(unittest.TestCase):
     stats_ms = (time.perf_counter() - started) * 1000
     self.assertEqual(stats.status_code, 200)
     self.assertGreaterEqual(stats_ms, 300)
-    fetch_mock.assert_called_once_with(['s1'])
+    fetch_mock.assert_called_once_with(['s1'], include_test=False)
 
   @mock.patch.object(survey_service, '_fetch_all_response_counts')
   def test_stats_partial_queries_only_requested_ids(self, fetch_mock):
     fetch_mock.return_value = pandas.DataFrame(columns=_COUNTS_COLUMNS)
     with mock.patch.dict(os.environ, {'STATS_CACHE_SECONDS': '0'}):
       self.client.get('/index/stats-partial?ids=page-a,page-b')
-    fetch_mock.assert_called_once_with(['page-a', 'page-b'])
+    fetch_mock.assert_called_once_with(
+        ['page-a', 'page-b'], include_test=False)
 
   def test_create_page_uses_iframe_preview_and_bootstrap5(self):
     response = self.client.get('/survey/create')
@@ -1062,7 +1135,9 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'deduped_responses', response.data)
     self.assertIn(b'survey_id', response.data)
     self.assertNotIn(b'ds.ds0.', response.data)
-    self.assertIn(b'Include test data', response.data)
+    self.assertIn(b'Include test responses', response.data)
+    self.assertIn(b'id="report-include-test"', response.data)
+    self.assertNotIn(b'Include test data', response.data)
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   @mock.patch.object(survey_service, 'get_doc_by_id')
@@ -1160,6 +1235,10 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'?type=test', response.data)
     self.assertNotIn(b'?type=survey', response.data)
     self.assertIn(b'"is_test_pixel": true', response.data)
+    csp = response.headers.get('Content-Security-Policy', '')
+    self.assertRegex(csp, r'img-src [^;]*https://recv\.example')
+    self.assertRegex(csp, r'connect-src [^;]*https://recv\.example')
+    self.assertRegex(csp, r'frame-src [^;]*https://recv\.example')
     self.assertIn(b'Test submissions on', response.data)
     self.assertIn(b'"seg": "preview"', response.data)
     embed = self.client.get('/survey/preview/abc?embed=1&submit_test=1')

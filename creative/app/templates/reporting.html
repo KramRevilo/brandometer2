@@ -9,6 +9,9 @@
       <p class="text-muted mb-0">
         {% if is_lift %}Brand Lift stats{% else %}Brand Track stats{% endif %}
         · {{ report.n_total }} respondent{% if report.n_total != 1 %}s{% endif %}
+        {% if include_test %}
+          <span class="badge rounded-pill text-bg-secondary" title="Includes Type=test preview responses">incl. test</span>
+        {% endif %}
         {% if report.n_raw and report.n_raw != report.n_total %}
           ({{ report.n_raw }} raw BigQuery rows before consolidating per-question submits)
         {% endif %}
@@ -52,15 +55,21 @@
     <code>control</code> / <code>expos</code> in the string still classify the arm.
     Holdout and other cells are excluded from lift.
     Preview <code>Type=test</code> rows are excluded by default.
-    {% if include_test %}
-    <a href="{{ url_for('reporting', survey_id=survey_id) }}">Exclude test data</a>
-    · <a href="{{ url_for('download_responses', survey_id=survey_id, include_test=1) }}">CSV (with test)</a>
-    {% else %}
-    <a href="{{ url_for('reporting', survey_id=survey_id, include_test=1) }}">Include test data</a>
-    · <a href="{{ url_for('download_responses', survey_id=survey_id) }}">CSV</a>
-    {% endif %}
     Data Studio uses the authorized views in dataset <code>brandometer_reporting</code> (not the raw <code>responses</code> table). Granting access is documented in DEVELOPERS.md.
   </p>
+  <form method="get" class="d-flex flex-wrap align-items-center gap-3 mb-3" id="include-test-form">
+    <div class="form-check mb-0">
+      <input class="form-check-input" type="checkbox" id="report-include-test"
+             name="include_test" value="1"{% if include_test %} checked{% endif %}
+             onchange="this.form.submit()">
+      <label class="form-check-label" for="report-include-test">Include test responses</label>
+    </div>
+    {% if include_test %}
+    <a href="{{ url_for('download_responses', survey_id=survey_id, include_test=1) }}">CSV (with test)</a>
+    {% else %}
+    <a href="{{ url_for('download_responses', survey_id=survey_id) }}">CSV</a>
+    {% endif %}
+  </form>
   {% if is_lift %}
   <p class="small text-muted mb-1">
     Methods: Wilson score 95% CI on each arm (not Wald). Lift is (exposed − control) / control.
@@ -116,8 +125,10 @@
 
   {% if report.empty_reason == 'no_data' %}
   <div class="alert alert-secondary" role="alert">
-    No responses yet. Preview does not post to BigQuery — send test rows to the receiver
-    (see DEVELOPERS.md) or wait for live creatives.
+    No responses yet. The homepage modal and default preview do not post.
+    Editors can <strong>Submit test response</strong> on the standalone preview
+    (<code>Type=test</code>). Turn on <strong>Include test responses</strong> to
+    see those rows, or wait for live creatives.
     {{ meaning('report.no_data', 'help-no-data') }}
   </div>
   {% else %}

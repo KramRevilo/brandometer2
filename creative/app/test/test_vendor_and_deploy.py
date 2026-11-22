@@ -586,6 +586,7 @@ class ReadmeImagesTest(unittest.TestCase):
     self.assertIn('assert_home_chrome(page)', capture_src)
     self.assertIn('select#filter-status', capture_src)
     self.assertIn('select#filter-result', capture_src)
+    self.assertIn('#filter-include-test', capture_src)
     self.assertIn('.container-fluid', capture_src)
     self.assertIn('th.cell-result', capture_src)
     self.assertIn('th.cell-progress', capture_src)

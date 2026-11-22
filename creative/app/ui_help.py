@@ -218,9 +218,10 @@ ENTRIES = {
     'report.no_data': {
         'title': 'No responses yet',
         'body': (
-            'Preview in the app does not write to BigQuery. Live zips post to '
-            'the receiver after someone answers. Use a trafficked creative or '
-            'a curl to the receiver (see DEVELOPERS.md) to populate this page.'
+            'The homepage modal and default preview do not write to BigQuery. '
+            'Editors can Submit test response on the standalone preview '
+            '(Type=test). Turn on Include test responses to see those rows, or '
+            'wait for live creatives.'
         ),
     },
     'plan.baseline': {

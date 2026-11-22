@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from 'stats_macros.html' import count_content, last_content, status_content, progress_content, result_content %}
+{% from 'stats_macros.html' import count_content, last_content, status_content, progress_content, result_content with context %}
 {% from 'survey_row_actions.html' import survey_actions with context %}
 {% block styles %}
 <style>
@@ -149,6 +149,14 @@
                 {% endfor %}
             </select>
         </div>
+        <div class="col-auto">
+            <div class="form-check mb-1">
+                <input class="form-check-input" type="checkbox" id="filter-include-test"
+                       name="include_test" value="1"{% if include_test %} checked{% endif %}
+                       onchange="this.form.submit()">
+                <label class="form-check-label" for="filter-include-test">Include test responses</label>
+            </div>
+        </div>
         <div class="col-auto d-flex gap-2">
             <button type="submit" class="btn btn-primary">Filter</button>
             {% if filters_active %}
@@ -186,7 +194,7 @@
     {% endif %}
     {% if stats_ids %}
     <div id="stats-poller"
-         hx-get="{{ url_for('index_stats_partial', ids=stats_ids) }}"
+         hx-get="{% if include_test %}{{ url_for('index_stats_partial', ids=stats_ids, include_test=1) }}{% else %}{{ url_for('index_stats_partial', ids=stats_ids) }}{% endif %}"
          hx-trigger="load, every {{ stats_poll_seconds }}s [!document.hidden]"
          hx-swap="none"
          hx-timeout="{{ stats_timeout_ms }}"></div>

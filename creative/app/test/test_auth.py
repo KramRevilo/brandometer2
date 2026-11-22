@@ -415,6 +415,21 @@ class ContentSecurityPolicyTest(unittest.TestCase):
     self.assertIn('https://www.googletagmanager.com', policy)
     self.assertIn('https://www.google-analytics.com', policy)
 
+  def test_receiver_origin_is_added_to_pixel_directives(self):
+    env = {'RECEIVER_URL': 'https://recv.example/pixel'}
+    self.assertEqual(
+        app_security.receiver_origin(env), 'https://recv.example')
+    policy = app_security.content_security_policy(env)
+    self.assertIn('img-src', policy)
+    self.assertRegex(policy, r'img-src [^;]*https://recv\.example')
+    self.assertRegex(policy, r'connect-src [^;]*https://recv\.example')
+    self.assertRegex(policy, r'frame-src [^;]*https://recv\.example')
+    empty = app_security.content_security_policy({})
+    self.assertNotIn('recv.example', empty)
+    self.assertEqual(app_security.receiver_origin({}), '')
+    self.assertEqual(
+        app_security.receiver_origin({'RECEIVER_URL': 'not-a-url'}), '')
+
   def test_login_sends_enforced_csp(self):
     main.app.config['AUTH_BYPASS'] = False
     main.app.config['GOOGLE_OAUTH_CLIENT_ID'] = ''

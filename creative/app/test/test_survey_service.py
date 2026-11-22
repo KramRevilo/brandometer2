@@ -389,6 +389,19 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(survey_ids.values, ['sid-1', 'sid-2'])
 
   @mock.patch.object(survey_service, '_get_bq_client')
+  def test_homepage_counts_sql_can_include_test(self, bq_client_mock):
+    client = mock.Mock()
+    client.query.side_effect = NotFound('Table not found')
+    bq_client_mock.return_value = client
+
+    survey_service._fetch_all_response_counts(
+        ['sid-1'], include_test=True)
+
+    sql = client.query.call_args[0][0]
+    self.assertNotIn("IFNULL(Type, 'survey') != 'test'", sql)
+    self.assertIn('ID IN UNNEST(@survey_ids)', sql)
+
+  @mock.patch.object(survey_service, '_get_bq_client')
   def test_homepage_counts_sql_can_disable_partition_filter(
       self, bq_client_mock):
     client = mock.Mock()
@@ -1188,8 +1201,53 @@ class TestSurveyService(unittest.TestCase):
         survey_service.get_response_counts(['s1'])
         self.assertEqual(fetch.call_count, 2)
 
+  def test_response_counts_cache_isolates_include_test(self):
+    live = pandas.DataFrame({
+        'ID': ['s1'],
+        'Segmentation': ['seg'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [1],
+        'response_count': [2],
+    })
+    with_test = pandas.DataFrame({
+        'ID': ['s1'],
+        'Segmentation': ['seg'],
+        'max_date': ['2026-11-18'],
+        'days_since_response': [0],
+        'response_count': [9],
+    })
+
+    def fake_fetch(ids, include_test=False):
+      del ids
+      return with_test if include_test else live
+
+    with mock.patch.dict(os.environ, {'STATS_CACHE_SECONDS': '90'}):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          side_effect=fake_fetch) as fetch:
+        excluded = survey_service.get_response_counts(['s1'])
+        included = survey_service.get_response_counts(
+            ['s1'], include_test=True)
+        excluded_again = survey_service.get_response_counts(['s1'])
+        included_again = survey_service.get_response_counts(
+            ['s1'], include_test=True)
+    self.assertEqual(fetch.call_count, 2)
+    self.assertEqual(int(excluded['response_count'].iloc[0]), 2)
+    self.assertEqual(int(included['response_count'].iloc[0]), 9)
+    self.assertEqual(int(excluded_again['response_count'].iloc[0]), 2)
+    self.assertEqual(int(included_again['response_count'].iloc[0]), 9)
+    self.assertEqual(
+        survey_service.stats_cache_key('s1', False), 's1')
+    self.assertEqual(
+        survey_service.stats_cache_key('s1', True), 's1|t')
+    self.assertEqual(
+        survey_service.stats_l2_doc_id('s1', False), 's1')
+    self.assertEqual(
+        survey_service.stats_l2_doc_id('s1', True), 's1__incltest')
+
   def test_response_counts_fetches_only_missing_ids(self):
-    def fake_fetch(ids):
+    def fake_fetch(ids, include_test=False):
+      del include_test
       return pandas.DataFrame({
           'ID': list(ids),
           'Segmentation': ['seg'] * len(ids),
@@ -1598,3 +1656,29 @@ class SharedStatsCacheTest(unittest.TestCase):
           out = survey_service.get_response_counts(['s1'])
           self.assertEqual(fetch.call_count, 1)
           self.assertEqual(int(out['response_count'].iloc[0]), 3)
+
+  def test_l2_keys_include_test_separately(self):
+    live = self._frame(count=2)
+    with_test = self._frame(count=9)
+    with mock.patch.dict(os.environ, {
+        'STATS_CACHE_SECONDS': '90',
+        'STATS_SHARED_CACHE': '1',
+    }):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          side_effect=lambda ids, include_test=False: (
+              with_test if include_test else live)) as fetch:
+        survey_service.get_response_counts(['s1'])
+        survey_service.get_response_counts(['s1'], include_test=True)
+        self.assertEqual(fetch.call_count, 2)
+        survey_service.clear_stats_cache()
+        excluded = survey_service.get_response_counts(['s1'])
+        included = survey_service.get_response_counts(
+            ['s1'], include_test=True)
+        self.assertEqual(fetch.call_count, 2)
+    self.assertEqual(int(excluded['response_count'].iloc[0]), 2)
+    self.assertEqual(int(included['response_count'].iloc[0]), 9)
+    self.assertTrue(
+        self.fs.collection('StatsCache').document('s1').get().exists)
+    self.assertTrue(
+        self.fs.collection('StatsCache').document('s1__incltest').get().exists)

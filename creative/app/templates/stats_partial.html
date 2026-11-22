@@ -1,4 +1,4 @@
-{% from 'stats_macros.html' import count_content, last_content, status_content, progress_content, result_content %}
+{% from 'stats_macros.html' import count_content, last_content, status_content, progress_content, result_content with context %}
 {% for item in stat_array %}
 <div id="count-{{ item.id }}" hx-swap-oob="true">{{ count_content(item) }}</div>
 <div id="last-{{ item.id }}" hx-swap-oob="true">{{ last_content(item) }}</div>

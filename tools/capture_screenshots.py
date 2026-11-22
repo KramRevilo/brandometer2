@@ -548,7 +548,8 @@ def patch_bigquery() -> None:
   ]
   counts = pandas.DataFrame(counts_rows)
 
-  def fake_counts(survey_ids=None):
+  def fake_counts(survey_ids=None, include_test=False):
+    del include_test
     if not survey_ids:
       return counts
     return counts[counts['ID'].isin(list(survey_ids))].copy()
@@ -711,6 +712,9 @@ def assert_home_chrome(page):
         }
         if (!document.querySelector('select#filter-result')) {
           need.push('#filter-result');
+        }
+        if (!document.querySelector('#filter-include-test')) {
+          need.push('#filter-include-test');
         }
         if (!document.querySelector('.container-fluid')) {
           need.push('.container-fluid');

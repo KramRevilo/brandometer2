@@ -603,3 +603,97 @@ class HomepageBrowserTest(unittest.TestCase):
         browser.close()
     finally:
       server.shutdown()
+
+  def test_submit_test_response_hits_receiver_and_homepage_count(self):
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+    from urllib.parse import parse_qs, urlparse
+
+    sync_playwright = _playwright_or_skip()
+    hits = []
+
+    class Handler(BaseHTTPRequestHandler):
+      def do_GET(self):
+        hits.append(self.path)
+        self.send_response(204)
+        self.end_headers()
+
+      def do_POST(self):
+        hits.append(self.path)
+        self.send_response(204)
+        self.end_headers()
+
+      def log_message(self, *_args):
+        pass
+
+    recv = HTTPServer(('127.0.0.1', 0), Handler)
+    threading.Thread(target=recv.serve_forever, daemon=True).start()
+    recv_url = 'http://127.0.0.1:%s/pixel' % recv.server_address[1]
+    empty = pandas.DataFrame(
+        columns=['ID', 'Segmentation', 'max_date', 'days_since_response',
+                 'response_count'])
+    filled = pandas.DataFrame({
+        'ID': ['track-two'],
+        'Segmentation': ['survey'],
+        'max_date': ['2026-11-22'],
+        'days_since_response': [0],
+        'response_count': [3],
+    })
+
+    def counts(survey_ids=None, include_test=False):
+      del survey_ids
+      return filled if include_test else empty
+
+    survey_service.get_response_counts.side_effect = counts
+    main.app.config['RECEIVER_HMAC_SECRET'] = 'unit-hmac-secret'
+    server, port = _start_app(main.app)
+    base = 'http://127.0.0.1:%s' % port
+    try:
+      with mock.patch.dict(os.environ, {'RECEIVER_URL': recv_url}):
+        with sync_playwright() as playwright:
+          browser = playwright.chromium.launch(headless=True)
+          page = browser.new_page(viewport={'width': 1400, 'height': 900})
+          page.goto(
+              base + '/survey/preview/track-two', wait_until='networkidle')
+          page.locator('a', has_text='Submit test response').click()
+          page.wait_for_selector('text=Test submissions on')
+          page.wait_for_selector('#option_container_0')
+          page.locator('#option_container_0').click()
+          page.wait_for_selector('#thankyou_container.thankyoucontainer')
+          for _ in range(25):
+            if hits:
+              break
+            time.sleep(0.1)
+          self.assertTrue(hits, 'receiver mock got no pixel request')
+          query = parse_qs(urlparse(hits[0]).query)
+          if not query:
+            query = parse_qs(hits[0].split('?', 1)[-1])
+          self.assertEqual(query.get('type', [''])[0], 'test')
+          self.assertEqual(query.get('id', [''])[0], 'track-two')
+          self.assertEqual(query.get('seg', [''])[0], 'preview')
+          self.assertTrue(query.get('token', [''])[0])
+          rid = query.get('rid', [''])[0] or query.get('bomid', [''])[0]
+          self.assertTrue(rid.startswith('test_'), rid)
+
+          page.goto(base + '/index', wait_until='networkidle')
+          page.wait_for_selector('#filter-include-test')
+          page.wait_for_timeout(400)
+          count = page.locator('#count-track-two').inner_text()
+          self.assertNotIn('incl. test', count)
+          self.assertNotIn('3', count.strip())
+          self.assertFalse(page.locator('#filter-include-test').is_checked())
+          page.locator('#filter-include-test').check()
+          page.wait_for_function(
+              """() => location.search.indexOf('include_test=1') !== -1""")
+          page.wait_for_function(
+              """() => {
+                const el = document.getElementById('count-track-two');
+                return el && el.textContent.indexOf('3') !== -1
+                    && el.textContent.indexOf('incl. test') !== -1;
+              }""")
+          poller = page.locator('#stats-poller').get_attribute('hx-get') or ''
+          self.assertIn('include_test=1', poller)
+          browser.close()
+    finally:
+      server.shutdown()
+      recv.shutdown()
+      main.app.config['RECEIVER_HMAC_SECRET'] = ''

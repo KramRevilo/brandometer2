@@ -101,6 +101,23 @@ class ReceiverTest(unittest.TestCase):
     })
     self.assertEqual(error, 'invalid creative_size')
 
+  def test_validate_params_accepts_preview_test_pixel(self):
+    fields, error = receiver.validate_params({
+        'id': 'new_survey',
+        'type': 'test',
+        'seg': 'preview',
+        'response': '1:A',
+        'creative_size': '300x250',
+        'bomid': 'test_abc123',
+        'rid': 'test_abc123',
+        'token': _token('new_survey'),
+    })
+    self.assertIsNone(error)
+    self.assertEqual(fields['Type'], 'test')
+    self.assertEqual(fields['Segmentation'], 'preview')
+    self.assertEqual(fields['BomID'], 'test_abc123')
+    self.assertEqual(fields['RespondentID'], 'test_abc123')
+
   def test_validate_params_accepts_uuid_bomid(self):
     fields, error = receiver.validate_params({
         'id': 'survey_1',

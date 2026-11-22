@@ -14,6 +14,7 @@
 """Secret Manager, session cookies, and App Engine runtime guards."""
 import logging
 import os
+from urllib.parse import urlparse
 
 DEFAULT_SECRET_KEY = 'dev-only-not-for-production'
 SECRET_SECRET_KEY = 'brandometer-secret-key'
@@ -106,6 +107,15 @@ def csp_report_only(environ=None):
       '1', 'true', 'yes', 'on')
 
 
+def receiver_origin(environ=None):
+  """Scheme + host of RECEIVER_URL so preview pixels are not CSP-blocked."""
+  env = environ if environ is not None else os.environ
+  parsed = urlparse((env.get('RECEIVER_URL') or '').strip())
+  if parsed.scheme not in ('https', 'http') or not parsed.netloc:
+    return ''
+  return '%s://%s' % (parsed.scheme, parsed.netloc)
+
+
 def content_security_policy(environ=None):
   """Enforced CSP for the Flask app (self-hosted assets + Google avatars/OIDC).
 
@@ -113,6 +123,9 @@ def content_security_policy(environ=None):
   and the creative HTML are inline, and editor preview uses iframe srcdoc of
   that creative. Zip downloads are attachments and are not governed by this
   header once they leave the app. Set GTAG_ID to also allow Tag Manager.
+  Standalone preview Submit test response posts to RECEIVER_URL (iframe GET,
+  img pixel, sendBeacon), so that origin is added to img-src / connect-src /
+  frame-src when configured.
   """
   env = environ if environ is not None else os.environ
   script = ["'self'", "'unsafe-inline'", "'unsafe-eval'"]
@@ -127,6 +140,14 @@ def content_security_policy(environ=None):
   ]
   frame = ["'self'", 'blob:']
   form = ["'self'", 'https://accounts.google.com']
+  origin = receiver_origin(env)
+  if origin:
+    if origin not in img:
+      img.append(origin)
+    if origin not in connect:
+      connect.append(origin)
+    if origin not in frame:
+      frame.append(origin)
   if (env.get('GTAG_ID') or '').strip():
     script.append('https://www.googletagmanager.com')
     script.append('https://www.google-analytics.com')

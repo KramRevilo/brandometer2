@@ -97,6 +97,8 @@ def _filter_args():
       'created_by': (request.args.get('created_by') or '').strip(),
       'status': survey_service.parse_status_filter(request.args.get('status')),
       'result': survey_service.parse_result_filter(request.args.get('result')),
+      'include_test': survey_service.parse_include_test(
+          request.args.get('include_test')),
   }
 
 
@@ -118,6 +120,8 @@ def _index_query(
     value = (filters.get(key) or '').strip()
     if value:
       args[key] = value
+  if filters.get('include_test'):
+    args['include_test'] = 1
   sort, direction = survey_service.parse_sort(sort, direction)
   if (sort != survey_service.DEFAULT_SORT_KEY
       or direction != survey_service.DEFAULT_SORT_DIR):
@@ -181,7 +185,8 @@ def index():
     list_stats_started = time.perf_counter()
     try:
       list_ids = [survey.id for survey in surveys]
-      counts_df = survey_service.get_response_counts(list_ids)
+      counts_df = survey_service.get_response_counts(
+          list_ids, include_test=filters['include_test'])
       if filters['status']:
         surveys = survey_service.apply_status_filter(
             surveys, filters['status'], counts_df)
@@ -255,6 +260,7 @@ def index():
       status_choices=survey_service.homepage_status_choices(),
       result_choices=survey_service.homepage_result_choices(),
       filters_active=any(filters.values()),
+      include_test=filters['include_test'],
       unfiltered_count=unfiltered_count,
       status_filter_notice=status_filter_notice,
       compare_filtered_ids=compare_mod.parse_ids(
@@ -276,18 +282,22 @@ def index_stats_partial():
   """
   started = time.perf_counter()
   survey_ids = [sid for sid in request.args.get('ids', '').split(',') if sid]
+  include_test = survey_service.parse_include_test(
+      request.args.get('include_test'))
   try:
     surveys = survey_service.get_list_docs_by_ids(survey_ids)
-    stat_array = survey_service.build_stat_array(survey_ids, surveys=surveys)
+    stat_array = survey_service.build_stat_array(
+        survey_ids, surveys=surveys, include_test=include_test)
   except Exception as exc:
     _index_log.exception(
         'index.stats_partial_error n_ids=%d type=%s error=%r',
         len(survey_ids), type(exc).__name__, exc)
     stat_array = survey_service.unavailable_stat_array(survey_ids)
   _index_log.debug(
-      'index.stats_partial_ms=%.1f n_ids=%d',
-      (time.perf_counter() - started) * 1000, len(survey_ids))
-  return render_template('stats_partial.html', stat_array=stat_array)
+      'index.stats_partial_ms=%.1f n_ids=%d include_test=%s',
+      (time.perf_counter() - started) * 1000, len(survey_ids), include_test)
+  return render_template(
+      'stats_partial.html', stat_array=stat_array, include_test=include_test)
 
 
 def _editor_context(form):
