@@ -214,7 +214,14 @@ class SeedDemoDataTest(unittest.TestCase):
     self.assertIn('STARTS_WITH(ID, "demo_")', sql)
     self.assertIn('STARTS_WITH(RandomTimeStamp, "demo_seed:")', sql)
     self.assertIn('INTERVAL 800 DAY', sql)
+    self.assertNotIn('RandomTimeStamp = "', sql)
     self.assertNotIn('DELETE FROM `brandometer2.responses.responses`\nWHERE TRUE', sql)
+    scoped = self.mod.bq_purge_sql(
+        'brandometer2.responses.responses', batch='i18n')
+    self.assertIn('RandomTimeStamp = "demo_seed:i18n"', scoped)
+    self.assertIn('STARTS_WITH(ID, "demo_")', scoped)
+    with self.assertRaises(ValueError):
+      self.mod.bq_purge_sql('p.t.t', batch='i18n"; DROP TABLE x; --')
 
   def test_is_demo_bq_row(self):
     self.assertTrue(self.mod.is_demo_bq_row({
@@ -317,6 +324,7 @@ class SeedDemoDataTest(unittest.TestCase):
     client.query.assert_called()
     sql = client.query.call_args[0][0]
     self.assertIn('STARTS_WITH(ID, "demo_")', sql)
+    self.assertIn('RandomTimeStamp = "demo_seed:demo-1"', sql)
     self.assertTrue(client.load_table_from_file.called)
     client.insert_rows_json.assert_not_called()
     load.result.assert_called()
@@ -324,6 +332,15 @@ class SeedDemoDataTest(unittest.TestCase):
   def test_cli_rejects_small_count(self):
     code = self.mod.main(['--project', 'brandometer2', '--count', '10'])
     self.assertEqual(code, 2)
+
+  def test_cli_purge_requires_batch_or_all(self):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+      code = self.mod.main(['--project', 'brandometer2', '--purge'])
+    self.assertEqual(code, 2)
+    both = self.mod.main(
+        ['--project', 'brandometer2', '--purge', '--batch', 'i18n', '--all'])
+    self.assertEqual(both, 2)
 
   def test_cli_dry_run_prints_summary(self):
     buf = io.StringIO()
@@ -403,6 +420,76 @@ class SeedDemoDataTest(unittest.TestCase):
       report = client.get('/survey/reporting/%s' % spec.id)
       self.assertEqual(report.status_code, 200)
       self.assertIn(spec.doc['question1'].encode(), report.data)
+
+  def test_i18n_scenario_covers_rtl_ltr_sizes_and_long_thankyou(self):
+    world = self.mod.generate_i18n_world(now=NOW, seed=1)
+    self.assertEqual(world.batch, 'i18n')
+    self.assertEqual(world.count, 6)
+    codes = [s.doc['language'] for s in world.surveys]
+    self.assertEqual(codes, ['en', 'ja', 'zh', 'ar', 'he', 'de'])
+    self.assertEqual(
+        {s.id for s in world.surveys},
+        {'demo_i18n_en', 'demo_i18n_ja', 'demo_i18n_zh',
+         'demo_i18n_ar', 'demo_i18n_he', 'demo_i18n_de'})
+    for spec in world.surveys:
+      self.assertIs(spec.doc['demo_seed'], True)
+      self.assertEqual(spec.doc['demo_batch'], 'i18n')
+      self.assertEqual(spec.doc['creativesizes'], ['300x250', '160x600'])
+      self.assertTrue(spec.doc['thankyou_text'])
+      self.assertGreaterEqual(len(spec.doc['thankyou_text']), 20)
+      self.assertEqual(spec.doc['surveytype'], 'brand_track')
+      lang, direction = survey_service.html_lang_dir(spec.doc)
+      self.assertEqual(lang, spec.doc['language'])
+      if spec.doc['language'] in ('ar', 'he'):
+        self.assertEqual(direction, 'rtl')
+      else:
+        self.assertEqual(direction, 'ltr')
+      self.assertEqual(
+          survey_service.get_thank_you_text(spec.doc),
+          spec.doc['thankyou_text'])
+    en = next(s for s in world.surveys if s.doc['language'] == 'en')
+    self.assertIn('appreciate', en.doc['thankyou_text'].lower())
+    rows = list(self.mod.iter_response_rows(world, en))
+    self.assertTrue(rows)
+    self.assertTrue(all(
+        row['RandomTimeStamp'] == 'demo_seed:i18n' for row in rows))
+    self.assertTrue(all(self.mod.is_demo_bq_row(row) for row in rows))
+
+  def test_homepage_and_i18n_batches_coexist(self):
+    fs = MockFirestore()
+    fs.collection('Surveys').document('keep-me').set({'surveyname': 'production'})
+    tiny = self.mod.generate_world(self.mod.DEFAULT_COUNT, 1, now=NOW)
+    tiny.surveys = tiny.surveys[:4]
+    tiny.count = 4
+    tiny.n_rows = sum(s.n_rows for s in tiny.surveys)
+    i18n = self.mod.generate_i18n_world(now=NOW, seed=1)
+    self.mod.apply_firestore(fs, tiny)
+    self.mod.apply_firestore(fs, i18n)
+    ids = [doc.id for doc in fs.collection('Surveys').stream()]
+    self.assertIn('keep-me', ids)
+    self.assertIn(tiny.surveys[0].id, ids)
+    self.assertIn('demo_i18n_ar', ids)
+    planned = self.mod.purge_firestore(fs, dry_run=True, batch='i18n')
+    self.assertEqual(planned['surveys'], 6)
+    deleted = self.mod.purge_firestore(fs, dry_run=False, batch='i18n')
+    self.assertEqual(deleted['surveys'], 6)
+    self.assertTrue(
+        fs.collection('Surveys').document(tiny.surveys[0].id).get().exists)
+    self.assertFalse(
+        fs.collection('Surveys').document('demo_i18n_en').get().exists)
+    self.assertTrue(fs.collection('Surveys').document('keep-me').get().exists)
+
+  def test_cli_i18n_dry_run_and_ignores_homepage_min_count(self):
+    buf = io.StringIO()
+    with redirect_stdout(buf):
+      code = self.mod.main(
+          ['--project', 'brandometer2', '--scenario', 'i18n', '--count', '10'])
+    text = buf.getvalue()
+    self.assertEqual(code, 0)
+    self.assertIn('Dry run', text)
+    self.assertIn('batch i18n', text)
+    self.assertIn('demo_i18n_ar', text)
+    self.assertIn('Harbor Grocer', text)
 
 
 def _playwright_or_skip():

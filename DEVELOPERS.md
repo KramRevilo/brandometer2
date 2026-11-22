@@ -269,17 +269,27 @@ Needs ADC that can read `AuditLog` and read/write `Surveys`. AuditLog was added 
 ```shell
 # Cloud Shell, project brandometer2, from the repo root
 gcloud config set project brandometer2
-python3 tools/seed_demo_data.py --project brandometer2
-python3 tools/seed_demo_data.py --project brandometer2 --apply
-python3 tools/seed_demo_data.py --project brandometer2 --purge
-python3 tools/seed_demo_data.py --project brandometer2 --purge --apply
+
+# Homepage batch (220 surveys, demo_batch=demo-1)
+python3 tools/seed_demo_data.py --project brandometer2 --scenario homepage
+python3 tools/seed_demo_data.py --project brandometer2 --scenario homepage --apply
+
+# i18n batch (en/ja/zh/ar/he/de, demo_batch=i18n) — coexists with homepage
+python3 tools/seed_demo_data.py --project brandometer2 --scenario i18n
+python3 tools/seed_demo_data.py --project brandometer2 --scenario i18n --apply
+
+# Purge one batch, or every demo batch
+python3 tools/seed_demo_data.py --project brandometer2 --purge --batch demo-1
+python3 tools/seed_demo_data.py --project brandometer2 --purge --batch i18n --apply
+python3 tools/seed_demo_data.py --project brandometer2 --purge --all
+python3 tools/seed_demo_data.py --project brandometer2 --purge --all --apply
 ```
 
-`--count` default 220 (minimum 200 so the list has 4+ pages at `HOMEPAGE_PAGE_SIZE=50`). `--seed` default 1 (also deterministic for themes). `--apply` overwrites the tagged batch (deterministic survey ids `demo_<seed>_<nnnn>`, including `custom_css` BV2 themes) then load-jobs NDJSON into BigQuery after deleting previous demo rows. `--purge` without `--apply` prints the DELETE SQL and counts tagged Firestore docs; `--purge --apply` deletes them. Theme-only refreshes need no App Engine deploy — Mark re-runs `--apply`.
+`--scenario homepage` (default) `--count` 220 (minimum 200 so the list has 4+ pages at `HOMEPAGE_PAGE_SIZE=50`). `--seed` default 1 (also deterministic for themes). `--scenario i18n` is six Brand Track surveys (`demo_i18n_<lang>`): English / Japanese / Chinese / Arabic / Hebrew / German, RTL for ar/he, long `thankyou_text`, sizes 300×250 and 160×600. `--apply` overwrites **that scenario's** batch then load-jobs NDJSON into BigQuery after deleting previous rows **for that batch only**. `--purge` requires `--batch <id>` or `--all`; without `--apply` it prints the DELETE SQL and counts tagged Firestore docs. Theme-only refreshes need no App Engine deploy — Mark re-runs `--apply` for the batch to refresh.
 
 **What it creates.** Five fictional agencies (Northline Media, Cedar & Pine Collective, Riverbend Insights, Halcyon Street, Oak & Anchor) with `.example` creator emails and fictional grocery / auto / games / computer / restaurant / apparel clients. Mix of Brand Lift and Brand Track, single and multi size, some `sample_plan` maps, some archived. Each client has a brand palette (`css_theme` `BV2_THEME` block: `--bv2-bg`, question/answer colours, accent, panel, font, optional pattern / STYLE_PRESET) with campaign variation; every combo is checked for WCAG AA contrast (question on panel-over-background, answer text on button and on the next-button accent). The list page does not render `custom_css`; Preview / zip do. Demo surveys set `badge_name` to that survey's fictional agency and rotate **B** / **B2** / **Name** icons. Response volumes and last-received dates are consistent with homepage **Active** / **Stale** / **Timed out** / **No data** (`STATUS_ACTIVE_DAYS=3`, `STATUS_STALE_DAYS=7`). Control/exposed is roughly 50/50. Respondent ids match app dedupe (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`).
 
-**Tags (purge is exact).** Firestore Surveys: `demo_seed: true`, `demo_batch: demo-<seed>`, document id `demo_*`. AuditLog: `demo_seed: true` and id `demo_audit_<survey_id>` (or `survey_id` starting `demo_`). `DemoSeed/current` bookmark. StatsCache docs whose ids are those surveys. BigQuery: `ID` starts with `demo_` **and** `RandomTimeStamp` starts with `demo_seed:` (plus a 800-day `CreatedAt` window so partitioned tables can prune). Non-demo surveys and rows are never touched.
+**Tags (purge is exact).** Firestore Surveys: `demo_seed: true`, `demo_batch` (`demo-<seed>` or `i18n`), document id `demo_*`. AuditLog: `demo_seed: true` and id `demo_audit_<survey_id>` (or `survey_id` starting `demo_`). `DemoSeed/current` plus `DemoSeed/<batch>` bookmarks. StatsCache docs whose ids are those surveys. BigQuery: `ID` starts with `demo_` **and** `RandomTimeStamp` starts with `demo_seed:` (plus a 800-day `CreatedAt` window so partitioned tables can prune). `--purge --batch i18n` adds `RandomTimeStamp = "demo_seed:i18n"`. `--purge --all` keeps the prefix match and deletes every demo batch. Non-demo surveys and rows are never touched. Custom `thankyou_text` on a survey (i18n seeder) overrides the language-map Thank You string in `get_thank_you_text`.
 
 **IAM (Mark's Cloud Shell user, project `brandometer2`).** Application Default Credentials in Shell usually suffice after `gcloud config set project brandometer2`. Grant:
 

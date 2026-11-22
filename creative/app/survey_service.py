@@ -2045,6 +2045,9 @@ def html_lang_dir_vars(survey):
 
 def get_thank_you_text(survey):
   """Multi-language support input for thank you text."""
+  custom = str((survey or {}).get('thankyou_text') or '').strip()
+  if custom:
+    return custom[:240]
 
   language_codes = {
     'ms': 'Terima Kasih',

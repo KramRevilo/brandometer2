@@ -1,21 +1,31 @@
 #!/usr/bin/env python3
 """Load fictional agency-world demo surveys into Firestore + BigQuery.
 
-Dry-run by default. Writes only with --apply. --purge removes tagged demo
-rows only. Mark runs this in Cloud Shell against project brandometer2.
+Dry-run by default. Writes only with --apply. --purge is batch-scoped unless
+you pass --all. Mark runs this in Cloud Shell against project brandometer2.
 
-  python3 tools/seed_demo_data.py --project brandometer2
-  python3 tools/seed_demo_data.py --project brandometer2 --apply
-  python3 tools/seed_demo_data.py --project brandometer2 --purge
-  python3 tools/seed_demo_data.py --project brandometer2 --purge --apply
+  # Homepage batch (220 surveys, demo_batch=demo-1)
+  python3 tools/seed_demo_data.py --project brandometer2 --scenario homepage
+  python3 tools/seed_demo_data.py --project brandometer2 --scenario homepage --apply
 
-Every Firestore survey has demo_seed=true and a deterministic id demo_<seed>_<n>.
-Every BigQuery row has ID starting with demo_ and RandomTimeStamp demo_seed:<batch>.
-Each fictional client has a brand palette (BV2_THEME --bv2-* block: background,
-text, buttons, accent, font, optional pattern) with campaign variation; every
-combo meets WCAG AA. Re-running --apply overwrites the same ids (themes included)
-and replaces demo BQ rows (load job, not streaming insert, so purge DELETE is
-not blocked by the streaming buffer).
+  # i18n batch (en/ja/zh/ar/he/de, demo_batch=i18n) — coexists with homepage
+  python3 tools/seed_demo_data.py --project brandometer2 --scenario i18n
+  python3 tools/seed_demo_data.py --project brandometer2 --scenario i18n --apply
+
+  # Purge one batch, or every demo batch
+  python3 tools/seed_demo_data.py --project brandometer2 --purge --batch demo-1
+  python3 tools/seed_demo_data.py --project brandometer2 --purge --batch i18n --apply
+  python3 tools/seed_demo_data.py --project brandometer2 --purge --all
+  python3 tools/seed_demo_data.py --project brandometer2 --purge --all --apply
+
+Every Firestore survey has demo_seed=true and a deterministic id (homepage:
+demo_<seed>_<n>; i18n: demo_i18n_<lang>). Every BigQuery row has ID starting
+with demo_ and RandomTimeStamp demo_seed:<batch>. Each fictional client has a
+brand palette (BV2_THEME --bv2-* block: background, text, buttons, accent,
+font, optional pattern) with campaign variation; every combo meets WCAG AA.
+Re-running --apply for a scenario overwrites that batch only (themes included)
+and replaces that batch's BQ rows (load job, not streaming insert, so purge
+DELETE is not blocked by the streaming buffer).
 """
 from __future__ import annotations
 
@@ -44,10 +54,12 @@ MIN_COUNT = 200
 DEFAULT_SEED = 1
 ID_PREFIX = 'demo_'
 STAMP_PREFIX = 'demo_seed:'
+I18N_BATCH = 'i18n'
 STATUS_ACTIVE_DAYS = 3
 STATUS_STALE_DAYS = 7
 BATCH_WRITES = 400
 WCAG_AA_CONTRAST = 4.5
+BATCH_NAME_RE = re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$')
 
 # Layout leftover kept beside the generated BV2_THEME block (no hardcoded green).
 # Answer chrome (borders/gaps) also lives in the theme block and layout_fix overlay.
@@ -599,6 +611,13 @@ def batch_id(seed: int) -> str:
   return 'demo-%s' % seed
 
 
+def validate_batch(name: str) -> str:
+  text = str(name or '').strip()
+  if not BATCH_NAME_RE.match(text):
+    raise ValueError('invalid demo batch %r' % name)
+  return text
+
+
 def is_demo_survey_id(sid: str) -> bool:
   return bool(sid) and str(sid).startswith(ID_PREFIX)
 
@@ -613,15 +632,22 @@ def is_demo_bq_row(row: dict) -> bool:
       and (not rid or rid.startswith(ID_PREFIX)))
 
 
-def bq_purge_sql(table_id: str) -> str:
-  """DELETE only tagged demo rows. CreatedAt filter satisfies partition tables."""
-  return (
+def bq_purge_sql(table_id: str, batch: str | None = None) -> str:
+  """DELETE tagged demo rows. CreatedAt filter satisfies partition tables.
+
+  batch=None deletes every demo_seed: stamp. A batch value (already
+  validate_batch'd) limits RandomTimeStamp to demo_seed:<batch>.
+  """
+  sql = (
       'DELETE FROM `%s`\n'
       'WHERE CreatedAt >= DATETIME_SUB(CURRENT_DATETIME(), INTERVAL 800 DAY)\n'
       '  AND STARTS_WITH(ID, "%s")\n'
       '  AND STARTS_WITH(RandomTimeStamp, "%s")'
       % (table_id, ID_PREFIX, STAMP_PREFIX)
   )
+  if batch:
+    sql += '\n  AND RandomTimeStamp = "%s%s"' % (STAMP_PREFIX, validate_batch(batch))
+  return sql
 
 
 @dataclass
@@ -949,6 +975,142 @@ def generate_world(count: int, seed: int, now: datetime.datetime | None = None) 
       n_rows=n_rows, n_archived=n_archived, n_lift=n_lift)
 
 
+# Small translated set (RTL + LTR, long thank-you, both common sizes).
+I18N_SURVEYS = (
+    {
+        'code': 'en',
+        'question': 'Which grocery brand did you notice?',
+        'answers': ('Harbor Grocer', 'River Market', 'Not sure'),
+        'thankyou': (
+            'Thank you so much for taking this survey. We really appreciate '
+            'your time and feedback today.'),
+        'display': 'Harbor Grocer (English)',
+    },
+    {
+        'code': 'ja',
+        'question': '最近どの食料品ブランドに気づきましたか？',
+        'answers': ('ハーバーグロッサー', 'リバーマーケット', 'わからない'),
+        'thankyou': 'このアンケートにご協力いただき、誠にありがとうございました。',
+        'display': 'Harbor Grocer (日本語)',
+    },
+    {
+        'code': 'zh',
+        'question': '您最近注意到哪个杂货品牌？',
+        'answers': ('海港杂货', '河市', '不确定'),
+        'thankyou': '谢谢您抽出时间完成这份问卷，我们非常感谢您的反馈。',
+        'display': 'Harbor Grocer (中文)',
+    },
+    {
+        'code': 'ar',
+        'question': 'أي علامة تجارية للبقالة لاحظتها مؤخراً؟',
+        'answers': ('هاربر للبقالة', 'سوق النهر', 'غير متأكد'),
+        'thankyou': (
+            'شكراً جزيلاً على الوقت الذي أمضيته في هذا الاستطلاع. '
+            'نقدر ملاحظاتك كثيراً.'),
+        'display': 'Harbor Grocer (العربية)',
+    },
+    {
+        'code': 'he',
+        'question': 'באיזה מותג מכולת שמתם לב לאחרונה?',
+        'answers': ('הארבור גרוסר', 'שוק הנהר', 'לא בטוח'),
+        'thankyou': (
+            'תודה רבה על שהקדשתם זמן לסקר הזה. '
+            'אנחנו מעריכים את המשוב שלכם.'),
+        'display': 'Harbor Grocer (עברית)',
+    },
+    {
+        'code': 'de',
+        'question': 'Welche Lebensmittelmarke ist Ihnen kürzlich aufgefallen?',
+        'answers': ('Harbor Grocer', 'River Market', 'Nicht sicher'),
+        'thankyou': (
+            'Vielen Dank, dass Sie sich die Zeit für diese Umfrage genommen '
+            'haben. Ihr Feedback ist uns wichtig.'),
+        'display': 'Harbor Grocer (Deutsch)',
+    },
+)
+
+
+def i18n_survey_id(code: str) -> str:
+  return '%si18n_%s' % (ID_PREFIX, code)
+
+
+def generate_i18n_world(now: datetime.datetime | None = None,
+                        seed: int = DEFAULT_SEED) -> World:
+  """Six translated Brand Track surveys tagged demo_batch=i18n."""
+  if now is None:
+    now = datetime.datetime.now(datetime.timezone.utc)
+  if now.tzinfo is None:
+    now = now.replace(tzinfo=datetime.timezone.utc)
+  rng = random.Random(seed * 17 + 9)
+  client = next(c for c in _flat_clients() if c['client'] == 'Harbor Grocer')
+  created = now - datetime.timedelta(days=12, hours=3)
+  last_at = now - datetime.timedelta(hours=rng.randint(2, 10))
+  last_days = 0
+  n_each = 48
+  surveys = []
+  for index, item in enumerate(I18N_SURVEYS):
+    sid = i18n_survey_id(item['code'])
+    theme = theme_for_client(client['client'], index, seed, n_clients=1)
+    questions = [{'text': item['question'], 'answers': list(item['answers'])}]
+    doc = {
+        'surveyname': 'harbor-grocer-i18n-%s' % item['code'],
+        'displayname': item['display'],
+        'surveytype': 'brand_track',
+        'archived': False,
+        'client': client['client'],
+        'agency': client['agency'],
+        'created_at': created.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'created_by': client['creator'],
+        'updated_at': last_at.strftime('%Y-%m-%dT%H:%M:%SZ'),
+        'updated_by': client['creator'],
+        'creativesizes': ['300x250', '160x600'],
+        'creativesize': ['300x250', '160x600'],
+        'language': item['code'],
+        'thankyou_text': item['thankyou'],
+        'responsetype': 'Submit Responses at End of Survey',
+        'custom_css': survey_custom_css(theme),
+        'badge_icon': 'B',
+        'badge_name': client['agency'],
+        'badge_text': '',
+        'demo_seed': True,
+        'demo_batch': I18N_BATCH,
+        'campaign_id': '',
+        'placement_id': '',
+        'adserver': 'cm360',
+    }
+    _fill_question_fields(doc, questions)
+    doc['question1order'] = 'ORDERED'
+    audit = {
+        'action': 'create',
+        'actor': client['creator'],
+        'survey_id': sid,
+        'detail': doc['surveyname'],
+        'created_at': doc['created_at'],
+        'demo_seed': True,
+        'demo_batch': I18N_BATCH,
+    }
+    spec = SurveySpec(
+        id=sid,
+        index=index,
+        doc=doc,
+        audit=audit,
+        last_days=last_days,
+        last_at=last_at,
+        counts={'survey': n_each},
+        n_rows=n_each,
+        extra_incomplete=False,
+        omit_rid=False,
+        p_control=0.22,
+        p_expose=0.22,
+        n_questions=1,
+        theme=theme,
+    )
+    surveys.append(spec)
+  return World(
+      seed=seed, count=len(surveys), now=now, batch=I18N_BATCH,
+      surveys=surveys, n_rows=n_each * len(surveys), n_archived=0, n_lift=0)
+
+
 def _answer_letter(positive: bool, n_answers: int, rng: random.Random) -> str:
   if positive:
     return 'A'
@@ -1130,8 +1292,8 @@ def _new_batch(db):
 
 
 def apply_firestore(db, world: World) -> int:
-  """Overwrite tagged demo surveys. Other docs are left alone."""
-  purge_firestore(db, dry_run=False)
+  """Overwrite this world's demo_batch. Other batches and live docs stay."""
+  purge_firestore(db, dry_run=False, batch=world.batch)
   col = db.collection('Surveys')
   audit = db.collection('AuditLog')
   batch = _new_batch(db)
@@ -1160,39 +1322,76 @@ def apply_firestore(db, world: World) -> int:
         flush()
     written += 1
   flush()
-  meta = db.collection('DemoSeed').document('current')
-  meta.set({
+  bookmark = {
       'demo_seed': True,
       'demo_batch': world.batch,
       'seed': world.seed,
       'count': world.count,
       'n_rows': world.n_rows,
       'applied_at': world.now.strftime('%Y-%m-%dT%H:%M:%SZ'),
-  })
+  }
+  db.collection('DemoSeed').document('current').set(bookmark)
+  db.collection('DemoSeed').document(world.batch).set(bookmark)
   return written
 
 
-def _is_tagged_survey(doc) -> bool:
+def _is_tagged_survey(doc, batch: str | None = None) -> bool:
   data = doc.to_dict() or {}
-  return data.get('demo_seed') is True and is_demo_survey_id(doc.id)
+  if not (data.get('demo_seed') is True and is_demo_survey_id(doc.id)):
+    return False
+  if batch is not None:
+    return data.get('demo_batch') == batch
+  return True
 
 
-def _is_tagged_audit(doc) -> bool:
+def _is_tagged_audit(doc, batch: str | None = None) -> bool:
   data = doc.to_dict() or {}
   sid = data.get('survey_id') or ''
-  return data.get('demo_seed') is True and (
-      is_demo_survey_id(sid) or str(doc.id).startswith('demo_audit_'))
+  if not (data.get('demo_seed') is True and (
+      is_demo_survey_id(sid) or str(doc.id).startswith('demo_audit_'))):
+    return False
+  if batch is not None:
+    return data.get('demo_batch') == batch
+  return True
 
 
-def purge_firestore(db, dry_run: bool = True) -> dict:
+def _purge_demoseed(db, batch: str | None, deleted: dict) -> None:
+  col = db.collection('DemoSeed')
+  if batch is None:
+    for doc in col.stream():
+      doc.reference.delete()
+      deleted['demoseed'] += 1
+    return
+  for name in (batch,):
+    ref = col.document(name)
+    snap = ref.get()
+    if getattr(snap, 'exists', False):
+      ref.delete()
+      deleted['demoseed'] += 1
+  current = col.document('current')
+  snap = current.get()
+  if getattr(snap, 'exists', False):
+    data = snap.to_dict() or {}
+    if data.get('demo_batch') == batch:
+      current.delete()
+      deleted['demoseed'] += 1
+
+
+def purge_firestore(db, dry_run: bool = True, batch: str | None = None) -> dict:
+  if batch is not None:
+    batch = validate_batch(batch)
   surveys = [
-      doc for doc in db.collection('Surveys').stream() if _is_tagged_survey(doc)
+      doc for doc in db.collection('Surveys').stream()
+      if _is_tagged_survey(doc, batch)
   ]
   audits = [
-      doc for doc in db.collection('AuditLog').stream() if _is_tagged_audit(doc)
+      doc for doc in db.collection('AuditLog').stream()
+      if _is_tagged_audit(doc, batch)
   ]
   cache_ids = [doc.id for doc in surveys]
-  deleted = {'surveys': 0, 'audits': 0, 'stats_cache': 0, 'versions': 0}
+  deleted = {
+      'surveys': 0, 'audits': 0, 'stats_cache': 0, 'versions': 0, 'demoseed': 0,
+  }
   if dry_run:
     deleted['surveys'] = len(surveys)
     deleted['audits'] = len(audits)
@@ -1214,15 +1413,13 @@ def purge_firestore(db, dry_run: bool = True) -> dict:
     if getattr(snap, 'exists', False):
       ref.delete()
       deleted['stats_cache'] += 1
-  meta = db.collection('DemoSeed').document('current')
-  if getattr(meta.get(), 'exists', False):
-    meta.delete()
+  _purge_demoseed(db, batch, deleted)
   return deleted
 
 
 def apply_bigquery(client, table_id: str, world: World) -> int:
   from google.cloud import bigquery
-  job = client.query(bq_purge_sql(table_id))
+  job = client.query(bq_purge_sql(table_id, batch=world.batch))
   job.result()
   buf = io.BytesIO()
   n = 0
@@ -1246,8 +1443,9 @@ def apply_bigquery(client, table_id: str, world: World) -> int:
   return n
 
 
-def purge_bigquery(client, table_id: str, dry_run: bool = True) -> str:
-  sql = bq_purge_sql(table_id)
+def purge_bigquery(client, table_id: str, dry_run: bool = True,
+                   batch: str | None = None) -> str:
+  sql = bq_purge_sql(table_id, batch=batch)
   if dry_run:
     return sql
   client.query(sql).result()
@@ -1267,12 +1465,24 @@ def main(argv: list[str] | None = None) -> int:
   parser.add_argument('--table', default='')
   parser.add_argument('--count', type=int, default=DEFAULT_COUNT)
   parser.add_argument('--seed', type=int, default=DEFAULT_SEED)
+  parser.add_argument(
+      '--scenario', choices=('homepage', 'i18n'), default='homepage',
+      help='homepage: 220-survey agency world (demo-<seed>). '
+           'i18n: six translated surveys (batch i18n).')
+  parser.add_argument(
+      '--batch', default='',
+      help='With --purge, delete only this demo_batch (demo-1, i18n, …).')
+  parser.add_argument(
+      '--all', action='store_true', dest='purge_all',
+      help='With --purge, delete every demo batch.')
   parser.add_argument('--apply', action='store_true',
                       help='Write (or, with --purge, actually delete).')
   parser.add_argument('--purge', action='store_true',
-                      help='Remove tagged demo data only. Dry-run unless --apply.')
+                      help='Remove tagged demo data. Requires --batch or --all. '
+                           'Dry-run unless --apply.')
   args = parser.parse_args(argv)
-  if args.count < MIN_COUNT:
+  if (not args.purge and args.scenario == 'homepage'
+      and args.count < MIN_COUNT):
     print('error: --count must be >= %s (need 4+ homepage pages at 50/page)'
           % MIN_COUNT, file=sys.stderr)
     return 2
@@ -1281,18 +1491,32 @@ def main(argv: list[str] | None = None) -> int:
   now = datetime.datetime.now(datetime.timezone.utc)
 
   if args.purge:
-    print('PURGE demo data from project %s table %s' % (args.project, table_id))
-    print('SQL:\n%s' % bq_purge_sql(table_id))
+    if args.purge_all and args.batch:
+      print('error: --purge takes --batch <id> or --all, not both',
+            file=sys.stderr)
+      return 2
+    if not args.purge_all and not args.batch:
+      print('error: --purge requires --batch <id> (e.g. demo-1 or i18n) '
+            'or --all', file=sys.stderr)
+      return 2
+    try:
+      batch = None if args.purge_all else validate_batch(args.batch)
+    except ValueError as exc:
+      print('error: %s' % exc, file=sys.stderr)
+      return 2
+    scope = 'all demo batches' if batch is None else 'batch %s' % batch
+    print('PURGE %s from project %s table %s' % (scope, args.project, table_id))
+    print('SQL:\n%s' % bq_purge_sql(table_id, batch=batch))
     if not args.apply:
       print('Dry run. Re-run with --purge --apply to delete tagged rows only.')
       db = _fs_client(args.project)
-      planned = purge_firestore(db, dry_run=True)
+      planned = purge_firestore(db, dry_run=True, batch=batch)
       print('Would delete Firestore: %s' % planned)
       return 0
     db = _fs_client(args.project)
     bq = _bq_client(args.project)
-    deleted = purge_firestore(db, dry_run=False)
-    sql = purge_bigquery(bq, table_id, dry_run=False)
+    deleted = purge_firestore(db, dry_run=False, batch=batch)
+    sql = purge_bigquery(bq, table_id, dry_run=False, batch=batch)
     print('Deleted Firestore: %s' % deleted)
     print('Ran: %s' % sql)
     print('Load-job rows are immediately deletable. If anything was ever '
@@ -1300,7 +1524,10 @@ def main(argv: list[str] | None = None) -> int:
           'buffer before DELETE can remove those rows.')
     return 0
 
-  world = generate_world(args.count, args.seed, now=now)
+  if args.scenario == 'i18n':
+    world = generate_i18n_world(now=now, seed=args.seed)
+  else:
+    world = generate_world(args.count, args.seed, now=now)
   for line in summary_lines(world):
     print(line)
   print('Estimated BigQuery rows: %s (load job, not streaming).' % world.n_rows)
@@ -1311,14 +1538,15 @@ def main(argv: list[str] | None = None) -> int:
     print('Dry run. Re-run with --apply to write Firestore + BigQuery.')
     print('WARNING: --apply writes to the live project (%s).' % args.project)
     return 0
-  print('APPLY to live project %s' % args.project)
+  print('APPLY %s batch %s to live project %s'
+        % (args.scenario, world.batch, args.project))
   db = _fs_client(args.project)
   bq = _bq_client(args.project)
   n_docs = apply_firestore(db, world)
   print('Wrote %s survey docs (plus audit rows).' % n_docs)
   n_rows = apply_bigquery(bq, table_id, world)
-  print('Loaded %s BigQuery rows into %s (after deleting previous demo rows).'
-        % (n_rows, table_id))
+  print('Loaded %s BigQuery rows into %s (after deleting previous %s rows).'
+        % (n_rows, table_id, world.batch))
   print('Done. Homepage should paginate; stats fill from /index/stats-partial.')
   return 0
 

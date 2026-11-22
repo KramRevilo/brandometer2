@@ -127,6 +127,20 @@ class ThankyouHtmlTest(unittest.TestCase):
     self.assertIn('display: flex', html_ar)
     self.assertIn('align-items: center', html_ar)
 
+  def test_custom_thankyou_text_overrides_language_map(self):
+    long_copy = (
+        'Thank you so much for taking this survey we really appreciate '
+        'your time and feedback today')
+    html = _html(_survey(extra={'language': 'ja', 'thankyou_text': long_copy}))
+    self.assertIn(long_copy, html)
+    self.assertNotIn('ありがとうございました', html)
+    self.assertEqual(
+        survey_service.get_thank_you_text({'language': 'de'}), 'Danke')
+    self.assertEqual(
+        survey_service.get_thank_you_text(
+            {'language': 'de', 'thankyou_text': '  Danke sehr  '}),
+        'Danke sehr')
+
 
 def _playwright_or_skip():
   try:
