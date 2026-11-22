@@ -38,7 +38,8 @@ _AD_SIZE_RE = re.compile(
     r'<meta\s+name=["\']ad\.size["\']\s+content=["\']width=(\d+),height=(\d+)["\']',
     re.I)
 _CLICKTAG_RE = re.compile(r'\bvar\s+clickTag\b')
-_FETCH_RE = re.compile(r'\b(?:fetch|XMLHttpRequest|navigator\.sendBeacon)\s*\(')
+_XHR_RE = re.compile(r'\b(?:fetch|XMLHttpRequest)\s*\(')
+_BEACON_RE = re.compile(r'\bnavigator\.sendBeacon\s*\(')
 
 _MACRO_MARKERS = ('%', '${', '%%')
 _ALLOWED_CLICK_HOSTS = (
@@ -174,10 +175,16 @@ def check_html(html, size_key=None, target='', receiver_url='', extra_urls=None)
         'External request %s (IAB/CM360 HTML5 should be self-contained).' % url,
         label))
 
-  if _FETCH_RE.search(text):
+  if _XHR_RE.search(text):
     findings.append(_finding(
         'warning', 'xhr',
-        'fetch/XHR/sendBeacon in the creative can fail CM360 backup/preview.',
+        'fetch/XHR in the creative can fail CM360 backup/preview.',
+        label))
+  elif _BEACON_RE.search(text) and (
+      seen_receiver or _receiver_hosts(receiver_url)):
+    findings.append(_finding(
+        'info', 'beacon',
+        'sendBeacon retries the survey receiver on unload (text/plain, no preflight).',
         label))
 
   html_bytes = len(text.encode('utf-8'))

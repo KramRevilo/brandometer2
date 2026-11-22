@@ -35,7 +35,7 @@ def _all_qa_findings():
   findings = []
   for code, help_id in ui_help.QA_CODE_TO_HELP.items():
     findings.append({
-        'level': 'info' if code == 'receiver' else 'warning',
+        'level': 'info' if code in ('receiver', 'beacon') else 'warning',
         'code': code,
         'message': 'Check: %s' % code,
         'help_id': help_id,

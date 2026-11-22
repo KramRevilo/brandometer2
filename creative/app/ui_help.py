@@ -32,6 +32,7 @@ QA_CODE_TO_HELP = {
     'external': 'qa.external',
     'receiver': 'qa.receiver',
     'xhr': 'qa.xhr',
+    'beacon': 'qa.beacon',
     'filename': 'qa.filename',
     'index.html': 'qa.index',
 }
@@ -111,11 +112,22 @@ ENTRIES = {
     'qa.xhr': {
         'title': 'fetch / XHR',
         'body': (
-            'Scripts that call fetch, XMLHttpRequest, or sendBeacon can fail '
-            'Campaign Manager’s backup image and some publisher previews. '
-            'This app’s answer pixel is a simple image request, which is the '
-            'usual HTML5 pattern. If you pasted custom JavaScript that talks '
-            'to another server, remove it from Advanced CSS / the zip.'
+            'Scripts that call fetch or XMLHttpRequest can fail Campaign '
+            'Manager’s backup image and some publisher previews. The survey '
+            'answer path is a GET iframe plus a 1×1 image, with sendBeacon '
+            'only as an unload retry to the same receiver (that retry is an '
+            'info note, not this warning). If you pasted custom JavaScript '
+            'that talks to another server, remove it from the zip.'
+        ),
+    },
+    'qa.beacon': {
+        'title': 'Survey unload beacon',
+        'body': (
+            'The creative calls navigator.sendBeacon with an empty text/plain '
+            'body on pagehide so a response still reaches the receiver if the '
+            'iframe pixel is torn down. That is a simple request (no CORS '
+            'preflight) to the same survey URL. Duplicate rows with the same '
+            'respondent id collapse in reports. This note is informational.'
         ),
     },
     'qa.filename': {

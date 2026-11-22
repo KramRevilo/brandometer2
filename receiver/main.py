@@ -242,7 +242,7 @@ def validate_params(params):
     return None, 'invalid creative_size'
   response = _match(_TEXT_RE, params.get('response'), '')
   if response is None:
-    return None, 'invalid response'
+    return None, 'invalid_response'
   visual = _match(_TEXT_RE, params.get('visual'), '')
   if visual is None:
     return None, 'invalid visual'

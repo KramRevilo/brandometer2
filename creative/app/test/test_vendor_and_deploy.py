@@ -117,6 +117,7 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('LOOKER_TEMPLATE_DS_ALIAS', yaml_text)
     self.assertIn('PROJECT_ID', yaml_text)
     self.assertIn('RECEIVER_URL', yaml_text)
+    self.assertIn('RECEIVER_URL must be https://', script)
     self.assertNotIn('GOOGLE_OAUTH_CLIENT_SECRET', yaml_text)
     self.assertNotIn('SECRET_KEY', yaml_text)
     self.assertNotIn('RECEIVER_HMAC_SECRET', yaml_text)

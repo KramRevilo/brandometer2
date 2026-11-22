@@ -122,6 +122,12 @@ class ReceiverTest(unittest.TestCase):
     fields, error = receiver.validate_params({'id': 'abc'})
     self.assertEqual(error, 'missing response')
 
+  def test_invalid_response_reason_is_underscored_for_log_rates(self):
+    fields, error = receiver.validate_params({
+        'id': 'abc', 'response': 'not a token!'})
+    self.assertIsNone(fields)
+    self.assertEqual(error, 'invalid_response')
+
   def test_invalid_token_format_is_400(self):
     fields, error = receiver.validate_params({
         'id': 'abc', 'response': '1:A', 'token': 'not-hex'})

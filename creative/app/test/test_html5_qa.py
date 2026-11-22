@@ -104,6 +104,29 @@ class Html5QaCheckTest(unittest.TestCase):
     self.assertEqual(levels.get('receiver'), 'info')
     self.assertEqual(levels.get('external'), 'warning')
 
+  def test_sendbeacon_to_receiver_is_info_fetch_is_warning(self):
+    beacon = _CLEAN_HTML.replace(
+        '</body>',
+        '<script>navigator.sendBeacon("https://recv.example/p", "");</script>'
+        '</body>')
+    findings = html5_qa.check_html(
+        beacon, size_key='300x250', receiver_url='https://recv.example/p')
+    by_code = {item['code']: item for item in findings}
+    self.assertIn('beacon', by_code)
+    self.assertEqual(by_code['beacon']['level'], 'info')
+    self.assertNotIn('xhr', by_code)
+    fetch_html = beacon.replace(
+        'navigator.sendBeacon',
+        'fetch("https://evil.example/x"); navigator.sendBeacon')
+    fetch_findings = html5_qa.check_html(
+        fetch_html, size_key='300x250', receiver_url='https://recv.example/p')
+    codes = _codes(fetch_findings)
+    self.assertIn('xhr', codes)
+    self.assertNotIn('beacon', codes)
+    self.assertEqual(
+        [item['level'] for item in fetch_findings if item['code'] == 'xhr'],
+        ['warning'])
+
   def test_googleusercontent_and_clicktag_hosts_allowed(self):
     html = _CLEAN_HTML.replace(
         '</body>',

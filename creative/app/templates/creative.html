@@ -104,6 +104,10 @@
                     question_end_time: null
                 },
                 visualOptions: {},
+                pixelUrl: '',
+                pixelPrimarySent: false,
+                pixelBackupSent: false,
+                pixelUnloadBound: false,
 
                 init: function() {
                     for (var questionIndex = 0; questionIndex < this.surveyConfig.questions.length; questionIndex++) {
@@ -718,7 +722,7 @@
                     var self = this;
                     var fire = function() {
                         try {
-                            self.insertPixel(self.surveyConfig.response_server);
+                            self.deliverSurveyPixel();
                         } catch (e) {}
                     };
                     try {
@@ -729,6 +733,135 @@
                         }
                     } catch (e2) {}
                     fire();
+                },
+
+                deliverSurveyPixel: function() {
+                    if (!this.surveyConfig.response_server) {
+                        return;
+                    }
+                    var url;
+                    try {
+                        url = this.capPixelUrl(
+                            this.fillMacrosInUrl(this.surveyConfig.response_server));
+                    } catch (e) {
+                        return;
+                    }
+                    if (!url) {
+                        return;
+                    }
+                    this.pixelUrl = url;
+                    this.bindPixelRetry();
+                    if (this.pixelPrimarySent) {
+                        return;
+                    }
+                    this.pixelPrimarySent = true;
+                    this.insertIframePixel(url);
+                    this.insertImagePixel(url);
+                },
+
+                bindPixelRetry: function() {
+                    if (this.pixelUnloadBound) {
+                        return;
+                    }
+                    this.pixelUnloadBound = true;
+                    var self = this;
+                    var retry = function() {
+                        try {
+                            self.sendPixelBackup();
+                        } catch (e) {}
+                    };
+                    if (window.addEventListener) {
+                        window.addEventListener('pagehide', retry);
+                        window.addEventListener('visibilitychange', function() {
+                            if (document.visibilityState === 'hidden') {
+                                retry();
+                            }
+                        });
+                    }
+                },
+
+                sendPixelBackup: function() {
+                    if (!this.pixelUrl || this.pixelBackupSent) {
+                        return;
+                    }
+                    this.pixelBackupSent = true;
+                    try {
+                        this.insertImagePixel(this.pixelUrl);
+                    } catch (e1) {}
+                    try {
+                        if (navigator.sendBeacon) {
+                            navigator.sendBeacon(this.pixelUrl, '');
+                        }
+                    } catch (e2) {}
+                },
+
+                capPixelUrl: function(url) {
+                    var max = 1800;
+                    if (!url || url.length <= max) {
+                        return url;
+                    }
+                    var setParam = function(u, key, value) {
+                        var re = new RegExp('([?&]' + key + '=)[^&]*');
+                        if (re.test(u)) {
+                            return u.replace(re, '$1' + encodeURIComponent(value));
+                        }
+                        return u;
+                    };
+                    var getParam = function(u, key) {
+                        var match = u.match(new RegExp('[?&]' + key + '=([^&]*)'));
+                        return match ? decodeURIComponent(match[1].replace(/\+/g, ' ')) : '';
+                    };
+                    url = setParam(url, 'visual', '');
+                    if (url.length <= max) {
+                        return url;
+                    }
+                    var response = getParam(url, 'response');
+                    while (response && url.length > max) {
+                        var cut = response.lastIndexOf('|');
+                        if (cut > 0) {
+                            response = response.slice(0, cut);
+                        } else if (response.length > 16) {
+                            response = response.slice(0, response.length - 8);
+                        } else {
+                            break;
+                        }
+                        url = setParam(url, 'response', response);
+                    }
+                    if (url.length > max) {
+                        url = url.slice(0, max);
+                    }
+                    return url;
+                },
+
+                insertIframePixel: function(url) {
+                    if (!url) {
+                        return;
+                    }
+                    var pixelFrame = document.createElement('iframe');
+                    pixelFrame.setAttribute('width', '0');
+                    pixelFrame.setAttribute('height', '0');
+                    pixelFrame.setAttribute('src', url);
+                    document.body.appendChild(pixelFrame);
+
+                    if ("{{manual_responses}}" === "True") {
+                        var p = document.createElement('p');
+                        var cmd = "curl \"" + url + "\"";
+                        cmd += " -H \"Authorization: bearer $(gcloud auth print-identity-token)\"";
+                        p.innerText = cmd;
+                        document.body.appendChild(p);
+                    }
+                },
+
+                insertImagePixel: function(url) {
+                    if (!url) {
+                        return;
+                    }
+                    var img = document.createElement('img');
+                    img.setAttribute('width', '1');
+                    img.setAttribute('height', '1');
+                    img.setAttribute('alt', '');
+                    img.setAttribute('src', url);
+                    document.body.appendChild(img);
                 },
 
                 insertScript: function(scriptString, srcString, position) {
@@ -756,21 +889,8 @@
                     } catch (e) {
                         return;
                     }
-
                     if (macroFilledUrl) {
-                        var pixelFrame = document.createElement('iframe');
-                        pixelFrame.setAttribute('width', '0');
-                        pixelFrame.setAttribute('height', '0');
-                        pixelFrame.setAttribute('src', macroFilledUrl);
-                        document.body.appendChild(pixelFrame);
-
-                        if ("{{manual_responses}}" === "True") {
-                            var p = document.createElement('p');
-                            var cmd = "curl \"" + macroFilledUrl + "\"";
-                            cmd += " -H \"Authorization: bearer $(gcloud auth print-identity-token)\"";
-                            p.innerText = cmd;
-                            document.body.appendChild(p);
-                        }
+                        this.insertIframePixel(macroFilledUrl);
                     }
                 },
 

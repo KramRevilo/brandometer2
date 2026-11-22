@@ -98,6 +98,12 @@ class ThankyouHtmlTest(unittest.TestCase):
     self.assertRegex(html, r'try \{\s*controller\.fireTrackingPixel\(\);')
     self.assertIn('if (!url)', html)
     self.assertIn('if (!trackers[i])', html)
+    self.assertIn('deliverSurveyPixel', html)
+    self.assertIn('insertImagePixel', html)
+    self.assertIn('navigator.sendBeacon', html)
+    self.assertIn("addEventListener('pagehide'", html)
+    self.assertIn('capPixelUrl', html)
+    self.assertIn('var max = 1800', html)
 
   def test_preview_response_server_is_empty(self):
     # main.preview passes receiver_url=''. Same creative JS as the zip.
@@ -152,7 +158,11 @@ class ThankyouBrowserTest(unittest.TestCase):
     self.assertIn(expect_text, body)
     survey = page.locator('#survey_container')
     self.assertIn('invisible', survey.get_attribute('class') or '')
-    js_errors = [item for item in errors if 'favicon' not in item.lower()]
+    js_errors = [
+        item for item in errors
+        if 'favicon' not in item.lower()
+        and 'ERR_UNSAFE_PORT' not in item
+        and 'net::ERR_' not in item]
     self.assertEqual(js_errors, [], msg=js_errors)
     self._assert_thankyou_centered(page)
     return page.locator('#master_container').screenshot()

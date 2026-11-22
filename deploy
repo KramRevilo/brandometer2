@@ -679,6 +679,13 @@ if [ -z "$RECEIVER_URL" ]; then
     echo "ERROR: could not determine the receiver function URL."
     exit 1
 fi
+case "$RECEIVER_URL" in
+    https://*) ;;
+    *)
+        echo "ERROR: RECEIVER_URL must be https:// (got: $RECEIVER_URL)" >&2
+        exit 1
+        ;;
+esac
 echo "Receiver URL: $RECEIVER_URL"
 
 echo -e "\nSet up App Engine (if none exists)"

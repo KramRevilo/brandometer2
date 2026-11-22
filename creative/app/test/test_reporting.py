@@ -101,6 +101,20 @@ class ConsolidationTest(unittest.TestCase):
     self.assertEqual(out.iloc[0]['Response'], '1:A|2:B')
     self.assertEqual(out.iloc[0]['CreatedAt'], t3)
 
+  def test_consolidate_duplicate_respondent_id_from_retry_pixels(self):
+    t1 = datetime.datetime(2026, 11, 1, 10, 0, 0)
+    t2 = datetime.datetime(2026, 11, 1, 10, 0, 1)
+    df = pandas.DataFrame({
+        'CreatedAt': [t1, t2],
+        'Segmentation': ['default_expose', 'default_expose'],
+        'Response': ['1:A', '1:A'],
+        'BomID': ['b1', 'b1'],
+        'RespondentID': ['rid-1', 'rid-1'],
+    })
+    out = reporting.consolidate_frame(df)
+    self.assertEqual(len(out), 1)
+    self.assertEqual(out.iloc[0]['RespondentID'], 'rid-1')
+
   def test_consolidate_blank_bomid_stays_as_individual_rows(self):
     t1 = datetime.datetime(2026, 11, 1)
     df = pandas.DataFrame({
