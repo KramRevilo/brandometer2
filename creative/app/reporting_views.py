@@ -11,7 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-"""SQL for the reporting dataset (authorized views for Looker Studio)."""
+"""SQL for the reporting dataset (authorized views for Data Studio)."""
 import os
 import re
 import sys
@@ -22,7 +22,8 @@ import respondent
 REPORTING_DATASET = 'brandometer_reporting'
 DEDUPED_VIEW = 'deduped_responses'
 SUMMARY_VIEW = 'survey_summaries'
-LOOKER_CREATE_URL = 'https://lookerstudio.google.com/reporting/create'
+DATA_STUDIO_CREATE_URL = 'https://datastudio.google.com/reporting/create'
+COMPARE_MAX_IDS = 30
 _SURVEY_ID_RE = re.compile(r'^[A-Za-z0-9._\-]+$')
 
 
@@ -43,40 +44,59 @@ def _sql_literal(value):
   return "'%s'" % str(value).replace('\\', '\\\\').replace("'", "''")
 
 
-def looker_studio_url(project_id, table_id=DEDUPED_VIEW, survey_id=None,
-                      environ=None):
-  """Looker Studio Linking API URL for the authorized reporting view.
+def _safe_ids(survey_id=None, survey_ids=None):
+  ids = []
+  seen = set()
+  for value in list(survey_ids or []) + ([survey_id] if survey_id else []):
+    sid = str(value or '').strip()
+    if not sid or not _SURVEY_ID_RE.fullmatch(sid) or sid in seen:
+      continue
+    seen.add(sid)
+    ids.append(sid)
+    if len(ids) >= COMPARE_MAX_IDS:
+      break
+  return ids
 
-  Without LOOKER_TEMPLATE_REPORT_ID, uses the default report and alias-less
+
+def data_studio_url(project_id, table_id=DEDUPED_VIEW, survey_id=None,
+                    survey_ids=None, environ=None):
+  """Data Studio Linking API URL for the authorized reporting view.
+
+  Path: https://datastudio.google.com/reporting/create
+  (https://developers.google.com/data-studio/integrate/linking-api).
+
+  Without DATA_STUDIO_TEMPLATE_REPORT_ID, uses the default report and alias-less
   ds.connector / ds.type / … params (ds.ds0 is not a valid alias on a blank
   report). With a template id, sets c.reportId and optional
-  LOOKER_TEMPLATE_DS_ALIAS. When survey_id is a safe id, the source is a
-  CUSTOM_QUERY filtered to that survey (the Linking API cannot pass a chart
-  filter on ds.* TABLE params).
+  DATA_STUDIO_TEMPLATE_DS_ALIAS. When survey id(s) are safe, the source is a
+  CUSTOM_QUERY filtered with WHERE survey_id = … or IN (…) (capped at 30).
+  The Linking API cannot pass a chart filter on ds.* TABLE params.
   """
   project_id = (project_id or '').strip()
   if not project_id:
     return ''
   env = environ if environ is not None else os.environ
   table_id = (table_id or DEDUPED_VIEW).strip() or DEDUPED_VIEW
-  template = (env.get('LOOKER_TEMPLATE_REPORT_ID') or '').strip()
-  alias = (env.get('LOOKER_TEMPLATE_DS_ALIAS') or '').strip()
-  sid = (survey_id or '').strip()
-  if sid and not _SURVEY_ID_RE.fullmatch(sid):
-    sid = ''
+  template = (env.get('DATA_STUDIO_TEMPLATE_REPORT_ID') or '').strip()
+  alias = (env.get('DATA_STUDIO_TEMPLATE_DS_ALIAS') or '').strip()
+  ids = _safe_ids(survey_id=survey_id, survey_ids=survey_ids)
   prefix = _ds_prefix(alias if template else '')
   params = {'c.mode': 'edit'}
   if template:
     params['c.reportId'] = template
   view = '%s.%s.%s' % (project_id, REPORTING_DATASET, table_id)
-  if sid:
-    params['r.reportName'] = 'Brandometer2 · %s' % sid
+  if ids:
+    if len(ids) == 1:
+      where = 'survey_id = %s' % _sql_literal(ids[0])
+      params['r.reportName'] = 'Brandometer2 · %s' % ids[0]
+    else:
+      where = 'survey_id IN (%s)' % ', '.join(_sql_literal(sid) for sid in ids)
+      params['r.reportName'] = 'Brandometer2 · %s studies' % len(ids)
     params[prefix + 'connector'] = 'bigQuery'
     params[prefix + 'type'] = 'CUSTOM_QUERY'
     params[prefix + 'projectId'] = project_id
     params[prefix + 'billingProjectId'] = project_id
-    params[prefix + 'sql'] = (
-        'SELECT * FROM `%s` WHERE survey_id = %s' % (view, _sql_literal(sid)))
+    params[prefix + 'sql'] = 'SELECT * FROM `%s` WHERE %s' % (view, where)
   else:
     params['r.reportName'] = 'Brandometer2 responses'
     params[prefix + 'connector'] = 'bigQuery'
@@ -84,7 +104,7 @@ def looker_studio_url(project_id, table_id=DEDUPED_VIEW, survey_id=None,
     params[prefix + 'projectId'] = project_id
     params[prefix + 'datasetId'] = REPORTING_DATASET
     params[prefix + 'tableId'] = table_id
-  return LOOKER_CREATE_URL + '?' + urlencode(params)
+  return DATA_STUDIO_CREATE_URL + '?' + urlencode(params)
 
 
 def deduped_view_sql(project_id):
@@ -175,7 +195,7 @@ def all_view_sql(project_id):
 def main(argv):
   if len(argv) < 2:
     sys.stderr.write(
-        'Usage: reporting_views.py sql|deduped|summary|looker PROJECT_ID [SURVEY_ID]\n')
+        'Usage: reporting_views.py sql|deduped|summary|datastudio PROJECT_ID [SURVEY_ID...]\n')
     return 2
   cmd = argv[1]
   project_id = argv[2] if len(argv) > 2 else os.environ.get('PROJECT_ID', '')
@@ -188,9 +208,11 @@ def main(argv):
   if cmd == 'summary':
     sys.stdout.write(summary_view_sql(project_id).rstrip() + ';\n')
     return 0
-  if cmd == 'looker':
-    survey_id = argv[3] if len(argv) > 3 else ''
-    sys.stdout.write(looker_studio_url(project_id, survey_id=survey_id) + '\n')
+  if cmd == 'datastudio':
+    extra = argv[3:]
+    sys.stdout.write(data_studio_url(
+        project_id, survey_id=extra[0] if len(extra) == 1 else None,
+        survey_ids=extra if len(extra) > 1 else None) + '\n')
     return 0
   sys.stderr.write('Unknown command %s\n' % cmd)
   return 2

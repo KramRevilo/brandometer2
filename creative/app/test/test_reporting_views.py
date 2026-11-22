@@ -16,6 +16,7 @@ import os
 import subprocess
 import sys
 import unittest
+from urllib.parse import unquote_plus
 
 import reporting_views
 import respondent
@@ -50,10 +51,10 @@ class ReportingViewsTest(unittest.TestCase):
     self.assertIn('COUNT(*) AS respondents', sql)
     self.assertIn('last_creative_version', sql)
 
-  def test_looker_studio_url(self):
-    self.assertEqual(reporting_views.looker_studio_url(''), '')
-    url = reporting_views.looker_studio_url('proj-1', environ={})
-    self.assertTrue(url.startswith('https://lookerstudio.google.com/reporting/create?'))
+  def test_data_studio_url(self):
+    self.assertEqual(reporting_views.data_studio_url(''), '')
+    url = reporting_views.data_studio_url('proj-1', environ={})
+    self.assertTrue(url.startswith('https://datastudio.google.com/reporting/create?'))
     self.assertIn('ds.connector=bigQuery', url)
     self.assertIn('ds.projectId=proj-1', url)
     self.assertIn('ds.datasetId=brandometer_reporting', url)
@@ -62,8 +63,8 @@ class ReportingViewsTest(unittest.TestCase):
     self.assertNotIn('ds.ds0.', url)
     self.assertNotIn('c.reportId=', url)
 
-  def test_looker_studio_url_filters_survey_with_custom_query(self):
-    url = reporting_views.looker_studio_url(
+  def test_data_studio_url_filters_survey_with_custom_query(self):
+    url = reporting_views.data_studio_url(
         'brandometer2', survey_id='demo_1_0003', environ={})
     self.assertIn('ds.type=CUSTOM_QUERY', url)
     self.assertIn('survey_id', url)
@@ -72,45 +73,59 @@ class ReportingViewsTest(unittest.TestCase):
     self.assertIn('ds.billingProjectId=brandometer2', url)
     self.assertNotIn('ds.ds0.', url)
     self.assertNotIn('ds.tableId=', url)
-    bad = reporting_views.looker_studio_url(
+    bad = reporting_views.data_studio_url(
         'brandometer2', survey_id="abc'; DROP TABLE x", environ={})
     self.assertIn('ds.type=TABLE', bad)
     self.assertNotIn('DROP TABLE', bad)
 
-  def test_looker_studio_url_uses_template_alias_when_configured(self):
-    url = reporting_views.looker_studio_url(
+  def test_data_studio_url_in_clause_capped(self):
+    ids = ['s%s' % i for i in range(35)]
+    url = reporting_views.data_studio_url(
+        'proj-1', survey_ids=ids, environ={})
+    decoded = unquote_plus(url)
+    self.assertIn('survey_id IN (', decoded)
+    self.assertIn("'s0'", decoded)
+    self.assertIn("'s29'", decoded)
+    self.assertNotIn("'s30'", decoded)
+    self.assertNotIn("'s34'", decoded)
+
+  def test_data_studio_url_uses_template_alias_when_configured(self):
+    url = reporting_views.data_studio_url(
         'proj-1',
         survey_id='s1',
         environ={
-            'LOOKER_TEMPLATE_REPORT_ID': 'tmpl-abc',
-            'LOOKER_TEMPLATE_DS_ALIAS': 'ds0',
+            'DATA_STUDIO_TEMPLATE_REPORT_ID': 'tmpl-abc',
+            'DATA_STUDIO_TEMPLATE_DS_ALIAS': 'ds0',
         })
     self.assertIn('c.reportId=tmpl-abc', url)
     self.assertIn('ds.ds0.connector=bigQuery', url)
     self.assertIn('ds.ds0.type=CUSTOM_QUERY', url)
     self.assertIn('ds.ds0.sql=', url)
-    unnamed = reporting_views.looker_studio_url(
+    unnamed = reporting_views.data_studio_url(
         'proj-1',
-        environ={'LOOKER_TEMPLATE_REPORT_ID': 'tmpl-abc'})
+        environ={'DATA_STUDIO_TEMPLATE_REPORT_ID': 'tmpl-abc'})
     self.assertIn('c.reportId=tmpl-abc', unnamed)
     self.assertIn('ds.connector=bigQuery', unnamed)
     self.assertNotIn('ds.ds0.', unnamed)
 
-  def test_cli_sql_and_looker(self):
+  def test_cli_sql_and_datastudio(self):
     helper = os.path.join(os.path.dirname(__file__), '..', 'reporting_views.py')
     sql = subprocess.check_output(
         [sys.executable, helper, 'deduped', 'p'], text=True)
     self.assertIn('CREATE OR REPLACE VIEW `p.brandometer_reporting.deduped_responses`', sql)
     self.assertTrue(sql.strip().endswith(';'))
-    looker = subprocess.check_output(
-        [sys.executable, helper, 'looker', 'p'], text=True).strip()
-    self.assertIn('lookerstudio.google.com', looker)
-    self.assertIn('ds.connector=bigQuery', looker)
-    self.assertNotIn('ds.ds0.', looker)
+    studio = subprocess.check_output(
+        [sys.executable, helper, 'datastudio', 'p'], text=True).strip()
+    self.assertIn('datastudio.google.com', studio)
+    self.assertIn('ds.connector=bigQuery', studio)
+    self.assertNotIn('ds.ds0.', studio)
     filtered = subprocess.check_output(
-        [sys.executable, helper, 'looker', 'p', 'demo_1_0003'], text=True).strip()
+        [sys.executable, helper, 'datastudio', 'p', 'demo_1_0003'], text=True).strip()
     self.assertIn('CUSTOM_QUERY', filtered)
     self.assertIn('demo_1_0003', filtered)
+    multi = subprocess.check_output(
+        [sys.executable, helper, 'datastudio', 'p', 'a', 'b'], text=True).strip()
+    self.assertIn('IN', multi)
     self.assertEqual(subprocess.call(
         [sys.executable, helper, 'nope', 'p'],
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL), 2)

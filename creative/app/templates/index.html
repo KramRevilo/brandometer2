@@ -49,7 +49,8 @@
   }
   /* Percentages sum to 100% of the full (xxl) column set so hidden
      columns free space for the rest instead of stretching the table. */
-  #mainTable th.cell-name, #mainTable td.cell-name { width: 15%; }
+  #mainTable th.cell-compare, #mainTable td.cell-compare { width: 3%; }
+  #mainTable th.cell-name, #mainTable td.cell-name { width: 13%; }
   #mainTable th.cell-client, #mainTable td.cell-client { width: 8%; }
   #mainTable th.cell-agency, #mainTable td.cell-agency { width: 8%; }
   #mainTable th.cell-created-by, #mainTable td.cell-created-by { width: 9%; }
@@ -170,6 +171,13 @@
                 {% endif %}
             </span>
         {% endif %}
+        <span class="ms-auto d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" id="compare-selected" disabled>Compare selected</button>
+            {% if compare_filtered_ids %}
+            <a class="btn btn-sm btn-outline-primary" id="compare-filtered"
+               href="{{ url_for('reports_compare', ids=','.join(compare_filtered_ids)) }}">Compare filtered results</a>
+            {% endif %}
+        </span>
     </div>
     {% if status_filter_notice %}
     <div class="alert alert-warning" role="status" id="status-filter-notice">
@@ -210,6 +218,10 @@
         <article class="card mb-2 survey-card">
             <div class="card-body py-2">
                 <div class="d-flex justify-content-between align-items-start gap-2">
+                    <div class="form-check mt-1">
+                        <input class="form-check-input js-compare-id" type="checkbox" value="{{ survey.id }}" id="compare-card-{{ survey.id }}">
+                        <label class="form-check-label visually-hidden" for="compare-card-{{ survey.id }}">Compare {{ survey | survey_label }}</label>
+                    </div>
                     <div class="survey-card-title">
                         <div class="fw-semibold text-truncate" title="{{ survey | survey_label }}">{{ survey | survey_label }}</div>
                         <div class="small text-muted text-truncate">
@@ -235,6 +247,7 @@
     <table id="mainTable" class="table table-sm table-bordered table-striped align-middle">
         <thead class="table-primary">
             <tr class="text-center">
+                    <th scope="col" class="table_header cell-compare"><span class="visually-hidden">Compare</span></th>
                     <th scope="col" class="table_header cell-name" aria-sort="{{ 'descending' if sort_key == 'name' and sort_dir == 'desc' else 'ascending' if sort_key == 'name' else 'none' }}">{{ sort_link('name', 'Name') }}</th>
                     <th scope="col" class="table_header cell-client" aria-sort="{{ 'descending' if sort_key == 'client' and sort_dir == 'desc' else 'ascending' if sort_key == 'client' else 'none' }}">{{ sort_link('client', 'Client') }}</th>
                     <th scope="col" class="table_header cell-agency d-none d-xl-table-cell" aria-sort="{{ 'descending' if sort_key == 'agency' and sort_dir == 'desc' else 'ascending' if sort_key == 'agency' else 'none' }}">{{ sort_link('agency', 'Agency') }}</th>
@@ -257,6 +270,9 @@
         {% set size_compact = sizes | sizes_compact %}
         {% set questions = survey | get_all_question_text %}
         <tr>
+            <td class="text-center cell-compare">
+                <input class="form-check-input js-compare-id" type="checkbox" value="{{ survey.id }}" id="compare-{{ survey.id }}" aria-label="Compare {{ survey | survey_label }}">
+            </td>
             <td class="text-center small cell-clip cell-name" title="{{ survey | survey_label }}">
                 {{ survey | survey_label }}
             </td>

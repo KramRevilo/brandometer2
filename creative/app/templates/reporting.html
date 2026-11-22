@@ -31,8 +31,8 @@
       <a class="btn btn-outline-primary" href="{{ url_for('download_tags', survey_id=survey_id, format='xlsx') }}">Tag sheet XLSX</a>
       <a class="btn btn-outline-primary" href="{{ url_for('download_bulk_upload', survey_id=survey_id) }}">CM360/DV360 bulk files</a>
       {% endif %}
-      {% if looker_studio_url %}
-      <a class="btn btn-outline-primary" href="{{ looker_studio_url }}" target="_blank" rel="noopener">Open in Looker Studio</a>
+      {% if data_studio_url %}
+      <a class="btn btn-outline-primary" href="{{ data_studio_url }}" target="_blank" rel="noopener">Open in Data Studio</a>
       {% endif %}
       {% if include_test %}
       <a class="btn btn-outline-primary" href="{{ url_for('download_breakouts', survey_id=survey_id, include_test=1) }}">Breakouts CSV</a>
@@ -59,7 +59,7 @@
     <a href="{{ url_for('reporting', survey_id=survey_id, include_test=1) }}">Include test data</a>
     · <a href="{{ url_for('download_responses', survey_id=survey_id) }}">CSV</a>
     {% endif %}
-    Looker Studio uses the authorized views in dataset <code>brandometer_reporting</code> (not the raw <code>responses</code> table). Granting access is documented in DEVELOPERS.md.
+    Data Studio uses the authorized views in dataset <code>brandometer_reporting</code> (not the raw <code>responses</code> table). Granting access is documented in DEVELOPERS.md.
   </p>
   {% if is_lift %}
   <p class="small text-muted mb-1">

@@ -114,3 +114,39 @@
     iframe.src = 'about:blank';
   });
 })();
+
+(function () {
+  var button = document.getElementById('compare-selected');
+  if (!button) return;
+  var MAX = 30;
+
+  function selectedIds() {
+    var seen = {};
+    var ids = [];
+    document.querySelectorAll('.js-compare-id:checked').forEach(function (box) {
+      var id = (box.value || '').trim();
+      if (!id || seen[id]) return;
+      seen[id] = true;
+      ids.push(id);
+    });
+    return ids.slice(0, MAX);
+  }
+
+  function sync() {
+    var n = selectedIds().length;
+    button.disabled = n < 1;
+    button.textContent = n ? ('Compare selected (' + n + ')') : 'Compare selected';
+  }
+
+  document.addEventListener('change', function (evt) {
+    if (evt.target && evt.target.classList && evt.target.classList.contains('js-compare-id')) {
+      sync();
+    }
+  });
+  button.addEventListener('click', function () {
+    var ids = selectedIds();
+    if (!ids.length) return;
+    window.location.href = '/reports/compare?ids=' + encodeURIComponent(ids.join(','));
+  });
+  sync();
+})();

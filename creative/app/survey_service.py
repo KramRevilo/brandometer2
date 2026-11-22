@@ -25,6 +25,7 @@ import zipfile
 import access
 import brand
 import cells as cells_mod
+import compare as compare_mod
 import css_theme
 import receiver_crypto
 from flask import flash
@@ -1487,6 +1488,60 @@ def fetch_survey_response_rows(surveyid, client=None, include_test=False):
   test_filter = '' if include_test else _EXCLUDE_TEST_SQL
   query = _RESPONSE_SELECT.format(table=table_id, test_filter=test_filter)
   return get_survey_responses(surveyid, query, client=client)
+
+
+def fetch_survey_response_rows_for_ids(survey_ids, client=None, include_test=False):
+  """Response rows for many surveys in one query. Type=test excluded by default."""
+  ids = [sid for sid in (survey_ids or []) if sid]
+  empty = _empty_frame(_EMPTY_RESPONSES_COLUMNS)
+  if not ids:
+    return {}
+  table_id = os.environ.get('TABLE_ID')
+  test_filter = '' if include_test else _EXCLUDE_TEST_SQL
+  query = """
+        SELECT ID, CreatedAt, Segmentation, Response, BomID,
+               RespondentID, RespondentIDSource,
+               CampaignID, PlacementID, SiteID, AdCreativeID,
+               CreativeSize, CreativeVersion, Type
+        FROM `{table}`
+        WHERE ID IN UNNEST(@survey_ids)
+          {test_filter}
+    """.format(table=table_id, test_filter=test_filter)
+  job_config = bigquery.QueryJobConfig(
+      query_parameters=[
+          bigquery.ArrayQueryParameter('survey_ids', 'STRING', ids),
+      ])
+  df = _query_to_dataframe(
+      query, job_config=job_config, client=client,
+      empty_columns=['ID'] + _EMPTY_RESPONSES_COLUMNS)
+  out = {}
+  if df is None or df.empty or 'ID' not in df.columns:
+    return {sid: empty.copy() for sid in ids}
+  for sid, group in df.groupby('ID', dropna=False):
+    key = '' if sid is None else str(sid)
+    out[key] = group.drop(columns=['ID']).reset_index(drop=True)
+  for sid in ids:
+    out.setdefault(sid, empty.copy())
+  return out
+
+
+def get_compare_studies(survey_ids, client=None):
+  """Load surveys + reports for the compare page. Test rows stay excluded."""
+  ids = compare_mod.parse_ids(','.join(survey_ids or []))
+  frames = fetch_survey_response_rows_for_ids(
+      ids, client=client, include_test=False)
+  studies = []
+  for sid in ids:
+    doc = get_doc_by_id(sid)
+    if not doc or not getattr(doc, 'exists', False):
+      continue
+    info = doc.to_dict() or {}
+    df = frames.get(sid)
+    if df is None:
+      df = _empty_frame(_EMPTY_RESPONSES_COLUMNS)
+    report = reporting.build_report(df, info, is_lift=is_brand_lift(info))
+    studies.append((sid, info, report))
+  return studies
 
 
 def get_report(surveyid, client=None, include_test=False):

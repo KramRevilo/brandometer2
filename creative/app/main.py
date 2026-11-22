@@ -40,6 +40,7 @@ import app_security
 import brand
 import bulk_surveys
 import cells as cells_mod
+import compare as compare_mod
 import ui_help
 import creative_size
 import css_theme
@@ -256,6 +257,8 @@ def index():
       filters_active=any(filters.values()),
       unfiltered_count=unfiltered_count,
       status_filter_notice=status_filter_notice,
+      compare_filtered_ids=compare_mod.parse_ids(
+          ','.join(survey.id for survey in surveys)),
       title=brand.brand_name())
   _log_index_timing('render', render_started, n=len(page_surveys))
   _log_index_timing(
@@ -772,12 +775,35 @@ def reporting(survey_id):
         survey=survey_info,
         survey_id=survey_id,
         include_test=include_test,
-        looker_studio_url=reporting_views.looker_studio_url(
+        data_studio_url=reporting_views.data_studio_url(
             os.environ.get('PROJECT_ID'), survey_id=survey_id),
         title=page_title)
   else:
     flash('Survey not found')
     return redirect(url_for('index'))
+
+
+@app.route('/reports/compare', methods=['GET'])
+def reports_compare():
+  """Side-by-side Chart.js compare of selected studies (no Type=test)."""
+  ids = compare_mod.parse_ids(request.args.get('ids') or '')
+  if not ids:
+    flash('Select at least one survey to compare.')
+    return redirect(url_for('index'))
+  studies = survey_service.get_compare_studies(ids)
+  if not studies:
+    flash('None of those surveys were found.')
+    return redirect(url_for('index'))
+  found_ids = [sid for sid, _, _ in studies]
+  model = compare_mod.build(studies)
+  return render_template(
+      'compare.html',
+      compare=model,
+      ids=found_ids,
+      ids_query=compare_mod.ids_query(found_ids),
+      data_studio_url=reporting_views.data_studio_url(
+          os.environ.get('PROJECT_ID'), survey_ids=found_ids),
+      title='Compare studies')
 
 
 @app.errorhandler(403)

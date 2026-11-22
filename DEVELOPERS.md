@@ -140,7 +140,7 @@ The receiver SA gets `roles/datastore.viewer` (survey exists / not archived), da
 * `brandometer-receiver-hmac` — per-survey creative token HMAC (created once; rotating it invalidates live zips)
 * `brandometer-ip-hmac` — daily IP-hash master (created once)
 
-`app.yaml.template` is App Engine **standard** python312: `automatic_scaling.max_instances` (deploy env `MAX_INSTANCES`, default **5**) and only non-secret `env_variables` (`PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`, optional `LOOKER_TEMPLATE_REPORT_ID` / `LOOKER_TEMPLATE_DS_ALIAS`). Standard `app.yaml` does **not** support `secret_environment_variables`. The App Engine app loads OAuth id/secret, `SECRET_KEY`, and `RECEIVER_HMAC_SECRET` from Secret Manager at startup (module-level cache, App Engine SA `secretAccessor`) and refuses to start if a required secret is missing. The receiver still gets HMAC secrets via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
+`app.yaml.template` is App Engine **standard** python312: `automatic_scaling.max_instances` (deploy env `MAX_INSTANCES`, default **5**) and only non-secret `env_variables` (`PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`, optional `DATA_STUDIO_TEMPLATE_REPORT_ID` / `DATA_STUDIO_TEMPLATE_DS_ALIAS`). Standard `app.yaml` does **not** support `secret_environment_variables`. The App Engine app loads OAuth id/secret, `SECRET_KEY`, and `RECEIVER_HMAC_SECRET` from Secret Manager at startup (module-level cache, App Engine SA `secretAccessor`) and refuses to start if a required secret is missing. The receiver still gets HMAC secrets via `--set-secrets`. Local runs still use env vars. Do **not** use Identity-Aware Proxy for this app.
 
 **Content-Security-Policy.** `app_security.install_security_headers` sets an **enforced** `Content-Security-Policy` on every Flask response (`default-src 'self'`). `frame-ancestors 'self'` lets the homepage modal iframe `/survey/preview/<id>?embed=1` (same origin only; not `'none'`). Google account avatars are `img-src https://*.googleusercontent.com`. Google Sign-In may navigate to `https://accounts.google.com` (`form-action` / `connect-src` also allow `oauth2.googleapis.com` and `www.googleapis.com`). Scripts and styles stay `'unsafe-inline'` because the editor, Chart.js bootstrap, and creative HTML (preview + iframe `srcdoc`) are inline; Alpine needs `'unsafe-eval'`. HTML5 zip downloads are attachments — once trafficked they are not under this header. If `GTAG_ID` is set, Tag Manager / analytics origins are added. `CSP_REPORT_ONLY=1` emits `Content-Security-Policy-Report-Only` instead (local debugging). Redeploy App Engine after this change (`--app-only`).
 
@@ -695,15 +695,17 @@ Cloud Shell: unzip a new inner `index.html` and confirm `response_server` contai
 
 Cloud Shell: open a Brand Lift report with mixed sizes (or curl two sizes into BQ) and confirm Breakouts lists each size with lift/CIs; download CSV and confirm `Size,` rows.
 
-# Phase 7c / 60 (authorized views + Looker Studio)
+# Phase 7c / 60 (authorized views + Data Studio)
 
-`./deploy` (including **`--app-only`**) creates dataset `$PROJECT_ID:brandometer_reporting` in the same location as the rest of the project (description **Authorized Brandometer2 reporting views for Looker Studio**), then:
+`./deploy` (including **`--app-only`**) creates dataset `$PROJECT_ID:brandometer_reporting` in the same location as the rest of the project (description **Authorized Brandometer2 reporting views for Data Studio**), then:
 
 1. `CREATE OR REPLACE VIEW …deduped_responses` — one row per survey + respondent (`COALESCE(RespondentID, BomID)`, latest/most complete `Response`). Columns include campaign/placement/site/creative ids, `CreativeSize`, and `CreativeVersion`. Does **not** expose `RandomTimeStamp` / IP hashes.
 2. `CREATE OR REPLACE VIEW …survey_summaries` — `survey_id`, `Segmentation`, respondent count, first/last `CreatedAt`, min/max `CreativeVersion`.
 3. Authorizes the **reporting dataset** (`targetTypes: VIEWS`) on `responses` via `bq show` + `bq_dataset_iam.py authorize-dataset` + `bq update --source`. Analysts with `READER` on `brandometer_reporting` can query the views without access to the raw table.
 
-The report page **Open in Looker Studio** uses the [Looker Studio Linking API](https://developers.google.com/looker-studio/integrate/linking-api) at `https://lookerstudio.google.com/reporting/create`. A blank/default report has a single embedded source — **do not** send `ds.ds0.*` without `c.reportId` (Looker: “ds0 is not a valid data source alias”). The app uses the alias-less form (`ds.connector=bigQuery&ds.type=CUSTOM_QUERY&ds.sql=SELECT * FROM \`…deduped_responses\` WHERE survey_id = '…'`). Optional `LOOKER_TEMPLATE_REPORT_ID` (deploy env / `app.yaml`) plus `LOOKER_TEMPLATE_DS_ALIAS` (e.g. `ds0`) copy a template you own; users need at least view access to that template. Save the resulting report in Looker Studio for a stable dashboard URL.
+Homepage checkboxes and **Compare filtered results** open `/reports/compare?ids=…` (Chart.js; Type=test excluded). **Export to Data Studio** on that page uses `WHERE survey_id IN (…)` capped at 30 ids. `reporting_views.py datastudio PROJECT_ID [SURVEY_ID…]` prints the Linking API URL.
+
+The report page **Open in Data Studio** uses the [Data Studio Linking API](https://developers.google.com/data-studio/integrate/linking-api) at `https://datastudio.google.com/reporting/create`. A blank/default report has a single embedded source — **do not** send `ds.ds0.*` without `c.reportId` (Data Studio: “ds0 is not a valid data source alias”). The app uses the alias-less form (`ds.connector=bigQuery&ds.type=CUSTOM_QUERY&ds.sql=SELECT * FROM \`…deduped_responses\` WHERE survey_id = '…'`). Optional `DATA_STUDIO_TEMPLATE_REPORT_ID` (deploy env / `app.yaml`) plus `DATA_STUDIO_TEMPLATE_DS_ALIAS` (e.g. `ds0`) copy a template you own; users need at least view access to that template. Save the resulting report in Data Studio for a stable dashboard URL.
 
 If the views are missing, `./deploy --app-only` recreates them (`ensure_reporting_dataset`). One-off without App Engine:
 
@@ -717,7 +719,7 @@ python3 creative/app/reporting_views.py summary brandometer2 \
 **Grant a user or Google group** (do this once per analyst; `./deploy` does not guess emails):
 
 ```shell
-# 1. Project-level jobs (required to run queries / Looker Studio).
+# 1. Project-level jobs (required to run queries / Data Studio).
 gcloud projects add-iam-policy-binding "$PROJECT_ID" \
   --member="user:ana@example.com" \
   --role="roles/bigquery.jobUser" \
@@ -738,7 +740,7 @@ python3 creative/app/bq_dataset_iam.py verify-reader \
   /tmp/brandometer-reporting.json user:ana@example.com
 ```
 
-**Connect Looker Studio manually:** Create → Data source → BigQuery → project `$PROJECT_ID` → dataset `brandometer_reporting` → table `deduped_responses` (or `survey_summaries`). Filter `survey_id` to one study. Do not add the `responses.responses` table to a shared report.
+**Connect Data Studio manually:** Create → Data source → BigQuery → project `$PROJECT_ID` → dataset `brandometer_reporting` → table `deduped_responses` (or `survey_summaries`). Filter `survey_id` to one study. Do not add the `responses.responses` table to a shared report.
 
 Do **not** grant `READER` / `dataViewer` on `responses`. If an analyst can `SELECT` from `responses.responses` directly, the authorized-view boundary is bypassed.
 

@@ -1,0 +1,207 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="container pb-5">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
+    <div>
+      <h1 class="h3 mb-1">Compare studies</h1>
+      <p class="text-muted mb-0">
+        {{ compare.n_studies }} stud{{ 'y' if compare.n_studies == 1 else 'ies' }}
+        · Type=test preview rows excluded
+        · lift uses question 1 answer A
+        {% if compare.truncated %}
+        · capped at {{ compare.max_ids }} ids
+        {% endif %}
+      </p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if data_studio_url %}
+      <a class="btn btn-outline-primary" id="export-data-studio" href="{{ data_studio_url }}" target="_blank" rel="noopener">Export to Data Studio</a>
+      {% endif %}
+      <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
+    </div>
+  </div>
+  <p class="small text-muted">
+    In-app charts use the same Wilson / two-proportion math as a single report.
+    Data Studio opens a Linking API report on <code>deduped_responses</code> with
+    <code>WHERE survey_id IN (…)</code> (max {{ compare.max_ids }}).
+    Product URL: <code>https://datastudio.google.com/reporting/create</code>.
+  </p>
+
+  {% if not compare.rows %}
+  <div class="alert alert-secondary" role="status">No studies to compare.</div>
+  {% else %}
+  <div class="table-responsive mb-4">
+    <table class="table table-sm table-bordered align-middle" id="compare-table">
+      <thead class="table-light">
+        <tr>
+          <th scope="col">Study</th>
+          <th scope="col">Client</th>
+          <th scope="col">Type</th>
+          <th scope="col">n</th>
+          <th scope="col">Control / Expose</th>
+          <th scope="col">Lift (Q1 A)</th>
+          <th scope="col">Progress</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in compare.rows %}
+        <tr>
+          <td>
+            <a href="{{ url_for('reporting', survey_id=row.id) }}">{{ row.label }}</a>
+            <code class="small d-block">{{ row.id }}</code>
+          </td>
+          <td>{{ row.client }}</td>
+          <td>{% if row.is_lift %}Brand Lift{% else %}Brand Track{% endif %}</td>
+          <td>{{ row.n_total }}</td>
+          <td>
+            {% if row.is_lift %}{{ row.control_n }} / {{ row.expose_n }}
+            {% if row.below_min_n %}<span class="badge text-bg-warning">below n={{ row.min_n }}</span>{% endif %}
+            {% else %}—{% endif %}
+          </td>
+          <td>
+            {% if row.lift is not none %}{{ '%.1f'|format(row.lift * 100) }}%{% else %}—{% endif %}
+          </td>
+          <td>
+            {% if row.progress is not none %}{{ (row.progress * 100)|round(0) }}%{% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if compare.has_lift %}
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5">Lift by study</h2>
+      <canvas id="liftByStudyChart" height="110" aria-label="Lift by study"></canvas>
+    </div>
+  </div>
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5">Lift by client</h2>
+      <p class="small text-muted">Mean Q1-A lift across Brand Lift studies in that client.</p>
+      <canvas id="liftByClientChart" height="90" aria-label="Lift by client"></canvas>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5">Daily responses (overlay)</h2>
+      {% if compare.charts.daily.labels %}
+      <canvas id="dailyOverlayChart" height="110" aria-label="Daily responses overlay"></canvas>
+      {% else %}
+      <p class="text-muted mb-0">No dated responses to overlay.</p>
+      {% endif %}
+    </div>
+  </div>
+  <div class="card mb-4">
+    <div class="card-body">
+      <h2 class="h5">n vs MIN_N / progress</h2>
+      <p class="small text-muted">Bars are respondent n. The line is progress toward the planned sample (or {{ compare.min_n }} per arm when there is no plan).</p>
+      <canvas id="sampleChart" height="110" aria-label="Sample size versus minimum n"></canvas>
+    </div>
+  </div>
+  {% endif %}
+</div>
+{% endblock content %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='vendor/chart.umd.min.js') }}"></script>
+<script>
+  var payload = {{ compare.charts|tojson }};
+  function pctTick(value) {
+    if (value == null) return '';
+    return (Number(value) * 100).toFixed(0) + '%';
+  }
+  if (document.getElementById('liftByStudyChart') && payload.lift_by_study.labels.length) {
+    new Chart(document.getElementById('liftByStudyChart'), {
+      type: 'bar',
+      data: {
+        labels: payload.lift_by_study.labels,
+        datasets: [{
+          label: 'Lift',
+          data: payload.lift_by_study.values,
+          backgroundColor: payload.lift_by_study.below_min_n.map(function (small) {
+            return small ? 'rgba(255, 193, 7, 0.7)' : 'rgba(13, 110, 253, 0.7)';
+          })
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { callback: pctTick } } }
+      }
+    });
+  }
+  if (document.getElementById('liftByClientChart') && payload.lift_by_client.labels.length) {
+    new Chart(document.getElementById('liftByClientChart'), {
+      type: 'bar',
+      data: {
+        labels: payload.lift_by_client.labels,
+        datasets: [{
+          label: 'Mean lift',
+          data: payload.lift_by_client.values,
+          backgroundColor: 'rgba(25, 135, 84, 0.7)'
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { ticks: { callback: pctTick } } }
+      }
+    });
+  }
+  if (document.getElementById('dailyOverlayChart') && payload.daily.labels.length) {
+    new Chart(document.getElementById('dailyOverlayChart'), {
+      type: 'line',
+      data: {
+        labels: payload.daily.labels,
+        datasets: payload.daily.datasets.map(function (ds, i) {
+          var hue = (i * 57) % 360;
+          return {
+            label: ds.label,
+            data: ds.data,
+            borderColor: 'hsl(' + hue + ', 70%, 40%)',
+            backgroundColor: 'transparent',
+            tension: 0.2
+          };
+        })
+      },
+      options: { scales: { y: { beginAtZero: true } } }
+    });
+  }
+  if (document.getElementById('sampleChart')) {
+    new Chart(document.getElementById('sampleChart'), {
+      type: 'bar',
+      data: {
+        labels: payload.sample.labels,
+        datasets: [
+          { label: 'n', data: payload.sample.n_total, backgroundColor: 'rgba(13, 110, 253, 0.55)' },
+          { label: 'Control n', data: payload.sample.control_n, backgroundColor: 'rgba(108, 117, 125, 0.55)' },
+          { label: 'Expose n', data: payload.sample.expose_n, backgroundColor: 'rgba(25, 135, 84, 0.55)' },
+          {
+            type: 'line',
+            label: 'Progress %',
+            data: payload.sample.progress,
+            yAxisID: 'progress',
+            borderColor: '#dc3545',
+            backgroundColor: 'transparent'
+          }
+        ]
+      },
+      options: {
+        scales: {
+          y: { beginAtZero: true, title: { display: true, text: 'Respondents' } },
+          progress: {
+            position: 'right',
+            min: 0,
+            max: 100,
+            grid: { drawOnChartArea: false },
+            title: { display: true, text: 'Progress %' }
+          }
+        }
+      }
+    });
+  }
+</script>
+{% endblock %}

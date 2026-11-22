@@ -604,8 +604,15 @@ def patch_bigquery() -> None:
       })
     return pandas.DataFrame(rows)
 
+  def fake_rows_for_ids(survey_ids, client=None, include_test=False):
+    out = {}
+    for sid in survey_ids or []:
+      out[sid] = fake_rows(sid, client=client, include_test=include_test)
+    return out
+
   survey_service.get_response_counts = fake_counts
   survey_service.fetch_survey_response_rows = fake_rows
+  survey_service.fetch_survey_response_rows_for_ids = fake_rows_for_ids
   survey_service.clear_stats_cache()
 
 
@@ -805,6 +812,9 @@ def run_browser(app, out: Path) -> None:
     page.goto(base + '/index', wait_until='networkidle')
     wait_stats_ready(page)
     assert_home_chrome(page)
+    page.wait_for_selector('#compare-filtered')
+    page.wait_for_timeout(200)
+    capture(page, out / 'home-compare.png', full_page=False)
     page.wait_for_selector('#actions-lift-demo')
     page.click('#actions-lift-demo')
     page.wait_for_selector('#actions-lift-demo + .dropdown-menu.show, .dropdown-menu.show')
@@ -912,6 +922,12 @@ def run_browser(app, out: Path) -> None:
           page, out / filename, full_page=False, clip=box, max_width=None)
 
     page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 1600})
+    page.goto(
+        base + '/reports/compare?ids=lift-demo,lift-coffee',
+        wait_until='networkidle')
+    page.wait_for_selector('#compare-table')
+    page.wait_for_timeout(800)
+    capture(page, out / 'compare-studies.png', full_page=False)
     page.goto(base + '/survey/reporting/lift-demo', wait_until='networkidle')
     page.wait_for_selector('#dailyChart')
     page.wait_for_selector('table')

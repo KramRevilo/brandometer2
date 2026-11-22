@@ -111,7 +111,7 @@ Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (
 
 ![Standalone live preview of a 300×250 creative with size switcher](docs/images/preview-300x250.png)
 
-*Preview (`/survey/preview/<id>`): size links switch among the survey’s selected sizes; **Cell** switches the baked `seg` when the survey has cells. Editors can **Submit test response** on the standalone page (not the homepage modal): answers POST as `Type=test` with respondent ids prefixed `test_`. Reports, homepage counts, CSV, sequential stats, and Looker views exclude those rows unless you turn on **Include test data**. The **Thank You** end screen is flex-centered in the creative minus the 24px badge gutter (every size, including long copy and RTL). `<html lang>` / `dir` follow the survey language (`ar` / `he` / `fa` / `ur` are RTL). The measurement pixel is fire-and-forget and must not block that screen. Re-download HTML5 zips after layout or pixel changes.*
+*Preview (`/survey/preview/<id>`): size links switch among the survey’s selected sizes; **Cell** switches the baked `seg` when the survey has cells. Editors can **Submit test response** on the standalone page (not the homepage modal): answers POST as `Type=test` with respondent ids prefixed `test_`. Reports, homepage counts, CSV, sequential stats, and Data Studio views exclude those rows unless you turn on **Include test data**. The **Thank You** end screen is flex-centered in the creative minus the 24px badge gutter (every size, including long copy and RTL). `<html lang>` / `dir` follow the survey language (`ar` / `he` / `fa` / `ur` are RTL). The measurement pixel is fire-and-forget and must not block that screen. Re-download HTML5 zips after layout or pixel changes.*
 
 ### Creatives
 
@@ -159,13 +159,22 @@ The stats button works for **Brand Lift and Brand Track**.
 * Brand Track: answer distributions and responses per day.
 * **Breakouts:** the report page slices the same lift / Wilson CIs / z-test by **size**, **placement**, **site**, **ad-server creative ID**, **zip snapshot version**, **date**, and **segment**. Dimensions that are blank on every row are omitted. Rows without `ver=` show as **Unknown / pre-version**. Download **Breakouts CSV** from the report or the homepage. Response CSV includes Size and Creative version.
 * Three response CSVs: responses, responses with question text (both stream), and breakouts (one table of overall + slices).
-* **Looker Studio / BigQuery analysts:** `./deploy` (including `--app-only`) creates dataset `brandometer_reporting` with authorized views `deduped_responses` (one row per respondent) and `survey_summaries`. Grant `READER` on that dataset only — not on `responses`. The report page **Open in Looker Studio** uses the [Looker Studio Linking API](https://developers.google.com/looker-studio/integrate/linking-api) at `lookerstudio.google.com/reporting/create`. With no template it uses the **alias-less** default-report form (`ds.connector=bigQuery`, not `ds.ds0`, which is only valid on a template that already has that alias). Each click starts a new report whose data source is a `CUSTOM_QUERY` on `deduped_responses` filtered to that survey (`WHERE survey_id = …`); the Linking API cannot pass a chart filter on TABLE params. Optional env `LOOKER_TEMPLATE_REPORT_ID` (and `LOOKER_TEMPLATE_DS_ALIAS`) copy a saved template via `c.reportId`. Granting a user or group is documented in DEVELOPERS.md.
+* **Data Studio / BigQuery analysts:** `./deploy` (including `--app-only`) creates dataset `brandometer_reporting` with authorized views `deduped_responses` (one row per respondent) and `survey_summaries`. Grant `READER` on that dataset only — not on `responses`. The report page **Open in Data Studio** uses the [Data Studio Linking API](https://developers.google.com/data-studio/integrate/linking-api) at `https://datastudio.google.com/reporting/create`. With no template it uses the **alias-less** default-report form (`ds.connector=bigQuery`, not `ds.ds0`, which is only valid on a template that already has that alias). Each click starts a new report whose data source is a `CUSTOM_QUERY` on `deduped_responses` filtered to that survey (`WHERE survey_id = …`); the Linking API cannot pass a chart filter on TABLE params. Optional env `DATA_STUDIO_TEMPLATE_REPORT_ID` (and `DATA_STUDIO_TEMPLATE_DS_ALIAS`) copy a saved template via `c.reportId`. Granting a user or group is documented in DEVELOPERS.md.
+* **Compare studies:** homepage checkboxes plus **Compare filtered results** open `/reports/compare?ids=…` (Chart.js: lift by study, mean lift by client, daily overlay, n vs MIN_N / progress). Type=test rows stay out. **Export to Data Studio** uses `WHERE survey_id IN (…)` capped at 30 ids.
 
 Preview **does not** post to BigQuery. To generate test rows, curl the receiver (see DEVELOPERS.md).
 
 ![Brand Lift report with daily chart, answer distribution, lift percentages, Wilson CIs, and p-values](docs/images/report-lift.png)
 
-*Brand Lift report (1400px): **Open in Looker Studio**, sequential status, daily chart, answer distribution, Wilson 95% CIs, lift, p-value, and Holm–Bonferroni p-adj.*
+*Brand Lift report (1400px): **Open in Data Studio**, sequential status, daily chart, answer distribution, Wilson 95% CIs, lift, p-value, and Holm–Bonferroni p-adj.*
+
+![Homepage compare checkboxes and Compare filtered results](docs/images/home-compare.png)
+
+*Homepage: tick studies and **Compare selected**, or **Compare filtered results** for the current filters (max 30).*
+
+![Multi-study compare page with lift bars and daily overlay](docs/images/compare-studies.png)
+
+*Compare (1400px): lift by study, lift by client, daily overlay, n vs MIN_N / progress, and **Export to Data Studio**.*
 
 ![Small-sample warning on a Brand Lift report with What does this mean? expanded](docs/images/report-min-n-help.png)
 
@@ -226,7 +235,7 @@ The table is what changed versus upstream Brandometer. Detail follows.
 | One row per impression (BomID was in-memory UUID only) | Durable survey-scoped `RespondentID`: hashed expanded ad-server user macro, else partitioned storage, else per-impression UUID. Raw user ids never on the pixel URL or in BQ. Old rows keep BomID | `creative.html` `resolveRespondentId`, `receiver` `rid`/`rsrc`, `respondent.session_keys` |
 | Secrets in `app.yaml` / env / deploy prompts echoed | Secret Manager only. App Engine loads at startup via the SM client (`secret_environment_variables` is not valid on standard). `./deploy` prints `stored N chars`, never the value | `app_security.load_secret`, `app.yaml.template`, `./deploy` |
 | App Engine SA had `roles/editor` | Least privilege: GAE SA is datastore user, BQ **jobUser** + dataset **WRITER**, secret accessor. Receiver SA is **datastore.viewer** only (plus BQ write + HMAC secrets). `roles/editor` is removed | `./deploy` |
-| Analysts needed raw `responses` table access for Looker | Dataset `brandometer_reporting` with authorized views (deduped + per-survey summaries). Views are authorized on `responses`; analysts get `READER` on `brandometer_reporting` plus project `roles/bigquery.jobUser` | `./deploy` `ensure_reporting_dataset`, `bq_dataset_iam.py` `merge-reader` |
+| Analysts needed raw `responses` table access for Data Studio | Dataset `brandometer_reporting` with authorized views (deduped + per-survey summaries). Views are authorized on `responses`; analysts get `READER` on `brandometer_reporting` plus project `roles/bigquery.jobUser` | `./deploy` `ensure_reporting_dataset`, `bq_dataset_iam.py` `merge-reader` |
 | Front-end from public CDNs | Self-hosted under `creative/app/static/vendor/` (Bootstrap 5.3.3, Bootstrap Icons 1.11.3, htmx 1.9.12, Alpine.js 3.14.3, Chart.js 4.4.6) | `static/vendor/`, tests fail if templates load jsDelivr / cdnjs / unpkg |
 | Loose / un-audited Python deps | Pins in `creative/app/requirements.txt` and `receiver/requirements.txt`. `pip-audit` in `requirements-dev.txt` | See **pyarrow** note below |
 | `DISABLE_BASIC_AUTH=1` could ship to App Engine and skip login | Refused when `GAE_ENV` is set. `app.yaml` check rejects the flag. Never written by `./deploy` | `app_security.apply_runtime_guards`, `app_yaml_check.py` |
@@ -248,7 +257,7 @@ Created by `./deploy`. HMAC / `SECRET_KEY` are **not** rotated on later runs:
 * `brandometer-receiver-hmac` — per-survey creative token
 * `brandometer-ip-hmac` — daily IP-hash master
 
-App Engine env vars are non-secret only: `PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`, optional `LOOKER_TEMPLATE_REPORT_ID` / `LOOKER_TEMPLATE_DS_ALIAS`.
+App Engine env vars are non-secret only: `PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`, optional `DATA_STUDIO_TEMPLATE_REPORT_ID` / `DATA_STUDIO_TEMPLATE_DS_ALIAS`.
 
 Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-download. Rotating `SECRET_KEY` signs everyone out.
 
@@ -462,7 +471,7 @@ python3 tools/migrate_responses_partition.py --project brandometer2 --apply
 
 Dry-run is the default. `--apply` copies into a partitioned table, swaps names, and keeps `responses_unpartitioned_backup_YYYYMMDD`.
 
-Analysts with Looker / reporting-dataset access should query the authorized views instead of the raw table:
+Analysts with Data Studio / reporting-dataset access should query the authorized views instead of the raw table:
 
 ```sql
 SELECT *
@@ -473,7 +482,7 @@ ORDER BY CreatedAt;
 
 ## Roadmap (not built)
 
-Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Looker Studio, reporting breakouts). **7d** HTML5 spec QA (item 64), bulk CSV survey create (item 65), stats-method corrections (item 66), CM360/DV360 bulk-upload **files** (item 67; no API), and the shared Firestore stats cache (item 68) are shipped. Remaining **7d** — do not treat these as shipped:
+Phase **7c** items **58**–**61** are shipped (durable respondent ID, ad-server macros + tag sheet, authorized views + Data Studio, reporting breakouts). **7d** HTML5 spec QA (item 64), bulk CSV survey create (item 65), stats-method corrections (item 66), CM360/DV360 bulk-upload **files** (item 67; no API), and the shared Firestore stats cache (item 68) are shipped. Remaining **7d** — do not treat these as shipped:
 
 * CM360 / DV360 cost/impressions join
 

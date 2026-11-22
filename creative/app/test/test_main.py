@@ -1035,11 +1035,11 @@ class MainRoutesTest(unittest.TestCase):
 
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'No responses yet', response.data)
-    self.assertNotIn(b'Open in Looker Studio', response.data)
+    self.assertNotIn(b'Open in Data Studio', response.data)
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   @mock.patch.object(survey_service, 'get_doc_by_id')
-  def test_reporting_looker_studio_link(self, doc_mock, responses_mock):
+  def test_reporting_data_studio_link(self, doc_mock, responses_mock):
     doc_mock.return_value = self._survey('abc', {
         'surveytype': 'brand_track',
         'surveyname': 'Track',
@@ -1054,8 +1054,8 @@ class MainRoutesTest(unittest.TestCase):
     with mock.patch.dict(os.environ, {'PROJECT_ID': 'brandometer2'}):
       response = self.client.get('/survey/reporting/abc')
     self.assertEqual(response.status_code, 200)
-    self.assertIn(b'Open in Looker Studio', response.data)
-    self.assertIn(b'lookerstudio.google.com/reporting/create', response.data)
+    self.assertIn(b'Open in Data Studio', response.data)
+    self.assertIn(b'datastudio.google.com/reporting/create', response.data)
     self.assertIn(b'ds.connector=bigQuery', response.data)
     self.assertIn(b'ds.type=CUSTOM_QUERY', response.data)
     self.assertIn(b'brandometer_reporting', response.data)
