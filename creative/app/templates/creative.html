@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html>
+<html lang="{{ html_lang|default('en') }}" dir="{{ html_dir|default('ltr') }}">
 
 <head>
     <meta name="ad.size" content="{{ ad_size_meta|default('width=300,height=250') }}">
@@ -898,11 +898,18 @@
     <style id="privacy_note_style">
         #privacy_note.invisible { display: none !important; }
         #privacy_note.privacy-note {
-            font-size: 9px;
-            line-height: 1.15;
+            position: absolute;
+            left: 4px;
+            right: 4px;
+            bottom: 24px;
+            z-index: 30;
+            max-height: 22px;
+            overflow: hidden;
+            font-size: 8px;
+            line-height: 1.1;
             color: #444;
             text-align: center;
-            padding: 2px 6px;
+            padding: 0 4px;
         }
     </style>
 </head>

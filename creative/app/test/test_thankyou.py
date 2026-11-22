@@ -25,6 +25,7 @@ from wsgiref.simple_server import make_server
 
 from flask import render_template as flask_render_template
 
+import creative_size
 import css_theme
 import main
 import survey_service
@@ -103,6 +104,23 @@ class ThankyouHtmlTest(unittest.TestCase):
     html = _html(_survey(), receiver_url='')
     self.assertIn('"response_server": ""', html)
 
+  def test_html_lang_dir_from_survey_language(self):
+    self.assertEqual(survey_service.html_lang_dir({'language': 'en'}), ('en', 'ltr'))
+    self.assertEqual(survey_service.html_lang_dir({'language': 'ja'}), ('ja', 'ltr'))
+    self.assertEqual(survey_service.html_lang_dir({'language': 'ar'}), ('ar', 'rtl'))
+    self.assertEqual(survey_service.html_lang_dir({'language': 'he'}), ('he', 'rtl'))
+    self.assertEqual(survey_service.html_lang_dir({'language': 'fa'}), ('fa', 'rtl'))
+    self.assertEqual(survey_service.html_lang_dir({'language': 'ur'}), ('ur', 'rtl'))
+    self.assertEqual(survey_service.html_lang_dir({}), ('en', 'ltr'))
+    html_ar = _html(_survey(extra={'language': 'ar'}))
+    self.assertIn('lang="ar"', html_ar)
+    self.assertIn('dir="rtl"', html_ar)
+    html_ja = _html(_survey(extra={'language': 'ja'}))
+    self.assertIn('lang="ja"', html_ja)
+    self.assertIn('dir="ltr"', html_ja)
+    self.assertIn('display: flex', html_ar)
+    self.assertIn('align-items: center', html_ar)
+
 
 def _playwright_or_skip():
   try:
@@ -115,10 +133,16 @@ def _playwright_or_skip():
 class ThankyouBrowserTest(unittest.TestCase):
   """Headless click-through of preview-like and zip-like creatives."""
 
-  def _click_through(self, page, clicks, expect_text='Thank You'):
+  def _click_through(self, page, clicks, expect_text='Thank You', long_text=None):
     errors = []
     page.on('pageerror', lambda exc: errors.append(str(exc)))
     page.on('console', lambda msg: errors.append(msg.text) if msg.type == 'error' else None)
+    if long_text:
+      page.evaluate(
+          """(text) => {
+            fullConfiguration.ui_config.component_selectors.thankyou.text = text;
+          }""",
+          long_text)
     page.wait_for_selector('#option_container_0')
     for _ in range(clicks):
       page.locator('#option_container_0').click()
@@ -130,7 +154,47 @@ class ThankyouBrowserTest(unittest.TestCase):
     self.assertIn('invisible', survey.get_attribute('class') or '')
     js_errors = [item for item in errors if 'favicon' not in item.lower()]
     self.assertEqual(js_errors, [], msg=js_errors)
+    self._assert_thankyou_centered(page)
     return page.locator('#master_container').screenshot()
+
+  def _assert_thankyou_centered(self, page, tol=14):
+    data = page.evaluate("""() => {
+      const master = document.getElementById('master_container');
+      const text = document.getElementById('thankyou_text');
+      const thanks = document.getElementById('thankyou_container');
+      const note = document.getElementById('privacy_note');
+      const m = master.getBoundingClientRect();
+      const t = text.getBoundingClientRect();
+      const n = note && !note.classList.contains('invisible')
+        ? note.getBoundingClientRect() : null;
+      const cs = getComputedStyle(thanks);
+      return {
+        mw: m.width, mh: m.height, mx: m.x, my: m.y,
+        tx: t.x, ty: t.y, tw: t.width, th: t.height,
+        display: cs.display, justify: cs.justifyContent, align: cs.alignItems,
+        dir: document.documentElement.getAttribute('dir'),
+        lang: document.documentElement.getAttribute('lang'),
+        noteGap: n ? (m.bottom - n.bottom) : null,
+        noteVisible: !!(n && n.height > 0)
+      };
+    }""")
+    self.assertEqual(data['display'], 'flex')
+    self.assertEqual(data['justify'], 'center')
+    self.assertEqual(data['align'], 'center')
+    usable_h = data['mh'] - 24
+    cx = data['mx'] + data['mw'] / 2.0
+    cy = data['my'] + usable_h / 2.0
+    tcx = data['tx'] + data['tw'] / 2.0
+    tcy = data['ty'] + data['th'] / 2.0
+    self.assertLessEqual(
+        abs(tcx - cx), tol,
+        'horizontal center off: text=%s master=%s %s' % (tcx, cx, data))
+    self.assertLessEqual(
+        abs(tcy - cy), tol,
+        'vertical center off: text=%s usable=%s %s' % (tcy, cy, data))
+    if data['noteGap'] is not None:
+      self.assertGreaterEqual(data['noteGap'], 20)
+      self.assertLessEqual(data['noteGap'], 30)
 
   def test_file_creatives_show_thank_you(self):
     sync_playwright = _playwright_or_skip()
@@ -174,6 +238,78 @@ class ThankyouBrowserTest(unittest.TestCase):
         os.makedirs(artifacts, exist_ok=True)
         with open(os.path.join(artifacts, 'thank-you-screen.png'), 'wb') as handle:
           handle.write(shot)
+
+  def test_thankyou_geometry_every_size_long_copy_and_rtl(self):
+    sync_playwright = _playwright_or_skip()
+    long_copy = (
+        'Thank you so much for taking this survey we really appreciate '
+        'your time and feedback today')
+    cases = []
+    for key in creative_size.SIZES:
+      cases.append({
+          'name': key + '-en',
+          'survey': _survey(1, 2, key),
+          'expect': 'Thank You',
+          'dir': 'ltr',
+          'lang': 'en',
+          'long_text': None,
+      })
+    cases.append({
+        'name': '300x250-ar',
+        'survey': _survey(1, 2, '300x250', extra={'language': 'ar'}),
+        'expect': 'شكرا',
+        'dir': 'rtl',
+        'lang': 'ar',
+        'long_text': None,
+    })
+    cases.append({
+        'name': '160x600-ja',
+        'survey': _survey(1, 2, '160x600', extra={'language': 'ja'}),
+        'expect': 'ありがとうございました',
+        'dir': 'ltr',
+        'lang': 'ja',
+        'long_text': None,
+    })
+    cases.append({
+        'name': '300x250-long',
+        'survey': _survey(1, 2, '300x250'),
+        'expect': 'appreciate',
+        'dir': 'ltr',
+        'lang': 'en',
+        'long_text': long_copy,
+    })
+    cases.append({
+        'name': '970x250-long',
+        'survey': _survey(1, 2, '970x250'),
+        'expect': 'appreciate',
+        'dir': 'ltr',
+        'lang': 'en',
+        'long_text': long_copy,
+    })
+    with tempfile.TemporaryDirectory() as tmp:
+      with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        try:
+          for case in cases:
+            html = _html(case['survey'], receiver_url='')
+            path = os.path.join(tmp, case['name'] + '.html')
+            with open(path, 'w', encoding='utf-8') as handle:
+              handle.write(html)
+            page = browser.new_page(viewport={'width': 1100, 'height': 700})
+            page.goto('file://' + path)
+            self._click_through(
+                page, 1, expect_text=case['expect'],
+                long_text=case['long_text'])
+            attrs = page.evaluate(
+                """() => ({
+                  lang: document.documentElement.getAttribute('lang'),
+                  dir: document.documentElement.getAttribute('dir')
+                })""")
+            self.assertEqual(attrs['lang'], case['lang'], case['name'])
+            self.assertEqual(attrs['dir'], case['dir'], case['name'])
+            page.close()
+        finally:
+          browser.close()
 
   def test_flask_preview_with_csp_shows_thank_you(self):
     sync_playwright = _playwright_or_skip()

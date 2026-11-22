@@ -103,6 +103,10 @@
       '  user-select: none;',
       '  -webkit-user-select: none;',
       '}',
+      '#thankyou_text, .thankyoucontainer {',
+      '  color: var(--bv2-question-color);',
+      '  font-family: var(--bv2-font-family);',
+      '}',
       '.Abox {',
       '  background-color: var(--bv2-answer-bg);',
       '  border: 1px solid rgba(0, 0, 0, 0.35);',
@@ -532,7 +536,9 @@
           '#master_container{box-sizing:border-box;width:' + w + 'px!important;height:' + h + 'px!important;' +
           'overflow:hidden;margin:0;max-width:' + w + 'px;max-height:' + h + 'px;}';
         var badge = this.badgeMarkup();
-        return '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        var lang = (fieldValue('language') || 'en').trim().toLowerCase() || 'en';
+        var dir = ({ ar: 1, he: 1, fa: 1, ur: 1 }[lang.split('-')[0]]) ? 'rtl' : 'ltr';
+        return '<!DOCTYPE html><html lang="' + escapeHtml(lang) + '" dir="' + dir + '"><head><meta charset="utf-8">' +
           '<style>' + safeCss + '</style>' +
           '<style>' + overlay + '</style>' +
           '<style>' + layoutFix + '</style>' +

@@ -1365,6 +1365,7 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None,
       receiver_url=receiver_url,
       receiver_token=receiver_token,
       creative_version=creative_version,
+      **html_lang_dir_vars(survey_dict),
       **macro_vars,
       **brand.badge_render_vars(survey_dict))
 
@@ -1945,6 +1946,22 @@ def download_breakouts(surveyid, client=None):
 #  else:
 #    thankyou_text = 'Thank You'
 #  return thankyou_text
+
+
+RTL_LANGUAGES = frozenset(('ar', 'he', 'fa', 'ur'))
+
+
+def html_lang_dir(survey):
+  """BCP 47 language and CSS dir for the creative <html> element."""
+  lang = str((survey or {}).get('language') or 'en').strip().lower() or 'en'
+  if len(lang) > 8 or not lang.replace('-', '').isalnum():
+    lang = 'en'
+  return lang, ('rtl' if lang.split('-', 1)[0] in RTL_LANGUAGES else 'ltr')
+
+
+def html_lang_dir_vars(survey):
+  lang, direction = html_lang_dir(survey)
+  return {'html_lang': lang, 'html_dir': direction}
 
 
 def get_thank_you_text(survey):

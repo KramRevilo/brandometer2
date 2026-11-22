@@ -85,6 +85,7 @@ class CssThemeTest(unittest.TestCase):
     self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', block)
     self.assertIn('padding: 3px 15px', block)
     self.assertIn('#ad_text {', block)
+    self.assertIn('#thankyou_text, .thankyoucontainer', block)
     layout = creative_size.layout_fix_css()
     self.assertIn('gap: 6px', layout)
     self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', layout)
@@ -140,3 +141,5 @@ class CssThemeTest(unittest.TestCase):
     self.assertIn('var(--bv2-accent)', source)
     self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', source)
     self.assertIn('#next_button', source)
+    self.assertIn("dir=\"", source)
+    self.assertIn('#thankyou_text, .thankyoucontainer', source)

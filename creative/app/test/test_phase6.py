@@ -76,6 +76,22 @@ class SizeCatalogTest(unittest.TestCase):
     self.assertTrue(name.endswith('.zip'))
     self.assertIn('970x250', name)
 
+  def test_overlay_does_not_set_thankyou_top(self):
+    for key in creative_size.SIZES:
+      css = creative_size.overlay_css(key)
+      self.assertIn('.thankyoucontainer {', css)
+      self.assertNotIn('top:', css)
+      self.assertNotIn('top :', css)
+
+  def test_layout_fix_flex_centers_thankyou(self):
+    layout = creative_size.layout_fix_css()
+    self.assertIn('display: flex', layout)
+    self.assertIn('align-items: center', layout)
+    self.assertIn('justify-content: center', layout)
+    self.assertIn('bottom: 24px', layout)
+    self.assertIn('#privacy_note.privacy-note', layout)
+    self.assertIn('clamp(', layout)
+
   def test_layout_fix_overrides_fixed_atext_height(self):
     css = creative_size.apply_overlay(
         '.AText { height: 27px; line-height: 27px; }', '300x250')

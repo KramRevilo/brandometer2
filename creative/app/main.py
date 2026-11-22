@@ -453,6 +453,7 @@ def preview(survey_id):
         thankyou_text=survey_service.get_thank_you_text(survey_info),
         next_text=survey_service.get_next_text(survey_info),
         comment_text=survey_service.get_comment_text(survey_info),
+        **survey_service.html_lang_dir_vars(survey_info),
         **brand.badge_render_vars(survey_info))
   else:
     flash('Survey not found')

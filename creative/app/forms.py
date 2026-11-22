@@ -208,11 +208,16 @@ body {
    and its text that is shown at the end of the survey.
 */
 .thankyoucontainer {
-    height: 100px;
-    width: 300px;
     position: absolute;
-    top: 100px;
-    left: 0px;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 24px;
+    width: 100%;
+    height: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
     text-align: center;
     font-family: 'Open Sans', sans-serif;
     font-size: 26px;
