@@ -11,6 +11,8 @@ env_variables:
   TABLE_ID: "{{PROJECT_ID}}.responses.responses"
   GTAG_ID: "{{GTAG_ID}}"
   BOOTSTRAP_ADMIN_EMAIL: "{{BOOTSTRAP_ADMIN_EMAIL}}"
+  LOOKER_TEMPLATE_REPORT_ID: "{{LOOKER_TEMPLATE_REPORT_ID}}"
+  LOOKER_TEMPLATE_DS_ALIAS: "{{LOOKER_TEMPLATE_DS_ALIAS}}"
 
 handlers:
 - url: /favicon\.ico

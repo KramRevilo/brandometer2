@@ -31,7 +31,6 @@ from flask import render_template
 from markupsafe import Markup
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
-from google.cloud import bigquery_storage
 import numpy as np
 import pandas as pd
 import creative_size
@@ -79,7 +78,6 @@ _stats_lock = threading.Lock()
 _stats_cache = {'by_id': {}, 'expires_at': 0.0}
 
 _bq_client = None
-_bqstorage_client = None
 
 
 def _get_bq_client(project_id=None):
@@ -88,14 +86,6 @@ def _get_bq_client(project_id=None):
   if _bq_client is None:
     _bq_client = bigquery.Client(project=project_id or os.environ.get('PROJECT_ID'))
   return _bq_client
-
-
-def _get_bqstorage_client():
-  """Return a BigQuery Storage client, created on first use."""
-  global _bqstorage_client
-  if _bqstorage_client is None:
-    _bqstorage_client = bigquery_storage.BigQueryReadClient()
-  return _bqstorage_client
 
 
 _EMPTY_RESPONSES_COLUMNS = [
@@ -137,12 +127,27 @@ def _concat_frames(frames, **kwargs):
   return pd.concat(kept, **kwargs)
 
 
-def _query_to_dataframe(query, job_config=None, client=None, empty_columns=None):
-  """Run a BigQuery SQL job. Missing tables return an empty frame, not an error.
+def _dataframe_from_job_result(result, empty):
+  """Materialize a query result over jobs REST, never the Storage API.
 
-  Prefers the Storage API for to_dataframe(). If that fails (often a missing
-  bigquery.readsessions.create / roles/bigquery.readSessionUser on the App
-  Engine SA), fall back to the jobs REST path so homepage counts still load.
+  RowIterator.to_dataframe() defaults create_bqstorage_client=True, which
+  needs bigquery.readsessions.create. A Storage 403 on that path also
+  consumes the iterator, so a second REST to_dataframe() call fails too.
+  """
+  to_df = getattr(result, 'to_dataframe', None)
+  if callable(to_df):
+    return to_df(create_bqstorage_client=False)
+  rows = [dict(row) for row in result]
+  if not rows:
+    return empty
+  return pd.DataFrame(rows)
+
+
+def _query_to_dataframe(query, job_config=None, client=None, empty_columns=None):
+  """Run a BigQuery SQL job over the jobs REST API.
+
+  Missing tables return an empty frame, not an error. App Engine only needs
+  jobUser plus dataset read — not roles/bigquery.readSessionUser.
   """
   empty = _empty_frame(empty_columns or _EMPTY_RESPONSES_COLUMNS)
   project_id = os.environ.get('PROJECT_ID')
@@ -154,14 +159,13 @@ def _query_to_dataframe(query, job_config=None, client=None, empty_columns=None)
     else:
       query_job = client.query(query, job_config=job_config)
     result = query_job.result()
+    return _dataframe_from_job_result(result, empty)
   except NotFound:
     return empty
-  try:
-    return result.to_dataframe(bqstorage_client=_get_bqstorage_client())
   except Exception as exc:
-    _log.warning(
-        'stats.bqstorage_failed; falling back to REST to_dataframe: %s', exc)
-    return result.to_dataframe(create_bqstorage_client=False)
+    _log.exception(
+        'stats.bq_query_failed type=%s error=%r', type(exc).__name__, exc)
+    raise
 
 def get_all():
   return survey_collection.get_all()

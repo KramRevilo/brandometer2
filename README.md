@@ -33,7 +33,7 @@ List with search plus **client / agency / created by / year / size** filters (ke
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
 * One **Actions** column: Preview, Stats, and (editors) Edit as icon buttons; ZIP, tags, CSVs, copy, archive, and delete sit in a **⋯** menu. Viewers get Preview/Stats plus downloads in the menu, not mutate actions. Preview opens a modal (size switcher, `?embed=1` iframe); the standalone `/survey/preview/<id>` page is unchanged. Ctrl/Cmd-click still opens that page.
 * **Responsive:** below 768px the list is cards (name, client, created date, status, last received data (days), actions). From `md` up the table shows; Agency hides until `xl`; Created by / Sizes / Count / Last Rcvd hide until `lg`. Survey ID and questions stay off the list so a 1400px laptop row still fits. Client stays visible.
-* Count / last-received-days / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery. If that request fails or times out (20s), the cells show **—** with an “unavailable” tooltip instead of staying on Loading…. Empty per-survey count frames are dropped before `pandas.concat` (no FutureWarning on a page of surveys with no responses).
+* Count / last-received-days / status cells load after the table (`/index/stats-partial`); the list itself does not wait on BigQuery. Counts use the BigQuery **jobs REST** API (`to_dataframe(create_bqstorage_client=False)`), so App Engine needs `roles/bigquery.jobUser` plus dataset read — **not** `roles/bigquery.readSessionUser`. If that request fails or times out (20s), the cells show **—** with an “unavailable” tooltip instead of staying on Loading…; the error log includes exception type and message. Empty per-survey count frames are dropped before `pandas.concat` (no FutureWarning on a page of surveys with no responses).
 * Viewers see the list, filters, preview, reports, and CSVs (responses + breakouts). Create / edit / copy / archive / delete / ZIP / Admin are hidden and also **403** if requested.
 
 ![Home page with sample surveys, status chips, and action buttons](docs/images/home.png)
@@ -137,7 +137,7 @@ The stats button works for **Brand Lift and Brand Track**.
 * Brand Track: answer distributions and responses per day.
 * **Breakouts:** the report page slices the same lift / Wilson CIs / z-test by **size**, **placement**, **site**, **ad-server creative ID**, **zip snapshot version**, **date**, and **segment**. Dimensions that are blank on every row are omitted. Rows without `ver=` show as **Unknown / pre-version**. Download **Breakouts CSV** from the report or the homepage. Response CSV includes Size and Creative version.
 * Three response CSVs: responses, responses with question text (both stream), and breakouts (one table of overall + slices).
-* **Looker Studio / BigQuery analysts:** `./deploy` creates dataset `brandometer_reporting` with authorized views `deduped_responses` (one row per respondent) and `survey_summaries`. Grant `READER` on that dataset only — not on `responses`. The report page has **Open in Looker Studio** (Looker Studio Linking API; each click starts a new report on the deduped view). Granting a user or group is documented in DEVELOPERS.md.
+* **Looker Studio / BigQuery analysts:** `./deploy` (including `--app-only`) creates dataset `brandometer_reporting` with authorized views `deduped_responses` (one row per respondent) and `survey_summaries`. Grant `READER` on that dataset only — not on `responses`. The report page **Open in Looker Studio** uses the [Looker Studio Linking API](https://developers.google.com/looker-studio/integrate/linking-api) at `lookerstudio.google.com/reporting/create`. With no template it uses the **alias-less** default-report form (`ds.connector=bigQuery`, not `ds.ds0`, which is only valid on a template that already has that alias). Each click starts a new report whose data source is a `CUSTOM_QUERY` on `deduped_responses` filtered to that survey (`WHERE survey_id = …`); the Linking API cannot pass a chart filter on TABLE params. Optional env `LOOKER_TEMPLATE_REPORT_ID` (and `LOOKER_TEMPLATE_DS_ALIAS`) copy a saved template via `c.reportId`. Granting a user or group is documented in DEVELOPERS.md.
 
 Preview **does not** post to BigQuery. To generate test rows, curl the receiver (see DEVELOPERS.md).
 
@@ -226,7 +226,7 @@ Created by `./deploy`. HMAC / `SECRET_KEY` are **not** rotated on later runs:
 * `brandometer-receiver-hmac` — per-survey creative token
 * `brandometer-ip-hmac` — daily IP-hash master
 
-App Engine env vars are non-secret only: `PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`.
+App Engine env vars are non-secret only: `PROJECT_ID`, `RECEIVER_URL`, `TABLE_ID`, `GTAG_ID`, `BOOTSTRAP_ADMIN_EMAIL`, optional `LOOKER_TEMPLATE_REPORT_ID` / `LOOKER_TEMPLATE_DS_ALIAS`.
 
 Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-download. Rotating `SECRET_KEY` signs everyone out.
 
@@ -234,7 +234,7 @@ Rotating `brandometer-receiver-hmac` invalidates every live zip until you re-dow
 
 `pip-audit -r creative/app/requirements.txt` and `pip-audit -r receiver/requirements.txt` (see DEVELOPERS.md). Pins include `protobuf==5.29.6` and, in tests, `pytest==9.0.3`.
 
-**Accepted exception: [PYSEC-2026-113](https://osv.dev/vulnerability/PYSEC-2026-113) on `pyarrow==17.0.0`.** `google-cloud-bigquery-storage` `to_dataframe()` needs pyarrow. Dropping it breaks homepage counts, reports, and CSV. We keep `pyarrow==17.0.0` and do not “fix” this finding by deleting the pin. Revisit when a patched pyarrow that still works with BigQuery Storage is available.
+**Accepted exception: [PYSEC-2026-113](https://osv.dev/vulnerability/PYSEC-2026-113) on `pyarrow==17.0.0`.** The pin stays because `google-cloud-bigquery-storage` is still listed; the app itself never opens a Storage read session (homepage, reports, and CSV all use jobs REST). We do not “fix” this finding by deleting the pin.
 
 ### Known limitations / remaining work
 

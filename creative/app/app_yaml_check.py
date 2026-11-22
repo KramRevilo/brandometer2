@@ -52,6 +52,8 @@ ALLOWED_ENV = frozenset({
     'TABLE_ID',
     'GTAG_ID',
     'BOOTSTRAP_ADMIN_EMAIL',
+    'LOOKER_TEMPLATE_REPORT_ID',
+    'LOOKER_TEMPLATE_DS_ALIAS',
 })
 
 FORBIDDEN_ENV = frozenset({

@@ -727,6 +727,9 @@ upsert_secret brandometer-oauth-client-id "$OAUTH_ID_VALUE"
 upsert_secret brandometer-oauth-client-secret "$OAUTH_SECRET_VALUE"
 # Optional Google tag (gtag.js) ID for creatives. Empty disables the loader.
 GTAG_ID="${GTAG_ID:-}"
+# Optional Looker Studio template (Linking API c.reportId + data-source alias).
+LOOKER_TEMPLATE_REPORT_ID="${LOOKER_TEMPLATE_REPORT_ID:-}"
+LOOKER_TEMPLATE_DS_ALIAS="${LOOKER_TEMPLATE_DS_ALIAS:-}"
 
 echo -e "\n-- Set up app engine config"
 sed \
@@ -735,6 +738,8 @@ sed \
     -e "s|{{GTAG_ID}}|$GTAG_ID|" \
     -e "s|{{BOOTSTRAP_ADMIN_EMAIL}}|$BOOTSTRAP_ADMIN_EMAIL|" \
     -e "s|{{MAX_INSTANCES}}|$MAX_INSTANCES|" \
+    -e "s|{{LOOKER_TEMPLATE_REPORT_ID}}|$LOOKER_TEMPLATE_REPORT_ID|" \
+    -e "s|{{LOOKER_TEMPLATE_DS_ALIAS}}|$LOOKER_TEMPLATE_DS_ALIAS|" \
     creative/app/app.yaml.template >./creative/app/$PROJECT_ID.yaml
 python3 creative/app/app_yaml_check.py "./creative/app/$PROJECT_ID.yaml"
 echo -e "\n-- Deploy app engine"

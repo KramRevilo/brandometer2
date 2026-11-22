@@ -13,7 +13,7 @@ google-cloud-bigquery==3.27.0
 google-cloud-bigquery-storage==2.27.0
 pandas==2.2.3
 numpy==2.2.6
-# pyarrow is required: google-cloud-bigquery-storage to_dataframe() uses it.
+# pyarrow stays pinned (google-cloud-bigquery-storage is listed). App reads use jobs REST.
 pyarrow==17.0.0
 db-dtypes==1.3.1
 protobuf==5.29.6

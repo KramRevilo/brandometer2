@@ -164,6 +164,34 @@ class SeedDemoDataTest(unittest.TestCase):
     self.assertTrue(report['questions'])
     self.assertIsNone(report.get('empty_reason'))
 
+  def test_seeded_rows_produce_stats_and_ignore_demo_timestamp(self):
+    spec = next(
+        s for s in self.world.surveys
+        if s.doc['surveytype'] == 'brand_lift'
+        and s.expected_status == 'Active'
+        and sum(s.counts.values()) >= 80)
+    rows = list(self.mod.iter_response_rows(self.world, spec))
+    self.assertTrue(rows)
+    self.assertTrue(all(
+        isinstance(row['RandomTimeStamp'], str)
+        and row['RandomTimeStamp'].startswith('demo_seed:')
+        for row in rows))
+    self.assertNotIn('RandomTimeStamp', survey_service._RESPONSE_SELECT)
+    import inspect
+    counts_src = inspect.getsource(survey_service._fetch_all_response_counts)
+    self.assertNotIn('RandomTimeStamp', counts_src)
+    frame = pandas.DataFrame(rows)
+    frame['CreatedAt'] = pandas.to_datetime(frame['CreatedAt'])
+    report = reporting.build_report(frame, spec.doc, is_lift=True)
+    self.assertGreaterEqual(report['n_total'], 80)
+    counts = self.mod.counts_frame_from_world(self.world, ids=[spec.id])
+    stats = survey_service.build_stat_array([spec.id], counts_df=counts)
+    compact = survey_service.compact_count(stats[0])
+    self.assertIn('C ', compact['text'])
+    self.assertIn('E ', compact['text'])
+    self.assertEqual(stats[0]['status'], 'Active')
+    self.assertFalse(stats[0]['unavailable'])
+
   def test_firestore_apply_and_purge_only_tagged(self):
     fs = MockFirestore()
     fs.collection('Surveys').document('keep-me').set({

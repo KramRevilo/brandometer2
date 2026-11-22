@@ -227,9 +227,10 @@ def index_stats_partial():
   survey_ids = [sid for sid in request.args.get('ids', '').split(',') if sid]
   try:
     stat_array = survey_service.build_stat_array(survey_ids)
-  except Exception:
+  except Exception as exc:
     _index_log.exception(
-        'index.stats_partial_error n_ids=%d', len(survey_ids))
+        'index.stats_partial_error n_ids=%d type=%s error=%r',
+        len(survey_ids), type(exc).__name__, exc)
     stat_array = survey_service.unavailable_stat_array(survey_ids)
   _index_log.debug(
       'index.stats_partial_ms=%.1f n_ids=%d',
@@ -686,7 +687,7 @@ def reporting(survey_id):
         survey=survey_info,
         survey_id=survey_id,
         looker_studio_url=reporting_views.looker_studio_url(
-            os.environ.get('PROJECT_ID')),
+            os.environ.get('PROJECT_ID'), survey_id=survey_id),
         title=page_title)
   else:
     flash('Survey not found')

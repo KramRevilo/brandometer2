@@ -22,6 +22,7 @@ from unittest import mock
 import warnings
 import zipfile
 
+from google.api_core.exceptions import Forbidden
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from mockfirestore import MockFirestore
@@ -328,8 +329,7 @@ class TestSurveyService(unittest.TestCase):
     text = survey_service.get_comment_text({'language': 'ZZ'})
     self.assertEqual(text, 'Choose all applicable')
 
-  @mock.patch.object(survey_service, '_get_bqstorage_client')
-  def test_fetch_survey_response_rows_is_parameterized(self, _storage_mock):
+  def test_fetch_survey_response_rows_is_parameterized(self):
     mock_bigquery_client = mock.create_autospec(bigquery.Client)
     with mock.patch.dict(os.environ, {'TABLE_ID': 'project.responses.responses'}):
       survey_service.fetch_survey_response_rows(
@@ -345,6 +345,7 @@ class TestSurveyService(unittest.TestCase):
     self.assertIn('CreativeSize', sql)
     self.assertIn('CreativeVersion', sql)
     self.assertNotIn('STARTS_WITH', sql)
+    self.assertNotIn('RandomTimeStamp', sql)
     self.assertEqual(survey_param.name, 'survey_id')
     self.assertEqual(survey_param.value, 'sid-1')
 
@@ -366,6 +367,7 @@ class TestSurveyService(unittest.TestCase):
     self.assertIn('PARTITION BY ID, session_key', sql)
     self.assertIn('ID IN UNNEST(@survey_ids)', sql)
     self.assertIn('CreatedAt >= DATETIME_SUB', sql)
+    self.assertNotIn('RandomTimeStamp', sql)
     self.assertIn('survey_ids', names)
     self.assertIn('lookback_days', names)
     survey_ids = [
@@ -395,8 +397,7 @@ class TestSurveyService(unittest.TestCase):
     factory.assert_not_called()
     self.assertTrue(df.empty)
 
-  @mock.patch.object(survey_service, '_get_bqstorage_client')
-  def test_get_survey_responses_limits_to_given_survey(self, _storage_mock):
+  def test_get_survey_responses_limits_to_given_survey(self):
     mock_bigquery_client = mock.create_autospec(bigquery.Client)
     query = """
         SELECT CreatedAt, Segmentation, Response
@@ -1183,20 +1184,69 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual([row['id'] for row in rows], ['a', 'b'])
     self.assertTrue(all(row['unavailable'] for row in rows))
 
-  @mock.patch.object(survey_service, '_get_bqstorage_client')
-  def test_query_to_dataframe_falls_back_when_bqstorage_fails(self, _storage):
+  def test_query_to_dataframe_uses_jobs_rest_not_storage_api(self):
     result = mock.Mock()
-    result.to_dataframe.side_effect = [
-        RuntimeError('403 readsessions'),
-        pandas.DataFrame({'ID': ['s1']}),
-    ]
+
+    def to_dataframe(**kwargs):
+      if kwargs.get('bqstorage_client') is not None:
+        raise Forbidden(
+            "the user does not have 'bigquery.readsessions.create' "
+            "permission for 'projects/brandometer2'")
+      if kwargs.get('create_bqstorage_client', True):
+        raise Forbidden(
+            "the user does not have 'bigquery.readsessions.create' "
+            "permission for 'projects/brandometer2'")
+      return pandas.DataFrame({
+          'ID': ['demo_1_0003'],
+          'Segmentation': ['default_control'],
+          'max_date': ['2026-11-22'],
+          'days_since_response': [1],
+          'response_count': [30],
+      })
+
+    result.to_dataframe.side_effect = to_dataframe
     client = mock.Mock()
     client.query.return_value.result.return_value = result
     df = survey_service._query_to_dataframe('SELECT 1', client=client)
-    self.assertEqual(list(df['ID']), ['s1'])
-    self.assertEqual(result.to_dataframe.call_count, 2)
-    second = result.to_dataframe.call_args_list[1]
-    self.assertEqual(second.kwargs.get('create_bqstorage_client'), False)
+    self.assertEqual(list(df['ID']), ['demo_1_0003'])
+    result.to_dataframe.assert_called_once_with(create_bqstorage_client=False)
+    self.assertFalse(hasattr(survey_service, 'bigquery_storage'))
+    self.assertFalse(hasattr(survey_service, '_get_bqstorage_client'))
+
+  @mock.patch.object(survey_service, '_get_bq_client')
+  def test_storage_api_403_still_fills_homepage_counts(self, bq_client_mock):
+    result = mock.Mock()
+
+    def to_dataframe(**kwargs):
+      if kwargs.get('create_bqstorage_client', True) or kwargs.get(
+          'bqstorage_client') is not None:
+        raise Forbidden(
+            "the user does not have 'bigquery.readsessions.create' "
+            "permission for 'projects/brandometer2'")
+      return pandas.DataFrame({
+          'ID': ['demo_1_0003', 'demo_1_0003'],
+          'Segmentation': ['default_control', 'default_expose'],
+          'max_date': ['2026-11-22', '2026-11-22'],
+          'days_since_response': [1, 1],
+          'response_count': [30, 28],
+      })
+
+    result.to_dataframe.side_effect = to_dataframe
+    client = mock.Mock()
+    client.query.return_value.result.return_value = result
+    bq_client_mock.return_value = client
+    survey_service.clear_stats_cache()
+    with mock.patch.dict(os.environ, {
+        'TABLE_ID': 'brandometer2.responses.responses',
+        'STATS_CACHE_SECONDS': '0',
+        'STATS_SHARED_CACHE': '0',
+    }):
+      rows = survey_service.build_stat_array(['demo_1_0003'])
+    compact = survey_service.compact_count(rows[0])
+    self.assertEqual(compact['text'], 'C 30 · E 28')
+    self.assertEqual(rows[0]['status'], 'Active')
+    self.assertFalse(rows[0]['unavailable'])
+    result.to_dataframe.assert_called_once_with(create_bqstorage_client=False)
 
   def test_sizes_compact_first_plus_n(self):
     one = survey_service.sizes_compact(['300x250'])

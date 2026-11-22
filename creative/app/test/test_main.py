@@ -405,7 +405,8 @@ class MainRoutesTest(unittest.TestCase):
       self, list_mock, counts_mock):
     counts_mock.side_effect = RuntimeError('BigQuery job failed')
 
-    response = self.client.get('/index/stats-partial?ids=s1,s2')
+    with self.assertLogs(main._index_log, level='ERROR') as logs:
+      response = self.client.get('/index/stats-partial?ids=s1,s2')
     html = response.data.decode('utf-8')
     self.assertEqual(response.status_code, 200)
     list_mock.assert_not_called()
@@ -418,6 +419,52 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('Could not load response counts from BigQuery', html)
     self.assertIn('>—</span>', html)
     self.assertNotIn('Loading', html)
+    joined = '\n'.join(logs.output)
+    self.assertIn('index.stats_partial_error', joined)
+    self.assertIn('n_ids=2', joined)
+    self.assertIn('type=RuntimeError', joined)
+    self.assertIn('BigQuery job failed', joined)
+
+  @mock.patch.object(survey_service, '_get_bq_client')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_stats_partial_fills_when_storage_api_would_403(
+      self, list_mock, bq_client_mock):
+    from google.api_core.exceptions import Forbidden
+    result = mock.Mock()
+
+    def to_dataframe(**kwargs):
+      if kwargs.get('create_bqstorage_client', True) or kwargs.get(
+          'bqstorage_client') is not None:
+        raise Forbidden(
+            "the user does not have 'bigquery.readsessions.create' "
+            "permission for 'projects/brandometer2'")
+      return pandas.DataFrame({
+          'ID': ['demo_1_0003', 'demo_1_0003'],
+          'Segmentation': ['default_control', 'default_expose'],
+          'max_date': ['2026-11-22', '2026-11-22'],
+          'days_since_response': [1, 1],
+          'response_count': [40, 42],
+      })
+
+    result.to_dataframe.side_effect = to_dataframe
+    client = mock.Mock()
+    client.query.return_value.result.return_value = result
+    bq_client_mock.return_value = client
+    survey_service.clear_stats_cache()
+    with mock.patch.dict(os.environ, {
+        'TABLE_ID': 'brandometer2.responses.responses',
+        'STATS_CACHE_SECONDS': '0',
+        'STATS_SHARED_CACHE': '0',
+    }):
+      response = self.client.get('/index/stats-partial?ids=demo_1_0003')
+    html = response.data.decode('utf-8')
+    self.assertEqual(response.status_code, 200)
+    list_mock.assert_not_called()
+    self.assertIn('C 40 · E 42', html)
+    self.assertIn('Active', html)
+    self.assertNotIn('Loading', html)
+    self.assertNotIn('unavailable', html)
+    result.to_dataframe.assert_called_once_with(create_bqstorage_client=False)
 
   @mock.patch.object(survey_service, 'list_surveys')
   @mock.patch.object(survey_service, '_fetch_all_response_counts')
@@ -780,8 +827,12 @@ class MainRoutesTest(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'Open in Looker Studio', response.data)
     self.assertIn(b'lookerstudio.google.com/reporting/create', response.data)
+    self.assertIn(b'ds.connector=bigQuery', response.data)
+    self.assertIn(b'ds.type=CUSTOM_QUERY', response.data)
     self.assertIn(b'brandometer_reporting', response.data)
     self.assertIn(b'deduped_responses', response.data)
+    self.assertIn(b'survey_id', response.data)
+    self.assertNotIn(b'ds.ds0.', response.data)
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   @mock.patch.object(survey_service, 'get_doc_by_id')
