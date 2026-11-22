@@ -95,6 +95,8 @@ body {
     background-color: rgba(255, 255, 255, 0.14902);
     box-shadow: rgba(0, 0, 0, 0.8) 0px 0px 3px 0px;
     display: table;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 .Qbox span {
@@ -116,6 +118,10 @@ body {
     margin: 4px 0;
     width: 100%;
     box-sizing: border-box;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 /* The .Abox[selected="true"] class allows for the formmating of
@@ -150,6 +156,9 @@ body {
     overflow-wrap: anywhere;
     word-break: break-word;
     white-space: normal;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
 }
 
 /* The #bottom_container class is used to format the blank space
@@ -175,6 +184,9 @@ body {
     text-shadow: rgba(0, 0, 0, 1) 1px 1px 1px;
     background-color: rgba(255, 200, 0, 0.6);
     cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 
 /* The #next_button:hover class is used to format the 'next' button
@@ -230,6 +242,9 @@ Use position: absolute; with 5 answers that has multiple options
     text-align: center;
     color: rgba(0, 98, 0, 0.5);
     font-size: 5px;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
 }
 """
 

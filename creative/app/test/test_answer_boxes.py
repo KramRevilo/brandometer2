@@ -38,22 +38,34 @@ _MEASURE_JS = """() => {
   const metrics = boxes.map((el) => {
     const s = getComputedStyle(el);
     const r = el.getBoundingClientRect();
+    const text = el.querySelector('.AText');
+    const ts = text ? getComputedStyle(text) : null;
     return {
       border: parseFloat(s.borderTopWidth) || 0,
       radius: parseFloat(s.borderRadius) || 0,
       top: r.top,
       bottom: r.bottom,
-      height: r.height
+      height: r.height,
+      cursor: s.cursor,
+      userSelect: s.userSelect || s.webkitUserSelect,
+      textCursor: ts ? ts.cursor : '',
+      textUserSelect: ts ? (ts.userSelect || ts.webkitUserSelect) : ''
     };
   });
   const nextStyle = next ? getComputedStyle(next) : null;
   const adStyle = ad ? getComputedStyle(ad) : null;
+  const q = document.querySelector('.Qbox');
+  const qStyle = q ? getComputedStyle(q) : null;
   return {
     count: boxes.length,
     metrics: metrics,
     nextPadding: nextStyle ? parseFloat(nextStyle.paddingLeft) || 0 : 0,
     nextBorder: nextStyle ? parseFloat(nextStyle.borderTopWidth) || 0 : 0,
-    adFont: adStyle ? adStyle.fontFamily : ''
+    nextCursor: nextStyle ? nextStyle.cursor : '',
+    nextUserSelect: nextStyle ? (nextStyle.userSelect || nextStyle.webkitUserSelect) : '',
+    adFont: adStyle ? adStyle.fontFamily : '',
+    adCursor: adStyle ? adStyle.cursor : '',
+    questionUserSelect: qStyle ? (qStyle.userSelect || qStyle.webkitUserSelect) : ''
   };
 }"""
 
@@ -64,11 +76,16 @@ class AnswerBoxChromeTest(unittest.TestCase):
     for preset in css_theme.STYLE_PRESETS[:6]:
       css = css_theme.combine_css(preset, '')
       self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', css, preset['id'])
+      self.assertIn('cursor: pointer', css, preset['id'])
+      self.assertIn('user-select: none', css, preset['id'])
       html = _html(_survey(
           answers=4, size='300x600',
           extra={'custom_css': css, 'creativesize': '300x600'}))
       self.assertIn('gap: 6px', html, preset['id'])
       self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', html, preset['id'])
+      self.assertIn('cursor: pointer !important', html, preset['id'])
+      self.assertIn('user-select: none !important', html, preset['id'])
+      self.assertIn('-webkit-tap-highlight-color: transparent', html, preset['id'])
 
   def test_preview_answer_boxes_have_borders_and_gaps_across_themes(self):
     sync_playwright = _playwright_or_skip()
@@ -120,6 +137,60 @@ class AnswerBoxChromeTest(unittest.TestCase):
           self.assertGreaterEqual(measured['nextPadding'], 8, preset['id'])
           self.assertGreaterEqual(measured['nextBorder'], 1, preset['id'])
           self.assertRegex(measured['adFont'], r'Arial|Helvetica|sans-serif')
+        browser.close()
+    finally:
+      server.shutdown()
+      main.app.config['AUTH_BYPASS'] = False
+      main.app.config['WTF_CSRF_ENABLED'] = True
+
+  def test_preview_answers_pointer_cursor_and_unselectable_across_themes(self):
+    sync_playwright = _playwright_or_skip()
+    presets = [item for item in css_theme.STYLE_PRESETS
+               if item['id'] in ('classic', 'dark', 'electric-cyan', 'hot-pink')]
+    self.assertEqual(len(presets), 4)
+
+    main.app.config['AUTH_BYPASS'] = True
+    main.app.config['WTF_CSRF_ENABLED'] = False
+    server = make_server('127.0.0.1', 0, main.app)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    port = server.server_port
+    try:
+      with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 400, 'height': 700})
+        for preset in presets:
+          css = css_theme.combine_css(preset, '')
+          survey = _survey(
+              answers=4, size='300x600',
+              extra={'custom_css': css, 'creativesize': '300x600'})
+
+          class Doc(object):
+            id = 'sid'
+            exists = True
+            def to_dict(self):
+              return survey
+            def get(self, key, default=None):
+              return survey.get(key, default)
+
+          with mock.patch.object(
+              survey_service, 'get_doc_by_id', return_value=Doc()):
+            page.goto(
+                'http://127.0.0.1:%s/survey/preview/sid?size=300x600'
+                % port,
+                wait_until='networkidle')
+            page.wait_for_selector('.Abox')
+            measured = page.evaluate(_MEASURE_JS)
+          self.assertGreaterEqual(measured['count'], 3, preset['id'])
+          for item in measured['metrics']:
+            self.assertEqual(item['cursor'], 'pointer', preset['id'])
+            self.assertEqual(item['userSelect'], 'none', preset['id'])
+            self.assertEqual(item['textCursor'], 'pointer', preset['id'])
+            self.assertEqual(item['textUserSelect'], 'none', preset['id'])
+          self.assertEqual(measured['nextCursor'], 'pointer', preset['id'])
+          self.assertEqual(measured['nextUserSelect'], 'none', preset['id'])
+          self.assertEqual(measured['adCursor'], 'pointer', preset['id'])
+          self.assertEqual(measured['questionUserSelect'], 'none', preset['id'])
         browser.close()
     finally:
       server.shutdown()

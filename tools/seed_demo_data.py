@@ -53,17 +53,34 @@ WCAG_AA_CONTRAST = 4.5
 # Answer chrome (borders/gaps) also lives in the theme block and layout_fix overlay.
 _LAYOUT_CSS = """body { margin: 0; display: block; }
 .invisible { display: none; }
+.Qbox {
+    user-select: none;
+    -webkit-user-select: none;
+}
 .Abox {
     border: 1px solid rgba(0, 0, 0, 0.35);
     border-radius: 5px;
     margin: 0;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
 #next_button {
     padding: 3px 15px;
     border-radius: 4px;
     display: inline-block;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-tap-highlight-color: transparent;
 }
-#ad_text { font-family: Arial, Helvetica, sans-serif; }
+#ad_text {
+    font-family: Arial, Helvetica, sans-serif;
+    cursor: pointer;
+    user-select: none;
+    -webkit-user-select: none;
+}
 """
 
 _RGBA_RE = re.compile(

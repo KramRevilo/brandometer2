@@ -90,6 +90,10 @@ class CssThemeTest(unittest.TestCase):
     self.assertIn('border: 1px solid rgba(0, 0, 0, 0.35)', layout)
     self.assertIn('#next_button {', layout)
     self.assertIn('Arial, Helvetica, sans-serif', layout)
+    self.assertIn('cursor: pointer !important', layout)
+    self.assertIn('user-select: none !important', layout)
+    self.assertIn('-webkit-user-select: none !important', layout)
+    self.assertIn('-webkit-tap-highlight-color: transparent', layout)
 
   def test_generated_theme_uses_bv2_variables_and_sentinels(self):
     block = css_theme.generate_theme_block(css_theme.DEFAULT_THEME)

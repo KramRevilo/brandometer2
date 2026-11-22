@@ -85,6 +85,13 @@ class SizeCatalogTest(unittest.TestCase):
     self.assertIn('overflow-wrap: anywhere', css)
     self.assertIn('word-break: break-word', css)
     self.assertIn('width: 100% !important', css)
+    themed = creative_size.apply_overlay(
+        '.Abox { cursor: text; user-select: text; }', '300x600')
+    self.assertGreater(
+        themed.rfind('cursor: pointer !important'), themed.find('cursor: text'))
+    self.assertGreater(
+        themed.rfind('user-select: none !important'),
+        themed.find('user-select: text'))
 
 
 class ZipAndHtmlTest(unittest.TestCase):
