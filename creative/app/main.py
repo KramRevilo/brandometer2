@@ -92,6 +92,7 @@ def _filter_args():
       'year': (request.args.get('year') or '').strip(),
       'size': (request.args.get('size') or '').strip(),
       'created_by': (request.args.get('created_by') or '').strip(),
+      'status': survey_service.parse_status_filter(request.args.get('status')),
   }
 
 
@@ -108,7 +109,7 @@ def _index_query(
   if page:
     args['page'] = page
   filters = filters or {}
-  for key in ('q', 'client', 'agency', 'year', 'size', 'created_by'):
+  for key in ('q', 'client', 'agency', 'year', 'size', 'created_by', 'status'):
     value = (filters.get(key) or '').strip()
     if value:
       args[key] = value
@@ -165,6 +166,25 @@ def index():
       year=filters['year'],
       size=filters['size'],
       created_by=filters['created_by'])
+  status_filter_notice = None
+  bq_mode = 'deferred'
+  if filters['status']:
+    status_started = time.perf_counter()
+    try:
+      status_ids = [survey.id for survey in surveys]
+      counts_df = survey_service.get_response_counts(status_ids)
+      surveys = survey_service.apply_status_filter(
+          surveys, filters['status'], counts_df)
+      bq_mode = 'status_filter'
+      _log_index_timing(
+          'status_filter', status_started, n=len(surveys),
+          n_ids=len(status_ids))
+    except Exception as exc:
+      bq_mode = 'status_filter_failed'
+      status_filter_notice = survey_service.STATUS_FILTER_UNAVAILABLE
+      _index_log.exception(
+          'index.status_filter_error n_ids=%d type=%s error=%r',
+          len(surveys), type(exc).__name__, exc)
   surveys = survey_service.sort_surveys(surveys, sort_key, sort_dir)
   _log_index_timing('filter', filter_started, n=len(surveys))
 
@@ -207,12 +227,14 @@ def index():
       filters=filters,
       filter_options=filter_options,
       size_choices=creative_size.SIZE_CHOICES,
+      status_choices=survey_service.homepage_status_choices(),
       filters_active=any(filters.values()),
       unfiltered_count=unfiltered_count,
+      status_filter_notice=status_filter_notice,
       title=brand.brand_name())
   _log_index_timing('render', render_started, n=len(page_surveys))
   _log_index_timing(
-      'request', request_started, n=len(page_surveys), bq='deferred')
+      'request', request_started, n=len(page_surveys), bq=bq_mode)
   return html
 
 

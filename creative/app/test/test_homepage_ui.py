@@ -251,6 +251,107 @@ class HomepageBrowserTest(unittest.TestCase):
     finally:
       server.shutdown()
 
+  def test_status_filter_active_only_across_pages(self):
+    sync_playwright = _playwright_or_skip()
+    surveys = []
+    ids = []
+    days = []
+    for i in range(3):
+      sid = 'active-%s' % i
+      ids.append(sid)
+      days.append(1)
+      surveys.append(_survey(sid, {
+          'surveyname': 'Active seed %s' % i,
+          'displayname': 'Active seed %s' % i,
+          'surveytype': 'brand_track',
+          'client': 'Acme',
+          'agency': 'Example Media',
+          'created_at': '2026-11-2%sT12:00:00Z' % i,
+          'created_by': 'editor@example.com',
+          'question1': 'Q',
+          'answer1a': 'A',
+          'answer1b': 'B',
+          'creativesizes': ['300x250'],
+          'responsetype': 'Submit Responses at End of Survey',
+      }))
+    surveys.append(_survey('stale-0', {
+        'surveyname': 'Stale seed',
+        'displayname': 'Stale seed',
+        'surveytype': 'brand_track',
+        'client': 'Acme',
+        'agency': 'Example Media',
+        'created_at': '2026-11-10T12:00:00Z',
+        'created_by': 'editor@example.com',
+        'question1': 'Q',
+        'answer1a': 'A',
+        'answer1b': 'B',
+        'creativesizes': ['300x250'],
+        'responsetype': 'Submit Responses at End of Survey',
+    }))
+    surveys.append(_survey('empty-0', {
+        'surveyname': 'No data seed',
+        'displayname': 'No data seed',
+        'surveytype': 'brand_track',
+        'client': 'Acme',
+        'agency': 'Example Media',
+        'created_at': '2026-11-08T12:00:00Z',
+        'created_by': 'editor@example.com',
+        'question1': 'Q',
+        'answer1a': 'A',
+        'answer1b': 'B',
+        'creativesizes': ['300x250'],
+        'responsetype': 'Submit Responses at End of Survey',
+    }))
+    survey_service.list_surveys.return_value = surveys
+    survey_service.get_response_counts.return_value = pandas.DataFrame({
+        'ID': ids + ['stale-0'],
+        'Segmentation': ['survey'] * 4,
+        'max_date': ['2026-11-22'] * 4,
+        'days_since_response': days + [6],
+        'response_count': [8, 8, 8, 8],
+    })
+
+    with mock.patch.object(survey_service, 'HOMEPAGE_PAGE_SIZE', 2):
+      server, port = _start_app(main.app)
+      base = 'http://127.0.0.1:%s' % port
+      try:
+        with sync_playwright() as playwright:
+          browser = playwright.chromium.launch(headless=True)
+          page = browser.new_page(viewport={'width': 1400, 'height': 900})
+          page.goto(base + '/index?status=active', wait_until='networkidle')
+          page.wait_for_selector('#mainTable')
+          table = page.locator('#mainTable').inner_text()
+          self.assertIn('Active seed 2', table)
+          self.assertIn('Active seed 1', table)
+          self.assertNotIn('Active seed 0', table)
+          self.assertNotIn('Stale seed', table)
+          self.assertNotIn('No data seed', table)
+          self.assertIn('3 surveys', page.locator('body').inner_text())
+          self.assertEqual(page.locator('#filter-status').input_value(), 'active')
+          page.locator('a.page-link', has_text='Next').click()
+          page.wait_for_function(
+              """() => {
+                const q = window.location.search;
+                return q.indexOf('page=2') !== -1
+                    && q.indexOf('status=active') !== -1
+                    && document.body.innerText.indexOf('Active seed 0') !== -1;
+              }""")
+          table2 = page.locator('#mainTable').inner_text()
+          self.assertIn('Active seed 0', table2)
+          self.assertNotIn('Active seed 2', table2)
+          self.assertNotIn('Stale seed', table2)
+          self.assertNotIn('No data seed', table2)
+          cards = page.locator('#survey-cards .survey-card')
+          page.set_viewport_size({'width': 767, 'height': 900})
+          page.wait_for_timeout(200)
+          self.assertTrue(cards.first.is_visible())
+          card_text = page.locator('#survey-cards').inner_text()
+          self.assertIn('Active seed 0', card_text)
+          self.assertNotIn('Stale seed', card_text)
+          browser.close()
+      finally:
+        server.shutdown()
+
   def test_stats_cells_leave_loading_after_partial(self):
     sync_playwright = _playwright_or_skip()
     survey_service.get_response_counts.return_value = pandas.DataFrame({

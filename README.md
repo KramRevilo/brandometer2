@@ -15,7 +15,7 @@ Screenshots below use **seeded sample surveys** (Acme, Northwind, Contoso) and g
 Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250 creative, and spreadsheet reporting. Brandometer2 adds:
 
 * A Bootstrap 5 survey editor (multi-size creatives, 2–8 answers, theme presets, wrapping text, disclosure badge, zip version history)
-* Homepage archive/copy, status chips, and client/agency/year/size filters
+* Homepage archive/copy, status chips, and client/agency/created-by/year/size/status filters
 * In-app reporting (Brand Lift with Wilson CIs, a z-test, Holm p-adj, and sequential early-stopping) and streamed CSV, with one row per respondent (`COALESCE(RespondentID, BomID)`)
 * A sample-size planner (respondents and impressions) that editors can save on a survey
 * Google Sign-In, an Admin page, and **admin / editor / viewer** roles (not IAP, not shared passwords)
@@ -27,7 +27,7 @@ Upstream Brandometer was a Python 3.7 App Engine app with Basic Auth, a 300×250
 
 ### Homepage
 
-List with search plus **client / agency / created by / year / size** filters (kept on pagination and Show archived). Default order is **newest `created_at` first**; missing dates sort last. Click a column header to sort (name, client, agency, created by, created, id, sizes). Count / last-received-days / status are not sortable. Page size **50** (`HOMEPAGE_PAGE_SIZE` in `survey_service.py`; not an env var). Client and Agency are their own columns (email in Created by). Old surveys without those fields show **Unknown**; `tools/backfill_created.py` can fill them from AuditLog. Desktop rows are a **single line** (`table-sm`, nowrap/truncate): counts like `C 40 · E 42` (full labels in the title), sizes as `300×250 +1`, YYYY-MM-DD dates. The last-received column header is two lines (**Last Rcvd** / **Data (days)**); the cell is days since the last BigQuery row, with the date in the tooltip.
+List with search plus **client / agency / created by / year / size / status** filters (kept on pagination and Show archived). Status options are **Active**, **Stale**, **Timed out**, and **No data** (`status=active` in the URL; All statuses is the default). Filtering by status uses one batched, cached counts query over the remaining survey IDs (in-process L1 then Firestore `StatsCache` L2, same 90s TTL as the stats cells) so page totals stay correct; it does not run per-survey queries. If counts are unavailable the list fail-opens with a warning and still returns 200. Default order is **newest `created_at` first**; missing dates sort last. Click a column header to sort (name, client, agency, created by, created, id, sizes). Count / last-received-days / status are not sortable. Page size **50** (`HOMEPAGE_PAGE_SIZE` in `survey_service.py`; not an env var). Client and Agency are their own columns (email in Created by). Old surveys without those fields show **Unknown**; `tools/backfill_created.py` can fill them from AuditLog. Desktop rows are a **single line** (`table-sm`, nowrap/truncate): counts like `C 40 · E 42` (full labels in the title), sizes as `300×250 +1`, YYYY-MM-DD dates. The last-received column header is two lines (**Last Rcvd** / **Data (days)**); the cell is days since the last BigQuery row, with the date in the tooltip.
 
 * **Archive / unarchive** and **copy** (copy opens the new survey in the editor).
 * Status chips: **Active** (≤ 3 days since last response), **Stale** (≤ 7 days), **Timed out** (after 7).
@@ -40,9 +40,9 @@ List with search plus **client / agency / created by / year / size** filters (ke
 
 *Home (1400px): one-line rows, compact lift counts (`C 40 · E 42`), size `+N`, **Last Rcvd / Data (days)**, Active / Stale / Timed out chips, and editor actions.*
 
-![Home page filtered to client Acme and size 300×250](docs/images/home-filters.png)
+![Home page filtered to client Acme, size 300×250, and Active status](docs/images/home-filters.png)
 
-*Filters: client **Acme** and size **300×250**, with a Clear button once a filter is set.*
+*Filters: client **Acme**, size **300×250**, and status **Active**, with a Clear button once a filter is set.*
 
 ![Navbar avatar dropdown showing email, role, and Sign out](docs/images/avatar-dropdown.png)
 

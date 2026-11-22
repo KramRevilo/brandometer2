@@ -102,7 +102,9 @@ class MainRoutesTest(unittest.TestCase):
 
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'Loading', response.data)
-    self.assertNotIn(b'No data', response.data)
+    self.assertNotIn(b'>No data</span>', response.data)
+    self.assertIn(b'filter-status', response.data)
+    self.assertIn(b'value="no_data"', response.data)
     self.assertIn(b'View survey stats', response.data)
     self.assertIn(b'Sizes', response.data)
     self.assertIn(b'300', response.data)
@@ -557,6 +559,102 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'page=1', response.data)
     self.assertIn(b'page=3', response.data)
     counts_mock.assert_not_called()
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_filters_by_status_and_paginates(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('a%s' % i, {
+            'surveyname': 'Active %s' % i,
+            'displayname': 'Active %s' % i,
+            'created_at': '2026-11-2%sT00:00:00Z' % i,
+            'question1': 'Q',
+        }) for i in range(3)
+    ] + [
+        self._survey('stale', {
+            'surveyname': 'Stale survey',
+            'displayname': 'Stale survey',
+            'created_at': '2026-11-10T00:00:00Z',
+            'question1': 'Q',
+        }),
+        self._survey('timed', {
+            'surveyname': 'Timed out survey',
+            'displayname': 'Timed out survey',
+            'created_at': '2026-11-01T00:00:00Z',
+            'question1': 'Q',
+        }),
+        self._survey('empty', {
+            'surveyname': 'No data survey',
+            'displayname': 'No data survey',
+            'created_at': '2026-11-05T00:00:00Z',
+            'question1': 'Q',
+        }),
+    ]
+    counts_mock.return_value = pandas.DataFrame({
+        'ID': ['a0', 'a1', 'a2', 'stale', 'timed'],
+        'Segmentation': ['survey'] * 5,
+        'max_date': ['2026-11-22'] * 5,
+        'days_since_response': [1, 2, 0, 5, 20],
+        'response_count': [4, 4, 4, 4, 4],
+    })
+
+    with mock.patch.object(survey_service, 'HOMEPAGE_PAGE_SIZE', 2):
+      page1 = self.client.get('/index?status=active')
+      page2 = self.client.get('/index?status=active&page=2')
+
+    self.assertEqual(page1.status_code, 200)
+    html1 = page1.data.decode('utf-8')
+    self.assertIn('id="filter-status"', html1)
+    self.assertIn('All statuses', html1)
+    self.assertIn('value="active"', html1)
+    self.assertIn('3 surveys', html1)
+    self.assertIn('page 1 of 2', html1)
+    self.assertIn('Active 2', html1)
+    self.assertIn('Active 1', html1)
+    self.assertNotIn('Active 0', html1)
+    self.assertNotIn('Stale survey', html1)
+    self.assertNotIn('Timed out survey', html1)
+    self.assertNotIn('No data survey', html1)
+    self.assertIn('status=active', html1)
+    self.assertNotIn('id="status-filter-notice"', html1)
+
+    html2 = page2.data.decode('utf-8')
+    self.assertIn('Active 0', html2)
+    self.assertNotIn('Active 2', html2)
+    self.assertNotIn('Stale survey', html2)
+    self.assertIn('3 surveys', html2)
+    self.assertIn('status=active', html2)
+    self.assertEqual(counts_mock.call_count, 2)
+    for call in counts_mock.call_args_list:
+      self.assertEqual(
+          sorted(call[0][0]),
+          ['a0', 'a1', 'a2', 'empty', 'stale', 'timed'])
+
+  @mock.patch.object(survey_service, 'get_response_counts')
+  @mock.patch.object(survey_service, 'list_surveys')
+  def test_index_status_filter_fail_open_never_500(
+      self, list_mock, counts_mock):
+    list_mock.return_value = [
+        self._survey('s1', {
+            'surveyname': 'Keep me',
+            'displayname': 'Keep me',
+            'question1': 'Q',
+        }),
+        self._survey('s2', {
+            'surveyname': 'Keep two',
+            'displayname': 'Keep two',
+            'question1': 'Q',
+        }),
+    ]
+    counts_mock.side_effect = RuntimeError('bq down')
+    response = self.client.get('/index?status=active')
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'id="status-filter-notice"', response.data)
+    self.assertIn(b'Keep me', response.data)
+    self.assertIn(b'Keep two', response.data)
+    self.assertIn(b'2 surveys', response.data)
+    self.assertIn(b'status=active', response.data)
 
   @mock.patch.object(survey_service, '_fetch_all_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')

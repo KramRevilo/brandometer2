@@ -61,6 +61,16 @@ _FORM_META_KEYS = ('csrf_token', 'submit', 'last_update_time')
 # 2022 backlog (yellow at 7 days). Previously Stale ran through 14 days.
 STATUS_ACTIVE_DAYS = 3
 STATUS_STALE_DAYS = 7
+HOMEPAGE_STATUS_CHOICES = (
+    ('active', 'Active'),
+    ('stale', 'Stale'),
+    ('timed_out', 'Timed out'),
+    ('no_data', 'No data'),
+)
+HOMEPAGE_STATUS_LABELS = dict(HOMEPAGE_STATUS_CHOICES)
+STATUS_FILTER_UNAVAILABLE = (
+    'Status filter could not be applied because response counts are unavailable. '
+    'Showing every survey that matches the other filters.')
 # Homepage list page size. Not an env var — change this constant to retune.
 HOMEPAGE_PAGE_SIZE = 50
 STATS_POLL_SECONDS = 30
@@ -386,6 +396,40 @@ def homepage_filter_options(surveys):
 def survey_size_keys(survey):
   """Configured creative sizes for a survey doc or dict. Legacy docs get 300x250."""
   return creative_size.selected_keys(_survey_data(survey))
+
+
+def parse_status_filter(value):
+  """Canonical homepage status slug, or '' for All statuses / unknown."""
+  key = (value or '').strip().lower().replace('-', '_').replace(' ', '_')
+  if key in HOMEPAGE_STATUS_LABELS:
+    return key
+  return ''
+
+
+def homepage_status_choices():
+  return list(HOMEPAGE_STATUS_CHOICES)
+
+
+def status_map_from_counts(survey_ids, counts_df):
+  """survey_id -> classify_status label from one batched counts frame."""
+  stats = build_stat_array(survey_ids, counts_df=counts_df)
+  return {item['id']: item['status'] for item in stats}
+
+
+def apply_status_filter(surveys, status_key, counts_df):
+  """Keep surveys whose cached/BQ status matches status_key (one counts frame)."""
+  status_key = parse_status_filter(status_key)
+  if not status_key:
+    return list(surveys)
+  wanted = HOMEPAGE_STATUS_LABELS[status_key]
+  ids = [getattr(survey, 'id', '') for survey in surveys]
+  by_id = status_map_from_counts(ids, counts_df)
+  matched = []
+  for survey in surveys:
+    sid = getattr(survey, 'id', '')
+    if by_id.get(sid) == wanted:
+      matched.append(survey)
+  return matched
 
 
 def apply_homepage_filters(
@@ -1205,7 +1249,8 @@ def _empty_counts_frame():
 def _fetch_all_response_counts(survey_ids=None):
   """Homepage counts: one respondent per COALESCE(RespondentID, BomID).
 
-  Restricted to the given survey IDs (current homepage page) and, when
+  Restricted to the given survey IDs (current homepage page, or every
+  remaining id when the Status filter needs a full-list classify) and, when
   STATS_LOOKBACK_DAYS > 0, a CreatedAt partition window so BigQuery can prune.
   """
   ids = [sid for sid in (survey_ids or []) if sid]

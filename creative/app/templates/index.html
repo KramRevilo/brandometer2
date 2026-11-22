@@ -87,6 +87,15 @@
                 {% endfor %}
             </select>
         </div>
+        <div class="col-6 col-lg-auto">
+            <label class="form-label" for="filter-status">Status</label>
+            <select class="form-select" id="filter-status" name="status" style="min-width: 8.5rem;">
+                <option value="">All statuses</option>
+                {% for value, label in status_choices %}
+                <option value="{{ value }}"{% if filters.status == value %} selected{% endif %}>{{ label }}</option>
+                {% endfor %}
+            </select>
+        </div>
         <div class="col-auto d-flex gap-2">
             <button type="submit" class="btn btn-primary">Filter</button>
             {% if filters_active %}
@@ -110,6 +119,11 @@
             </span>
         {% endif %}
     </div>
+    {% if status_filter_notice %}
+    <div class="alert alert-warning" role="status" id="status-filter-notice">
+        {{ status_filter_notice }}
+    </div>
+    {% endif %}
     {% if stats_ids %}
     <div id="stats-poller"
          hx-get="{{ url_for('index_stats_partial', ids=stats_ids) }}"

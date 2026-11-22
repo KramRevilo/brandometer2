@@ -409,8 +409,15 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_timeout(200)
     capture(page, out / 'home.png')
 
-    page.goto(base + '/index?client=Acme&size=300x250', wait_until='networkidle')
-    page.wait_for_timeout(400)
+    page.goto(base + '/index?client=Acme&size=300x250&status=active', wait_until='networkidle')
+    page.wait_for_function(
+        """() => {
+          const sel = document.getElementById('filter-status');
+          const el = document.getElementById('status-lift-demo');
+          return sel && sel.value === 'active'
+            && el && el.textContent && el.textContent.indexOf('Loading') === -1;
+        }""")
+    page.wait_for_timeout(200)
     capture(page, out / 'home-filters.png')
 
     page.set_viewport_size({'width': 800, 'height': 900})

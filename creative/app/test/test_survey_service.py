@@ -731,6 +731,51 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(
         survey_service.classify_status(14), ('Timed out', 'danger'))
 
+  def test_parse_status_filter_canonical_slugs(self):
+    self.assertEqual(survey_service.parse_status_filter(''), '')
+    self.assertEqual(survey_service.parse_status_filter('All'), '')
+    self.assertEqual(survey_service.parse_status_filter('bogus'), '')
+    self.assertEqual(survey_service.parse_status_filter('active'), 'active')
+    self.assertEqual(survey_service.parse_status_filter('Timed-Out'), 'timed_out')
+    self.assertEqual(survey_service.parse_status_filter('no data'), 'no_data')
+    self.assertEqual(
+        [item[0] for item in survey_service.homepage_status_choices()],
+        ['active', 'stale', 'timed_out', 'no_data'])
+
+  def test_apply_status_filter_uses_one_counts_frame(self):
+    docs = [
+        self._survey_doc('a', {'surveyname': 'Active one'}),
+        self._survey_doc('s', {'surveyname': 'Stale one'}),
+        self._survey_doc('t', {'surveyname': 'Timed out one'}),
+        self._survey_doc('n', {'surveyname': 'No data one'}),
+    ]
+    counts = pandas.DataFrame({
+        'ID': ['a', 's', 't'],
+        'Segmentation': ['survey', 'survey', 'survey'],
+        'max_date': ['2026-11-18', '2026-11-14', '2026-11-01'],
+        'days_since_response': [1, 5, 12],
+        'response_count': [10, 8, 3],
+    })
+    self.assertEqual(
+        [d.id for d in survey_service.apply_status_filter(
+            docs, 'active', counts)],
+        ['a'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_status_filter(
+            docs, 'stale', counts)],
+        ['s'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_status_filter(
+            docs, 'timed_out', counts)],
+        ['t'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_status_filter(
+            docs, 'no_data', counts)],
+        ['n'])
+    self.assertEqual(
+        [d.id for d in survey_service.apply_status_filter(docs, '', counts)],
+        ['a', 's', 't', 'n'])
+
   def test_is_brand_lift_requires_explicit_type(self):
     self.assertFalse(survey_service.is_brand_lift({}))
     self.assertFalse(survey_service.is_brand_lift({'surveytype': 'brand_track'}))
