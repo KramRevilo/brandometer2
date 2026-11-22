@@ -132,16 +132,18 @@ _EMPTY_RESPONSES_COLUMNS = [
     'CreatedAt', 'Segmentation', 'Response', 'BomID',
     'RespondentID', 'RespondentIDSource',
     'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID',
-    'CreativeSize', 'CreativeVersion',
+    'CreativeSize', 'CreativeVersion', 'Type',
 ]
 CSV_CHUNK_ROWS = 500
+_EXCLUDE_TEST_SQL = "AND IFNULL(Type, 'survey') != 'test'"
 _RESPONSE_SELECT = """
         SELECT CreatedAt, Segmentation, Response, BomID,
                RespondentID, RespondentIDSource,
                CampaignID, PlacementID, SiteID, AdCreativeID,
-               CreativeSize, CreativeVersion
+               CreativeSize, CreativeVersion, Type
         FROM `{table}`
         WHERE ID = @survey_id
+          {test_filter}
     """
 _EMPTY_COUNTS_COLUMNS = [
     'ID', 'Segmentation', 'max_date', 'days_since_response', 'response_count',
@@ -441,6 +443,11 @@ def parse_status_filter(value):
 
 def homepage_status_choices():
   return list(HOMEPAGE_STATUS_CHOICES)
+
+
+def parse_include_test(value):
+  """True when report/CSV should keep Type=test preview rows."""
+  return str(value or '').strip().lower() in ('1', 'true', 'yes', 'on')
 
 
 def parse_result_filter(value):
@@ -1365,6 +1372,8 @@ def get_html_template(survey_id, survey_dict, seg_type, size=None,
       receiver_url=receiver_url,
       receiver_token=receiver_token,
       creative_version=creative_version,
+      pixel_type='survey',
+      is_test_pixel=False,
       **html_lang_dir_vars(survey_dict),
       **macro_vars,
       **brand.badge_render_vars(survey_dict))
@@ -1467,17 +1476,19 @@ def get_version(survey_id, version):
   return survey_collection.get_version(survey_id, version)
 
 
-def fetch_survey_response_rows(surveyid, client=None):
+def fetch_survey_response_rows(surveyid, client=None, include_test=False):
   """All response rows for one survey. Parameterized by ID.
 
   Includes BomID plus nullable RespondentID / RespondentIDSource.
+  Type=test preview rows are excluded unless include_test is true.
   """
   table_id = os.environ.get('TABLE_ID')
-  query = _RESPONSE_SELECT.format(table=table_id)
+  test_filter = '' if include_test else _EXCLUDE_TEST_SQL
+  query = _RESPONSE_SELECT.format(table=table_id, test_filter=test_filter)
   return get_survey_responses(surveyid, query, client=client)
 
 
-def get_report(surveyid, client=None):
+def get_report(surveyid, client=None, include_test=False):
   """Honest in-app report: consolidated respondents, distributions, optional lift."""
   survey_doc = get_doc_by_id(surveyid)
   survey_info = {}
@@ -1485,7 +1496,8 @@ def get_report(surveyid, client=None):
   if survey_doc and getattr(survey_doc, 'exists', False):
     survey_info = survey_doc.to_dict() or {}
     is_lift = is_brand_lift(survey_info)
-  df = fetch_survey_response_rows(surveyid, client=client)
+  df = fetch_survey_response_rows(
+      surveyid, client=client, include_test=include_test)
   return reporting.build_report(df, survey_info, is_lift=is_lift)
 
 
@@ -1496,7 +1508,7 @@ def get_brand_lift_results(surveyid):
   Segment roles come from the stored seg values (control / expos), not a
   hardcoded rename of default_*.
   """
-  df = fetch_survey_response_rows(surveyid)
+  df = fetch_survey_response_rows(surveyid, include_test=False)
   df = reporting.consolidate_frame(df)
   if df.empty or not df['Response'].any():
     return []
@@ -1705,6 +1717,7 @@ def _fetch_all_response_counts(survey_ids=None):
       FROM `{table_id}`
       WHERE ID IN UNNEST(@survey_ids)
         {partition}
+        {_EXCLUDE_TEST_SQL}
     ),
     keyed AS (
       SELECT
@@ -1840,9 +1853,10 @@ def _response_columns_for_csv(df, question_names):
   return responselist.rename(columns=rename).reset_index(drop=True)
 
 
-def _csv_dataframe(surveyid, with_context=False):
+def _csv_dataframe(surveyid, with_context=False, include_test=False):
   """Consolidated response table ready for CSV. One row per respondent."""
-  df = reporting.consolidate_frame(fetch_survey_response_rows(surveyid))
+  df = reporting.consolidate_frame(
+      fetch_survey_response_rows(surveyid, include_test=include_test))
   question_names = [
       'Response 1', 'Response 2', 'Response 3', 'Response 4', 'Response 5'
   ]
@@ -1896,9 +1910,11 @@ def _csv_dataframe(surveyid, with_context=False):
   return outputdf
 
 
-def iter_response_csv(surveyid, with_context=False, chunksize=CSV_CHUNK_ROWS):
+def iter_response_csv(surveyid, with_context=False, chunksize=CSV_CHUNK_ROWS,
+                      include_test=False):
   """Yield CSV chunks so downloads are not built as one in-memory string."""
-  outputdf = _csv_dataframe(surveyid, with_context=with_context)
+  outputdf = _csv_dataframe(
+      surveyid, with_context=with_context, include_test=include_test)
   try:
     chunksize = max(1, int(chunksize))
   except (TypeError, ValueError):
@@ -1923,9 +1939,9 @@ def download_responses_with_context(surveyid):
   return ''.join(iter_response_csv(surveyid, with_context=True))
 
 
-def download_breakouts(surveyid, client=None):
+def download_breakouts(surveyid, client=None, include_test=False):
   """CSV of overall + per-slice lift / CIs (size, placement, site, creative, date, segment)."""
-  report = get_report(surveyid, client=client)
+  report = get_report(surveyid, client=client, include_test=include_test)
   return reporting.breakouts_to_csv(report)
 
 

@@ -1062,6 +1062,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'deduped_responses', response.data)
     self.assertIn(b'survey_id', response.data)
     self.assertNotIn(b'ds.ds0.', response.data)
+    self.assertIn(b'Include test data', response.data)
 
   @mock.patch.object(survey_service, 'get_survey_responses')
   @mock.patch.object(survey_service, 'get_doc_by_id')
@@ -1100,7 +1101,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertEqual(response.status_code, 200)
     self.assertEqual(response.mimetype, 'text/csv')
     self.assertIn(b'Size,300x250', response.data)
-    download_mock.assert_called_once_with('abc')
+    download_mock.assert_called_once_with('abc', include_test=False)
 
   @mock.patch.object(survey_service, 'iter_response_csv')
   def test_download_responses_streams_chunks(self, iter_mock):
@@ -1112,7 +1113,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertEqual(response.mimetype, 'text/csv')
     self.assertIn(b'Date,Segment', response.data)
     self.assertIn(b'd1,seg1', response.data)
-    iter_mock.assert_called_once_with('abc')
+    iter_mock.assert_called_once_with('abc', include_test=False)
 
   @mock.patch.object(survey_service, 'get_question_json', return_value=[])
   @mock.patch.object(survey_service, 'get_doc_by_id')
@@ -1135,6 +1136,35 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIsNone(response.headers.get('Content-Security-Policy-Report-Only'))
     self.assertIn(b'<script>', response.data)
     self.assertIn(b'brand-badge', response.data)
+    self.assertIn(b'Submit test response', response.data)
+    self.assertNotIn(b'?type=test', response.data)
+
+  @mock.patch.object(survey_service, 'get_question_json', return_value=[])
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  def test_preview_submit_test_posts_type_test(self, doc_mock, _json_mock):
+    doc_mock.return_value = self._survey('abc', {
+        'surveyname': 'Track',
+        'question1': 'Q1',
+        'responsetype': 'Submit Responses at End of Survey',
+    })
+    env = {
+        'RECEIVER_URL': 'https://recv.example/pixel',
+    }
+    main.app.config['RECEIVER_HMAC_SECRET'] = 'unit-hmac-secret'
+    try:
+      with mock.patch.dict(os.environ, env):
+        response = self.client.get('/survey/preview/abc?submit_test=1')
+    finally:
+      main.app.config['RECEIVER_HMAC_SECRET'] = ''
+    self.assertEqual(response.status_code, 200)
+    self.assertIn(b'?type=test', response.data)
+    self.assertNotIn(b'?type=survey', response.data)
+    self.assertIn(b'"is_test_pixel": true', response.data)
+    self.assertIn(b'Test submissions on', response.data)
+    self.assertIn(b'"seg": "preview"', response.data)
+    embed = self.client.get('/survey/preview/abc?embed=1&submit_test=1')
+    self.assertNotIn(b'?type=test', embed.data)
+    self.assertNotIn(b'Submit test response', embed.data)
 
   @mock.patch.object(survey_service, 'get_question_json', return_value=[])
   @mock.patch.object(survey_service, 'get_doc_by_id')
@@ -1168,6 +1198,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertNotIn(b'>Back</a>', embed.data)
     self.assertNotIn(b'>Size:</span>', embed.data)
     self.assertNotIn(b'?type=survey', embed.data)
+    self.assertNotIn(b'Submit test response', embed.data)
 
   @mock.patch.object(survey_service, 'get_response_counts')
   @mock.patch.object(survey_service, 'list_surveys')

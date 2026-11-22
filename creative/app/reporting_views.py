@@ -95,6 +95,7 @@ def deduped_view_sql(project_id):
 WITH numbered AS (
   SELECT
     ID AS survey_id,
+    IFNULL(Type, 'survey') AS Type,
     Segmentation,
     CreatedAt,
     Response,
@@ -110,6 +111,7 @@ WITH numbered AS (
     ARRAY_LENGTH(REGEXP_EXTRACT_ALL(IFNULL(Response, ''), r'[1-5]:[^|]+')) AS n_answers,
     ROW_NUMBER() OVER () AS row_id
   FROM %s
+  WHERE IFNULL(Type, 'survey') != 'test'
 ),
 keyed AS (
   SELECT
@@ -120,6 +122,7 @@ keyed AS (
 SELECT
   survey_id,
   respondent_key,
+  Type,
   Segmentation,
   CreatedAt,
   Response,
@@ -152,6 +155,7 @@ def summary_view_sql(project_id):
   return """CREATE OR REPLACE VIEW %s AS
 SELECT
   survey_id,
+  Type,
   Segmentation,
   COUNT(*) AS respondents,
   MIN(CreatedAt) AS first_response,
@@ -159,7 +163,7 @@ SELECT
   MIN(CreativeVersion) AS first_creative_version,
   MAX(CreativeVersion) AS last_creative_version
 FROM %s
-GROUP BY survey_id, Segmentation
+GROUP BY survey_id, Type, Segmentation
 """ % (view, deduped)
 
 

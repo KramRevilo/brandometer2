@@ -107,7 +107,7 @@ Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (
 
 ![Standalone live preview of a 300×250 creative with size switcher](docs/images/preview-300x250.png)
 
-*Preview (`/survey/preview/<id>`): unsigned, does not post to BigQuery. Size links switch among the survey’s selected sizes. The **Thank You** end screen is flex-centered in the creative minus the 24px badge gutter (every size, including long copy and RTL). `<html lang>` / `dir` follow the survey language (`ar` / `he` / `fa` / `ur` are RTL). The measurement pixel is fire-and-forget (skipped in preview because `receiver_url` is empty) and must not block that screen. Re-download HTML5 zips after this change so trafficked copies pick up the layout.*
+*Preview (`/survey/preview/<id>`): size links switch among the survey’s selected sizes. Editors can **Submit test response** on the standalone page (not the homepage modal): answers POST as `Type=test` with `seg=preview` and respondent ids prefixed `test_`. Reports, homepage counts, CSV, sequential stats, and Looker views exclude those rows unless you turn on **Include test data**. The **Thank You** end screen is flex-centered in the creative minus the 24px badge gutter (every size, including long copy and RTL). `<html lang>` / `dir` follow the survey language (`ar` / `he` / `fa` / `ur` are RTL). The measurement pixel is fire-and-forget and must not block that screen. Re-download HTML5 zips after layout or pixel changes.*
 
 ### Creatives
 
@@ -215,7 +215,7 @@ The table is what changed versus upstream Brandometer. Detail follows.
 | Delete / copy / archive were **GET** (csrf-able via `<img>`) | **POST** + Flask-WTF CSRF. GET `/survey/delete` is 405 | `main.py` routes, `CSRFProtect(app)` |
 | Last-write-wins on concurrent edits | Optimistic concurrency: save sends `expected_updated_at`; mismatch → **409** “Someone else saved this survey, reload” | `survey_collection.update`, `main.py` edit |
 | Question / answer text assigned with `innerHTML`; `custom_css` could break out of `<style>` | Creative uses `textContent`. `sanitize_user_css` strips `</style`, `<`, `@import`, `url(javascript:` | `templates/creative.html`, `css_theme.sanitize_user_css` |
-| Unsigned pixel URLs accepted | HMAC-SHA256(`RECEIVER_HMAC_SECRET`, survey id) as `token=`. When the zip stamps `ver=`, the HMAC is over `survey_id + newline + version` so `ver` cannot be spoofed. Old zips without `ver=` still use HMAC(survey id) only. **No unsigned fallback.** Preview is unsigned and does not post | `receiver_crypto.py`, `receiver/main.py` (403 `invalid_token`) |
+| Unsigned pixel URLs accepted | HMAC-SHA256(`RECEIVER_HMAC_SECRET`, survey id) as `token=`. When the zip stamps `ver=`, the HMAC is over `survey_id + newline + version` so `ver` cannot be spoofed. Old zips without `ver=` still use HMAC(survey id) only. **No unsigned fallback.** Default preview is unsigned and does not post; editor **Submit test response** is signed as `Type=test` | `receiver_crypto.py`, `receiver/main.py` (403 `invalid_token`) |
 | Receiver accepted junk and returned 200 HTML | Regex validation; **204** empty body on success; 400 / 403 / 404 / 429 / 500 with a small JSON `reason` | `receiver/main.py` `validate_params`, `_pixel_response` |
 | No abuse control on the public pixel | 30 req / min / (hashed IP + survey id), **per function instance**; 20 000 keys cap; `--max-instances=20` | `receiver/main.py` `allow_request` |
 | Client IP stored (or unsalted SHA-256 of IP) | IP is **not** stored. `RandomTimeStamp` is HMAC-SHA256 of the IP keyed by `HMAC(IP_HMAC_SECRET, YYYY-MM-DD UTC)`. Same IP, same UTC day → same hash; hashes do not link across days | `receiver.hash_ip`, `receiver_crypto.hash_ip` |
@@ -417,7 +417,7 @@ Table: `` `$PROJECT_ID.responses.responses` `` (dataset `responses`, table `resp
 | Column | Type | Meaning |
 | --- | --- | --- |
 | `CreatedAt` | DATETIME | Insert time (DAY partition field on new tables) |
-| `Type` | STRING | Usually `survey` |
+| `Type` | STRING | `survey` for live pixels; `test` for editor preview submissions (excluded from stats unless Include test data) |
 | `ID` | STRING | Firestore survey id |
 | `Segmentation` | STRING | Stored `seg` (Brand Lift control/expose; often empty for Track) |
 | `Response` | STRING | Tokenised answers, e.g. `1:A\|2:B` |

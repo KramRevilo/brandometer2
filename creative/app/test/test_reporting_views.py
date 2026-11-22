@@ -34,6 +34,8 @@ class ReportingViewsTest(unittest.TestCase):
     self.assertIn('PlacementID', sql)
     self.assertIn('CreativeSize', sql)
     self.assertIn('CreativeVersion', sql)
+    self.assertIn('Type', sql)
+    self.assertIn("IFNULL(Type, 'survey') != 'test'", sql)
     self.assertNotIn('RandomTimeStamp', sql)
     self.assertNotIn('HashedIP', sql)
 
@@ -43,7 +45,8 @@ class ReportingViewsTest(unittest.TestCase):
         'CREATE OR REPLACE VIEW `proj-1.brandometer_reporting.survey_summaries`',
         sql)
     self.assertIn('FROM `proj-1.brandometer_reporting.deduped_responses`', sql)
-    self.assertIn('GROUP BY survey_id, Segmentation', sql)
+    self.assertIn('GROUP BY survey_id, Type, Segmentation', sql)
+    self.assertIn('Type', sql)
     self.assertIn('COUNT(*) AS respondents', sql)
     self.assertIn('last_creative_version', sql)
 

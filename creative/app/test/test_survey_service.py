@@ -346,10 +346,21 @@ class TestSurveyService(unittest.TestCase):
     self.assertIn('PlacementID', sql)
     self.assertIn('CreativeSize', sql)
     self.assertIn('CreativeVersion', sql)
+    self.assertIn('Type', sql)
+    self.assertIn("IFNULL(Type, 'survey') != 'test'", sql)
     self.assertNotIn('STARTS_WITH', sql)
     self.assertNotIn('RandomTimeStamp', sql)
     self.assertEqual(survey_param.name, 'survey_id')
     self.assertEqual(survey_param.value, 'sid-1')
+
+  def test_fetch_survey_response_rows_can_include_test(self):
+    mock_bigquery_client = mock.create_autospec(bigquery.Client)
+    with mock.patch.dict(os.environ, {'TABLE_ID': 'project.responses.responses'}):
+      survey_service.fetch_survey_response_rows(
+          'sid-1', client=mock_bigquery_client, include_test=True)
+    sql = mock_bigquery_client.query.mock_calls[0].args[0]
+    self.assertNotIn("IFNULL(Type, 'survey') != 'test'", sql)
+    self.assertIn('Type', sql)
 
   @mock.patch.object(survey_service, '_get_bq_client')
   def test_homepage_counts_sql_collapses_bomid(self, bq_client_mock):
@@ -368,6 +379,7 @@ class TestSurveyService(unittest.TestCase):
     self.assertIn('n_answers', sql)
     self.assertIn('PARTITION BY ID, session_key', sql)
     self.assertIn('ID IN UNNEST(@survey_ids)', sql)
+    self.assertIn("IFNULL(Type, 'survey') != 'test'", sql)
     self.assertIn('CreatedAt >= DATETIME_SUB', sql)
     self.assertNotIn('RandomTimeStamp', sql)
     self.assertIn('survey_ids', names)
@@ -430,7 +442,7 @@ class TestSurveyService(unittest.TestCase):
         ['CreatedAt', 'Segmentation', 'Response', 'BomID',
          'RespondentID', 'RespondentIDSource',
          'CampaignID', 'PlacementID', 'SiteID', 'AdCreativeID',
-         'CreativeSize', 'CreativeVersion'])
+         'CreativeSize', 'CreativeVersion', 'Type'])
 
   @mock.patch.object(survey_service, '_get_bq_client')
   def test_get_all_response_counts_missing_table_returns_empty_frame(

@@ -34,7 +34,11 @@
       {% if looker_studio_url %}
       <a class="btn btn-outline-primary" href="{{ looker_studio_url }}" target="_blank" rel="noopener">Open in Looker Studio</a>
       {% endif %}
+      {% if include_test %}
+      <a class="btn btn-outline-primary" href="{{ url_for('download_breakouts', survey_id=survey_id, include_test=1) }}">Breakouts CSV</a>
+      {% else %}
       <a class="btn btn-outline-primary" href="{{ url_for('download_breakouts', survey_id=survey_id) }}">Breakouts CSV</a>
+      {% endif %}
       <a class="btn btn-outline-secondary" href="{{ url_for('sample_size_planner', survey_id=survey_id) }}">Sample size</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
     </div>
@@ -44,6 +48,14 @@
     Each respondent is counted once (RespondentID, falling back to BomID): the latest, most complete cumulative response is kept.
     Surveys that submit after each question therefore show fewer people than raw row counts.
     Segments are the values stored on the response (<code>seg</code>), not renamed labels.
+    Preview <code>Type=test</code> rows are excluded by default.
+    {% if include_test %}
+    <a href="{{ url_for('reporting', survey_id=survey_id) }}">Exclude test data</a>
+    · <a href="{{ url_for('download_responses', survey_id=survey_id, include_test=1) }}">CSV (with test)</a>
+    {% else %}
+    <a href="{{ url_for('reporting', survey_id=survey_id, include_test=1) }}">Include test data</a>
+    · <a href="{{ url_for('download_responses', survey_id=survey_id) }}">CSV</a>
+    {% endif %}
     Looker Studio uses the authorized views in dataset <code>brandometer_reporting</code> (not the raw <code>responses</code> table). Granting access is documented in DEVELOPERS.md.
   </p>
   {% if is_lift %}

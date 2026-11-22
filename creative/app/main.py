@@ -45,6 +45,7 @@ import css_theme
 import forms
 from forms import DEFAULT_CSS
 import google_auth
+import receiver_crypto
 import reporting_views
 import sample_size
 import survey_collection
@@ -429,6 +430,22 @@ def preview(survey_id):
     custom_css = Markup(creative_size.apply_overlay(
         css_theme.sanitize_user_css(custom_css), size))
     embed = (request.args.get('embed') or '').strip() == '1'
+    can_submit_test = (not embed) and google_auth.can_edit()
+    submit_test = can_submit_test and _truthy_arg(request.args.get('submit_test'))
+    receiver_url = ''
+    receiver_token = ''
+    creative_version = None
+    pixel_type = 'survey'
+    is_test_pixel = False
+    if submit_test:
+      receiver_url = os.environ.get('RECEIVER_URL') or ''
+      hmac_secret = app.config.get('RECEIVER_HMAC_SECRET') or ''
+      creative_version = receiver_crypto.parse_creative_version(
+          survey_info.get('version'))
+      receiver_token = receiver_crypto.survey_token(
+          survey_id, hmac_secret, version=creative_version)
+      pixel_type = 'test'
+      is_test_pixel = True
 
     return render_template(
         'creative.html',
@@ -447,9 +464,15 @@ def preview(survey_id):
         size_key=size['key'],
         size_layout=size.get('layout') or 'stack',
         ad_size_meta=creative_size.ad_size_meta(size),
-        # Do not post preview answers to BigQuery.
-        receiver_url='',
-        receiver_token='',
+        # Homepage modal (embed=1) never posts. Standalone preview posts only
+        # when an editor turns on Submit test response (Type=test).
+        receiver_url=receiver_url,
+        receiver_token=receiver_token,
+        pixel_type=pixel_type,
+        is_test_pixel=is_test_pixel,
+        can_submit_test=can_submit_test,
+        submit_test=submit_test,
+        creative_version=creative_version,
         thankyou_text=survey_service.get_thank_you_text(survey_info),
         next_text=survey_service.get_next_text(survey_info),
         comment_text=survey_service.get_comment_text(survey_info),
@@ -590,8 +613,10 @@ def download_zip_version(survey_id, version):
 @app.route('/survey/download_responses/<string:survey_id>', methods=['GET'])
 def download_responses(survey_id):
   """Download survey responses as a streamed CSV (chunked, not one string)."""
+  include_test = survey_service.parse_include_test(request.args.get('include_test'))
   return Response(
-      stream_with_context(survey_service.iter_response_csv(survey_id)),
+      stream_with_context(
+          survey_service.iter_response_csv(survey_id, include_test=include_test)),
       mimetype='text/csv',
       headers={'Content-disposition': 'attachment; filename=surveydata.csv'})
 
@@ -599,9 +624,11 @@ def download_responses(survey_id):
 @app.route('/survey/download_responses_context/<string:survey_id>', methods=['GET'])
 def download_responses_context(survey_id):
   """Download survey responses with question text as a streamed CSV."""
+  include_test = survey_service.parse_include_test(request.args.get('include_test'))
   return Response(
       stream_with_context(
-          survey_service.iter_response_csv(survey_id, with_context=True)),
+          survey_service.iter_response_csv(
+              survey_id, with_context=True, include_test=include_test)),
       mimetype='text/csv',
       headers={
           'Content-disposition':
@@ -612,8 +639,9 @@ def download_responses_context(survey_id):
 @app.route('/survey/download_breakouts/<string:survey_id>', methods=['GET'])
 def download_breakouts(survey_id):
   """Download size/placement/site/creative/date/segment lift breakouts as CSV."""
+  include_test = survey_service.parse_include_test(request.args.get('include_test'))
   return Response(
-      survey_service.download_breakouts(survey_id),
+      survey_service.download_breakouts(survey_id, include_test=include_test),
       mimetype='text/csv',
       headers={
           'Content-disposition':
@@ -727,7 +755,8 @@ def reporting(survey_id):
 
   if survey_doc.exists:
     survey_info = survey_doc.to_dict()
-    report = survey_service.get_report(survey_id)
+    include_test = survey_service.parse_include_test(request.args.get('include_test'))
+    report = survey_service.get_report(survey_id, include_test=include_test)
     page_title = (
         'Brand Lift stats' if survey_service.is_brand_lift(survey_info)
         else 'Survey stats')
@@ -736,6 +765,7 @@ def reporting(survey_id):
         report=report,
         survey=survey_info,
         survey_id=survey_id,
+        include_test=include_test,
         looker_studio_url=reporting_views.looker_studio_url(
             os.environ.get('PROJECT_ID'), survey_id=survey_id),
         title=page_title)

@@ -24,7 +24,8 @@
     <script>
         var fullConfiguration = {
             "survey_config": {
-                "response_server": "{% if receiver_url %}{{receiver_url}}?type=survey&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&rid={rid}&rsrc={rsrc}&camp={camp}&plc={plc}&site={site}&crid={crid}&cb={cb}&times={time_measurement}{% if creative_version %}&ver={{ creative_version }}{% endif %}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
+                "response_server": "{% if receiver_url %}{{receiver_url}}?type={{ pixel_type|default('survey') }}&id={survey_id}&seg={seg}&response={responses}&visual={visual_responses}&creative_size={size}&randomtimestamp={random_timestamp}&bomid={bomid}&rid={rid}&rsrc={rsrc}&camp={camp}&plc={plc}&site={site}&crid={crid}&cb={cb}&times={time_measurement}{% if creative_version %}&ver={{ creative_version }}{% endif %}{% if receiver_token %}&token={{receiver_token}}{% endif %}{% endif %}",
+                "is_test_pixel": {{ 'true' if is_test_pixel else 'false' }},
                 "receiver_token": "{% if receiver_token %}{{receiver_token}}{% endif %}",
                 "ad_user_id_candidates": {{ (ad_user_id_candidates or ['%u', '${USER_ID}', '%%USER_ID%%'])|tojson }},
                 "overwrite_click_tag": {{ 'true' if overwrite_click_tag else 'false' }},
@@ -297,7 +298,13 @@
                         this.cookieReplacement = this.uuidv4();
                         this.respondentSource = this.respondentSource || 'impression';
                     }
-                    return this.cookieReplacement;
+                    var rid = this.cookieReplacement;
+                    if (this.surveyConfig.is_test_pixel &&
+                        String(rid).indexOf('test_') !== 0) {
+                        rid = 'test_' + rid;
+                        this.cookieReplacement = rid;
+                    }
+                    return rid;
                 },
 
                 setCookieId: function() {
@@ -1097,9 +1104,24 @@
         {% if key == size_key %}
         <strong style="margin-left: 8px;">{{ key.replace('x', '×') }}</strong>
         {% else %}
+        {% if submit_test %}
+        <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=key, submit_test=1) }}">{{ key.replace('x', '×') }}</a>
+        {% else %}
         <a style="margin-left: 8px;" href="{{ url_for('preview', survey_id=survey_id, size=key) }}">{{ key.replace('x', '×') }}</a>
         {% endif %}
+        {% endif %}
       {% endfor %}
+      {% endif %}
+      {% if can_submit_test %}
+      <span style="margin-left: 16px;">
+        {% if submit_test %}
+        <strong>Test submissions on</strong>
+        (Type=test, ids prefixed <code>test_</code>).
+        <a href="{{ url_for('preview', survey_id=survey_id, size=size_key) }}">Turn off</a>
+        {% else %}
+        <a href="{{ url_for('preview', survey_id=survey_id, size=size_key, submit_test=1) }}">Submit test response</a>
+        {% endif %}
+      </span>
       {% endif %}
     </p>
     {% endif %}
