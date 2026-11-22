@@ -40,11 +40,15 @@ List with search plus **client / agency / created by / year / size / status / re
 
 ![Home page with sample surveys, status chips, and action buttons](docs/images/home.png)
 
-*Home (1400px, `xxl`): full table — Name through Progress — one-line rows, no horizontal scrollbar.*
+*Home (1400px, `xxl`): fluid list, two-line **Last Rcvd** header, Status chips, Result badges, Progress %, one-line rows, no horizontal scrollbar.*
 
 ![Home page filtered to client Acme, size 300×250, and Active status](docs/images/home-filters.png)
 
-*Filters: client **Acme**, size **300×250**, and status **Active**, with a Clear button once a filter is set.*
+*Status filter (`status=active`) plus client **Acme** and size **300×250**. Options are Active, Stale, Timed out, and No data. Clear appears once a filter is set.*
+
+![Home page sorted by Progress with Result badges](docs/images/home-progress.png)
+
+*Progress / Result (`sort=progress`): Brand Lift percent of the saved plan and sequential Result; Brand Track Wilson ±margin (Precise when the ±3pp target is met).*
 
 ![Navbar avatar dropdown showing email, role, and Sign out](docs/images/avatar-dropdown.png)
 
@@ -57,6 +61,10 @@ List with search plus **client / agency / created by / year / size / status / re
 ![Home page at 1024px](docs/images/home-1024.png)
 
 *Laptop (1024px / `lg`): Count and Last Rcvd join the always-on columns. Agency, Created by, Sizes, and Progress stay hidden so the table fits without a horizontal scrollbar.*
+
+![Home page as cards on a 390px phone](docs/images/home-cards.png)
+
+*Phone (390px): cards instead of the table. Each card shows name, client, created date, status, last received, progress, result, and actions.*
 
 ![Homepage ⋯ menu listing downloads, copy, archive, and delete](docs/images/home-actions-menu.png)
 
@@ -87,7 +95,7 @@ Download from the homepage is an **outer ZIP** of one HTML5 inner zip per size (
 
 ![Survey editor identity fields, size checkboxes, theme preset, and live preview](docs/images/editor.png)
 
-*Editor: identity, multi-size checkboxes, Classic green preset, and live iframe preview.*
+*Editor (1400px): identity, multi-size checkboxes, HTML5 spec QA, Classic green theme, and live iframe preview with bordered answer buttons.*
 
 ![Disclosure badge section with B, B2, Ad, and Name icon choices plus an agency name field](docs/images/editor-badge.png)
 
@@ -153,7 +161,7 @@ Preview **does not** post to BigQuery. To generate test rows, curl the receiver 
 
 ![Brand Lift report with daily chart, answer distribution, lift percentages, Wilson CIs, and p-values](docs/images/report-lift.png)
 
-*Brand Lift report: responses per day, control vs exposed, Wilson 95% CIs under each arm %, lift, unadjusted p-value, and Holm–Bonferroni p-adj.*
+*Brand Lift report (1400px): **Open in Looker Studio**, sequential status, daily chart, answer distribution, Wilson 95% CIs, lift, p-value, and Holm–Bonferroni p-adj.*
 
 ![Small-sample warning on a Brand Lift report with What does this mean? expanded](docs/images/report-min-n-help.png)
 
@@ -400,7 +408,7 @@ python3 -m playwright install chromium
 python3 tools/capture_screenshots.py
 ```
 
-The script sets `DISABLE_BASIC_AUTH=1`, `APP_BRAND_NAME=Brandometer2`, and dummy OAuth / HMAC values so Secret Manager is never called. Output is optimised PNG (desktop UI at 1400px wide; creatives stay natural size). Navbar, login, and titles in these shots show **Brandometer2**. The Brand Lift report shot is the viewport (breakout tables continue below). Homepage recapture includes `home.png`, `home-filters.png`, `avatar-dropdown.png`, `home-actions-menu.png`, and `home-preview-modal.png` at 1400px, plus `home-narrow.png` (800px table) and `home-1024.png` (1024px laptop, no horizontal scrollbar).
+The script sets `DISABLE_BASIC_AUTH=1`, `APP_BRAND_NAME=Brandometer2`, and dummy OAuth / HMAC values so Secret Manager is never called. Output is optimised PNG (desktop UI at 1400px wide; creatives stay natural size). Navbar, login, and titles in these shots show **Brandometer2**. The Brand Lift report shot is the viewport (breakout tables continue below). Homepage recapture includes `home.png`, `home-filters.png` (Status filter), `home-progress.png` (Progress/Result sort), `avatar-dropdown.png`, `home-actions-menu.png`, and `home-preview-modal.png` at 1400px, plus `home-narrow.png` (800px table), `home-1024.png` (1024px laptop, no horizontal scrollbar), and `home-cards.png` (390px cards). Other desktop UI shots are 1400px wide (report, editor, planner, admin, login, viewer 403). Creatives stay natural size.
 
 ## Querying results in BigQuery
 

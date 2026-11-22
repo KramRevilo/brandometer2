@@ -416,7 +416,7 @@ python3 -m playwright install chromium
 python3 tools/capture_screenshots.py
 ```
 
-Desktop UI shots use a 1400px viewport (capped at 1400px wide); creatives are clipped to `#master_container` at natural size. Homepage recapture: `home.png`, `home-filters.png`, `avatar-dropdown.png`, `home-actions-menu.png`, `home-preview-modal.png` at 1400px, plus `home-narrow.png` (800px table) and `home-1024.png` (1024px laptop). Do not commit production screenshots or real email addresses.
+Desktop UI shots use a 1400px viewport (capped at 1400px wide); creatives are clipped to `#master_container` at natural size. Homepage recapture: `home.png`, `home-filters.png` (Status filter), `home-progress.png` (Progress/Result), `avatar-dropdown.png`, `home-actions-menu.png`, `home-preview-modal.png` at 1400px, plus `home-narrow.png` (800px table), `home-1024.png` (1024px laptop), and `home-cards.png` (390px cards). Do not commit production screenshots or real email addresses.
 
 # Receiver (Cloud Function)
 

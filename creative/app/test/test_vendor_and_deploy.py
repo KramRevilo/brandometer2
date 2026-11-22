@@ -501,41 +501,79 @@ class FaviconAssetsTest(unittest.TestCase):
 
 class ReadmeImagesTest(unittest.TestCase):
 
+  _REQUIRED = (
+      'docs/images/home.png',
+      'docs/images/home-filters.png',
+      'docs/images/home-progress.png',
+      'docs/images/home-narrow.png',
+      'docs/images/home-1024.png',
+      'docs/images/home-cards.png',
+      'docs/images/home-actions-menu.png',
+      'docs/images/home-preview-modal.png',
+      'docs/images/editor.png',
+      'docs/images/editor-badge.png',
+      'docs/images/preview-300x250.png',
+      'docs/images/creative-300x250-classic.png',
+      'docs/images/creative-300x250-two-answers.png',
+      'docs/images/creative-160x600-hazard.png',
+      'docs/images/creative-160x600-eight-answers.png',
+      'docs/images/creative-300x600-dark.png',
+      'docs/images/creative-336x280-hotpink.png',
+      'docs/images/report-lift.png',
+      'docs/images/editor-html5-qa.png',
+      'docs/images/report-min-n-help.png',
+      'docs/images/sample-size-planner.png',
+      'docs/images/report-sequential.png',
+      'docs/images/admin.png',
+      'docs/images/avatar-dropdown.png',
+      'docs/images/login.png',
+      'docs/images/forbidden-viewer.png',
+  )
+
+  def _docs_image_refs(self):
+    refs = []
+    for name in ('README.md', 'DEVELOPERS.md', 'AGENTS.md'):
+      path = os.path.join(_REPO_ROOT, name)
+      if not os.path.isfile(path):
+        continue
+      text = open(path, encoding='utf-8').read()
+      refs += re.findall(r'\((docs/images/[^)\s]+)\)', text)
+      refs += re.findall(r'src="(docs/images/[^"]+)"', text)
+      refs += re.findall(r'`(docs/images/[^`]+)`', text)
+    docs_dir = os.path.join(_REPO_ROOT, 'docs')
+    if os.path.isdir(docs_dir):
+      for root, _dirs, files in os.walk(docs_dir):
+        for filename in files:
+          if not filename.endswith('.md'):
+            continue
+          text = open(os.path.join(root, filename), encoding='utf-8').read()
+          refs += re.findall(r'\((docs/images/[^)\s]+)\)', text)
+          refs += re.findall(r'src="(docs/images/[^"]+)"', text)
+    return refs
+
   def test_readme_embeds_existing_docs_images(self):
     readme_path = os.path.join(_REPO_ROOT, 'README.md')
     readme = open(readme_path, encoding='utf-8').read()
-    paths = re.findall(r'\((docs/images/[^)\s]+)\)', readme)
-    paths += re.findall(r'src="(docs/images/[^"]+)"', readme)
-    self.assertTrue(paths, 'README.md should embed docs/images/*')
-    for rel in sorted(set(paths)):
+    paths = self._docs_image_refs()
+    embedded = set(
+        re.findall(r'\((docs/images/[^)\s]+)\)', readme)
+        + re.findall(r'src="(docs/images/[^"]+)"', readme))
+    self.assertTrue(embedded, 'README.md should embed docs/images/*')
+    for rel in sorted(set(paths) | embedded):
       full = os.path.join(_REPO_ROOT, rel)
       self.assertTrue(os.path.isfile(full), full)
       self.assertGreater(os.path.getsize(full), 100, rel)
-    for required in (
-        'docs/images/home.png',
-        'docs/images/home-filters.png',
-        'docs/images/home-narrow.png',
-        'docs/images/home-1024.png',
-        'docs/images/home-actions-menu.png',
-        'docs/images/home-preview-modal.png',
-        'docs/images/editor.png',
-        'docs/images/editor-badge.png',
-        'docs/images/preview-300x250.png',
-        'docs/images/creative-300x250-classic.png',
-        'docs/images/creative-160x600-hazard.png',
-        'docs/images/creative-300x600-dark.png',
-        'docs/images/creative-336x280-hotpink.png',
-        'docs/images/report-lift.png',
-        'docs/images/editor-html5-qa.png',
-        'docs/images/report-min-n-help.png',
-        'docs/images/sample-size-planner.png',
-        'docs/images/report-sequential.png',
-        'docs/images/admin.png',
-        'docs/images/avatar-dropdown.png',
-        'docs/images/login.png',
-        'docs/images/forbidden-viewer.png',
-    ):
-      self.assertIn(required, readme)
+    for required in self._REQUIRED:
+      self.assertIn(required, readme, required)
+    images_dir = os.path.join(_REPO_ROOT, 'docs', 'images')
+    on_disk = set()
+    if os.path.isdir(images_dir):
+      for filename in os.listdir(images_dir):
+        if filename.endswith('.png'):
+          on_disk.add('docs/images/' + filename)
+    self.assertEqual(
+        on_disk, embedded,
+        'docs/images PNG files must match README embeds (orphans or missing)')
     self.assertIn('PYSEC-2026-113', readme)
     self.assertIn('RespondentID', readme)
     self.assertIn('Known limitations', readme)

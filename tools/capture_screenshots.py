@@ -389,6 +389,16 @@ def capture(page, path: Path, *, full_page=True, clip=None, max_width=UI_MAX_WID
   print('Wrote', path)
 
 
+def wait_stats_ready(page, element_id='status-lift-demo'):
+  page.wait_for_function(
+      """(id) => {
+        const el = document.getElementById(id);
+        const text = (el && el.textContent) || '';
+        return text.length > 0 && text.indexOf('Loading') === -1;
+      }""",
+      arg=element_id)
+
+
 def run_browser(app, out: Path) -> None:
   from playwright.sync_api import sync_playwright
 
@@ -407,11 +417,7 @@ def run_browser(app, out: Path) -> None:
     page = context.new_page()
 
     page.goto(base + '/index', wait_until='networkidle')
-    page.wait_for_function(
-        """() => {
-          const el = document.getElementById('status-lift-demo');
-          return el && el.textContent && el.textContent.indexOf('Loading') === -1;
-        }""")
+    wait_stats_ready(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home.png')
 
@@ -419,32 +425,42 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_function(
         """() => {
           const sel = document.getElementById('filter-status');
-          const el = document.getElementById('status-lift-demo');
-          return sel && sel.value === 'active'
-            && el && el.textContent && el.textContent.indexOf('Loading') === -1;
+          return sel && sel.value === 'active';
         }""")
+    wait_stats_ready(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home-filters.png')
+
+    page.goto(base + '/index?sort=progress&dir=desc', wait_until='networkidle')
+    page.wait_for_selector('#mainTable')
+    wait_stats_ready(page)
+    page.wait_for_timeout(200)
+    capture(page, out / 'home-progress.png')
 
     page.set_viewport_size({'width': 800, 'height': 900})
     page.goto(base + '/index', wait_until='networkidle')
     page.wait_for_selector('#mainTable')
-    page.wait_for_timeout(400)
+    wait_stats_ready(page)
+    page.wait_for_timeout(200)
     capture(page, out / 'home-narrow.png')
 
     page.set_viewport_size({'width': 1024, 'height': 900})
     page.goto(base + '/index', wait_until='networkidle')
     page.wait_for_selector('#mainTable')
-    page.wait_for_function(
-        """() => {
-          const el = document.getElementById('status-lift-demo');
-          return el && el.textContent && el.textContent.indexOf('Loading') === -1;
-        }""")
+    wait_stats_ready(page)
     page.wait_for_timeout(200)
     capture(page, out / 'home-1024.png')
+
+    page.set_viewport_size({'width': 390, 'height': 844})
+    page.goto(base + '/index', wait_until='networkidle')
+    page.wait_for_selector('#survey-cards .survey-card')
+    wait_stats_ready(page, 'status-card-lift-demo')
+    page.wait_for_timeout(200)
+    capture(page, out / 'home-cards.png')
     page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
 
     page.goto(base + '/index', wait_until='networkidle')
+    wait_stats_ready(page)
     page.wait_for_selector('#actions-lift-demo')
     page.click('#actions-lift-demo')
     page.wait_for_selector('#actions-lift-demo + .dropdown-menu.show, .dropdown-menu.show')
@@ -452,6 +468,7 @@ def run_browser(app, out: Path) -> None:
     capture(page, out / 'home-actions-menu.png', full_page=False)
 
     page.goto(base + '/index', wait_until='networkidle')
+    wait_stats_ready(page)
     page.wait_for_selector('#mainTable a.js-preview-open')
     page.locator('#mainTable a.js-preview-open').first.click()
     page.wait_for_selector('#previewModal.show')
@@ -470,10 +487,12 @@ def run_browser(app, out: Path) -> None:
     page.locator('#previewModal [data-bs-dismiss="modal"]').click()
     page.wait_for_timeout(200)
 
+    page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 2100})
     page.goto(base + '/survey/edit?survey_id=lift-demo', wait_until='networkidle')
-    page.wait_for_selector('iframe')
+    page.wait_for_selector('iframe.preview-frame')
     page.wait_for_timeout(800)
     capture(page, out / 'editor.png', full_page=False)
+    page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
 
     badge = page.locator('#disclosure-badge')
     badge.scroll_into_view_if_needed()
@@ -490,10 +509,12 @@ def run_browser(app, out: Path) -> None:
 
     qa = page.locator('#html5-spec-qa')
     qa.scroll_into_view_if_needed()
-    toggles = page.locator('#html5-spec-qa button.help-meaning-toggle')
-    if toggles.count():
-      toggles.first.click()
-      page.wait_for_selector('#html5-spec-qa .help-meaning-body.show')
+    receiver_help = page.locator(
+        '#html5-spec-qa [data-qa-code="receiver"] button.help-meaning-toggle')
+    if receiver_help.count():
+      receiver_help.first.click()
+      page.wait_for_selector(
+          '#html5-spec-qa [data-qa-code="receiver"] .help-meaning-body.show')
     page.wait_for_timeout(200)
     box = qa.bounding_box()
     if not box:
@@ -536,11 +557,13 @@ def run_browser(app, out: Path) -> None:
       capture(
           page, out / filename, full_page=False, clip=box, max_width=None)
 
-    page.set_viewport_size({'width': 1280, 'height': 900})
+    page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 1600})
     page.goto(base + '/survey/reporting/lift-demo', wait_until='networkidle')
     page.wait_for_selector('#dailyChart')
+    page.wait_for_selector('table')
     page.wait_for_timeout(800)
     capture(page, out / 'report-lift.png', full_page=False)
+    page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
     seq = page.locator('#sequential-status')
     if seq.count():
       seq.scroll_into_view_if_needed()
@@ -555,12 +578,14 @@ def run_browser(app, out: Path) -> None:
             page, out / 'report-sequential.png', full_page=False, clip=box,
             max_width=UI_MAX_WIDTH)
 
+    page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 1100})
     page.goto(base + '/survey/sample-size', wait_until='networkidle')
     page.wait_for_selector('#sample-size-page')
     page.locator('#planner-form button.help-meaning-toggle').first.click()
     page.wait_for_selector('#planner-form .help-meaning-body.show')
     page.wait_for_timeout(200)
     capture(page, out / 'sample-size-planner.png', full_page=False)
+    page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
 
     page.goto(base + '/survey/reporting/lift-small', wait_until='networkidle')
     page.wait_for_selector('#min-n-warning')
@@ -581,7 +606,8 @@ def run_browser(app, out: Path) -> None:
 
     page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
     page.goto(base + '/index', wait_until='networkidle')
-    page.wait_for_timeout(300)
+    wait_stats_ready(page)
+    page.wait_for_timeout(200)
     page.click('#userMenu')
     page.wait_for_selector('.dropdown-menu.show')
     page.wait_for_timeout(200)
@@ -589,7 +615,7 @@ def run_browser(app, out: Path) -> None:
 
     app.config['AUTH_BYPASS'] = False
     login_context = browser.new_context(
-        viewport={'width': 1280, 'height': 900})
+        viewport={'width': DESKTOP_WIDTH, 'height': 900})
     login_page = login_context.new_page()
     login_page.goto(base + '/login', wait_until='networkidle')
     login_page.wait_for_selector('a.btn-primary')
@@ -597,7 +623,7 @@ def run_browser(app, out: Path) -> None:
     login_context.close()
 
     viewer_context = browser.new_context(
-        viewport={'width': 1280, 'height': 900})
+        viewport={'width': DESKTOP_WIDTH, 'height': 900})
     viewer_context.add_cookies([viewer_cookie])
     viewer_page = viewer_context.new_page()
     viewer_page.goto(base + '/admin', wait_until='networkidle')
