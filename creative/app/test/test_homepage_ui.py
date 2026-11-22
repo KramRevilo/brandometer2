@@ -147,16 +147,22 @@ class HomepageBrowserTest(unittest.TestCase):
         self.assertTrue(page.locator('#mainTable').is_visible())
         self.assertFalse(page.locator('#survey-cards .survey-card').first.is_visible())
         self.assertTrue(page.locator('#mainTable >> text=Client').first.is_visible())
+        self.assertTrue(page.locator('#mainTable >> text=Status').first.is_visible())
+        self.assertTrue(page.locator('#mainTable >> text=Result').first.is_visible())
         self.assertFalse(page.locator('#mainTable >> text=Agency').first.is_visible())
         self.assertFalse(
             page.locator('#mainTable >> text=Created by').first.is_visible())
+        self.assertFalse(page.locator('#mainTable >> text=Sizes').first.is_visible())
+        self.assertFalse(page.locator('#mainTable >> text=Count').first.is_visible())
 
         page.set_viewport_size({'width': 992, 'height': 900})
         page.wait_for_timeout(200)
         self.assertTrue(page.locator('#mainTable').is_visible())
-        self.assertTrue(
+        self.assertTrue(page.locator('#mainTable >> text=Count').first.is_visible())
+        self.assertTrue(page.locator('#mainTable >> text=Last Rcvd').first.is_visible())
+        self.assertFalse(
             page.locator('#mainTable >> text=Created by').first.is_visible())
-        self.assertTrue(page.locator('#mainTable >> text=Sizes').first.is_visible())
+        self.assertFalse(page.locator('#mainTable >> text=Sizes').first.is_visible())
         self.assertFalse(page.locator('#mainTable >> text=Agency').first.is_visible())
 
         page.set_viewport_size({'width': 1200, 'height': 900})
@@ -164,6 +170,13 @@ class HomepageBrowserTest(unittest.TestCase):
         self.assertTrue(page.locator('#mainTable >> text=Agency').first.is_visible())
         self.assertTrue(
             page.locator('#mainTable >> text=Created by').first.is_visible())
+        self.assertFalse(page.locator('#mainTable >> text=Sizes').first.is_visible())
+        self.assertFalse(page.locator('#mainTable >> text=Progress').first.is_visible())
+
+        page.set_viewport_size({'width': 1400, 'height': 900})
+        page.wait_for_timeout(200)
+        self.assertTrue(page.locator('#mainTable >> text=Sizes').first.is_visible())
+        self.assertTrue(page.locator('#mainTable >> text=Progress').first.is_visible())
 
         page.set_viewport_size({'width': 1280, 'height': 900})
         page.goto(base + '/index', wait_until='networkidle')
@@ -254,6 +267,84 @@ class HomepageBrowserTest(unittest.TestCase):
         self.assertNotIn('Loading', page.locator('#count-lift-demo').inner_text())
         self.assertNotIn('Loading', page.locator('#last-lift-demo').inner_text())
         self.assertNotIn('Loading', page.locator('#status-lift-demo').inner_text())
+        browser.close()
+    finally:
+      server.shutdown()
+
+  def test_table_fits_without_horizontal_overflow(self):
+    sync_playwright = _playwright_or_skip()
+    extra = []
+    for i in range(3):
+      extra.append(_survey('wide-%s' % i, {
+          'surveyname': (
+              'Extremely long survey display name that must ellipsis '
+              'instead of stretching the row %s' % i),
+          'displayname': (
+              'Extremely long survey display name that must ellipsis '
+              'instead of stretching the row %s' % i),
+          'surveytype': 'brand_track',
+          'client': 'Acme Worldwide International Holdings Group',
+          'agency': 'Example Media Partners LLC North America',
+          'created_at': '2026-11-1%sT12:00:00Z' % (i + 1),
+          'created_by': 'editor.with.a.very.long.local-part@example.com',
+          'question1': 'Which cola brand did you notice?',
+          'answer1a': 'Example Cola',
+          'creativesizes': ['300x250', '336x280', '970x250'],
+          'responsetype': 'Submit Responses at End of Survey',
+      }))
+    surveys = [_survey('lift-demo', _MULTI), _survey('track-two', _TRACK)] + extra
+    survey_service.list_surveys.return_value = surveys
+    survey_service.get_response_counts.return_value = pandas.DataFrame({
+        'ID': ['lift-demo', 'lift-demo', 'track-two'] + [
+            'wide-%s' % i for i in range(3)],
+        'Segmentation': ['default_control', 'default_expose', 'survey'] + [
+            'survey'] * 3,
+        'max_date': ['2026-11-18'] * 6,
+        'days_since_response': [1, 1, 2, 1, 1, 1],
+        'response_count': [40, 42, 24, 8, 8, 8],
+        'n_q1': [40, 42, 24, 8, 8, 8],
+        'k_q1_a': [20, 21, 12, 4, 4, 4],
+    })
+
+    server, port = _start_app(main.app)
+    base = 'http://127.0.0.1:%s' % port
+    try:
+      with sync_playwright() as playwright:
+        browser = playwright.chromium.launch(headless=True)
+        page = browser.new_page(viewport={'width': 1400, 'height': 900})
+        page.goto(base + '/index', wait_until='networkidle')
+        page.wait_for_selector('#survey-table-wrap')
+        for width in (768, 1024, 1280, 1400, 1920):
+          page.set_viewport_size({'width': width, 'height': 900})
+          page.wait_for_timeout(250)
+          metrics = page.evaluate(
+              """() => {
+                const wrap = document.getElementById('survey-table-wrap');
+                const table = document.getElementById('mainTable');
+                const row = document.querySelector('#mainTable tbody tr');
+                return {
+                  wrapScroll: wrap.scrollWidth,
+                  wrapClient: wrap.clientWidth,
+                  tableScroll: table.scrollWidth,
+                  tableClient: table.clientWidth,
+                  rowHeight: row ? Math.round(row.getBoundingClientRect().height) : 0,
+                  visible: !!(wrap && wrap.offsetParent !== null),
+                };
+              }""")
+          self.assertTrue(
+              metrics['visible'],
+              'table hidden at %spx: %s' % (width, metrics))
+          self.assertLessEqual(
+              metrics['wrapScroll'], metrics['wrapClient'] + 1,
+              'wrapper overflow at %spx: %s' % (width, metrics))
+          self.assertLessEqual(
+              metrics['tableScroll'], metrics['wrapClient'] + 1,
+              'table overflow at %spx: %s' % (width, metrics))
+          self.assertTrue(
+              metrics['rowHeight'] <= 44,
+              'row height %s at %spx' % (metrics['rowHeight'], width))
+        name = page.locator('#mainTable tbody tr td.cell-name').first
+        self.assertTrue(name.get_attribute('title'))
         browser.close()
     finally:
       server.shutdown()

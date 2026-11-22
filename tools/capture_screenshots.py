@@ -431,6 +431,17 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_selector('#mainTable')
     page.wait_for_timeout(400)
     capture(page, out / 'home-narrow.png')
+
+    page.set_viewport_size({'width': 1024, 'height': 900})
+    page.goto(base + '/index', wait_until='networkidle')
+    page.wait_for_selector('#mainTable')
+    page.wait_for_function(
+        """() => {
+          const el = document.getElementById('status-lift-demo');
+          return el && el.textContent && el.textContent.indexOf('Loading') === -1;
+        }""")
+    page.wait_for_timeout(200)
+    capture(page, out / 'home-1024.png')
     page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 900})
 
     page.goto(base + '/index', wait_until='networkidle')

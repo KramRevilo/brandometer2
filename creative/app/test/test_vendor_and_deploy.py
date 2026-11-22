@@ -515,6 +515,7 @@ class ReadmeImagesTest(unittest.TestCase):
         'docs/images/home.png',
         'docs/images/home-filters.png',
         'docs/images/home-narrow.png',
+        'docs/images/home-1024.png',
         'docs/images/home-actions-menu.png',
         'docs/images/home-preview-modal.png',
         'docs/images/editor.png',

@@ -4,28 +4,69 @@
 {% block styles %}
 <style>
   .survey-actions { flex-wrap: nowrap; }
-  .survey-actions .btn { display: inline-flex; align-items: center; justify-content: center; padding: 0.15rem 0.35rem; }
-  td.survey-actions-cell { white-space: nowrap; width: 1%; overflow: visible; }
-  #mainTable thead th { position: sticky; top: 0; z-index: 2; white-space: nowrap; }
-  #mainTable th, #mainTable td { white-space: nowrap; vertical-align: middle; }
+  .survey-actions .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.1rem 0.2rem;
+    line-height: 1;
+  }
+  td.survey-actions-cell,
+  th.cell-actions {
+    white-space: nowrap;
+    overflow: hidden;
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
+  }
+  #survey-table-wrap { width: 100%; max-width: 100%; }
+  #mainTable {
+    table-layout: fixed;
+    width: 100%;
+    max-width: 100%;
+  }
+  #mainTable thead th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  #mainTable th, #mainTable td { vertical-align: middle; }
   #mainTable thead th.cell-last {
     white-space: normal;
     line-height: 1.15;
     font-size: 0.75rem;
   }
-  #mainTable td.text-truncate { max-width: 11rem; }
-  #mainTable td.cell-name { max-width: 14rem; }
-  #mainTable td.cell-created-by { max-width: 10rem; }
-  #mainTable td.cell-questions { max-width: 12rem; }
-  #mainTable td.cell-count { min-width: 6.5rem; }
-  #mainTable td.cell-progress { min-width: 3.25rem; }
-  #mainTable td.cell-result { min-width: 5.5rem; }
+  #mainTable td.cell-clip {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  #mainTable td.cell-compact {
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  /* Percentages sum to 100% of the full (xxl) column set so hidden
+     columns free space for the rest instead of stretching the table. */
+  #mainTable th.cell-name, #mainTable td.cell-name { width: 15%; }
+  #mainTable th.cell-client, #mainTable td.cell-client { width: 8%; }
+  #mainTable th.cell-agency, #mainTable td.cell-agency { width: 8%; }
+  #mainTable th.cell-created-by, #mainTable td.cell-created-by { width: 9%; }
+  #mainTable th.cell-created, #mainTable td.cell-created { width: 7%; }
+  #mainTable th.cell-sizes, #mainTable td.cell-sizes { width: 7%; }
+  #mainTable th.cell-count, #mainTable td.cell-count { width: 7%; }
+  #mainTable th.cell-last, #mainTable td.cell-last { width: 5%; }
+  #mainTable th.cell-status, #mainTable td.cell-status { width: 7%; }
+  #mainTable th.cell-progress, #mainTable td.cell-progress { width: 6%; }
+  #mainTable th.cell-result, #mainTable td.cell-result { width: 10%; }
+  #mainTable th.cell-actions, #mainTable td.cell-actions { width: 11%; }
   .survey-card .survey-card-title { min-width: 0; }
   #previewModalFrame { border: 0; background: #fff; display: block; }
 </style>
 {% endblock %}
 {% block content %}
-<div class="container pb-4">
+<div class="container-fluid px-3 pb-4">
     <form class="row g-2 align-items-end mb-3" method="get" action="{{ url_for('index') }}">
         {% if show_archived %}
         <input type="hidden" name="archived" value="1">
@@ -190,24 +231,24 @@
         {% endfor %}
     </div>
 
-    <div class="table-responsive d-none d-md-block">
+    <div id="survey-table-wrap" class="d-none d-md-block">
     <table id="mainTable" class="table table-sm table-bordered table-striped align-middle">
         <thead class="table-primary">
             <tr class="text-center">
-                    <th scope="col" class="table_header" style="width:160px;" aria-sort="{{ 'descending' if sort_key == 'name' and sort_dir == 'desc' else 'ascending' if sort_key == 'name' else 'none' }}">{{ sort_link('name', 'Name') }}</th>
-                    <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'client' and sort_dir == 'desc' else 'ascending' if sort_key == 'client' else 'none' }}">{{ sort_link('client', 'Client') }}</th>
-                    <th scope="col" class="table_header d-none d-xl-table-cell" aria-sort="{{ 'descending' if sort_key == 'agency' and sort_dir == 'desc' else 'ascending' if sort_key == 'agency' else 'none' }}">{{ sort_link('agency', 'Agency') }}</th>
-                    <th scope="col" class="table_header d-none d-lg-table-cell" aria-sort="{{ 'descending' if sort_key == 'created_by' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_by' else 'none' }}">{{ sort_link('created_by', 'Created by') }}</th>
-                    <th scope="col" class="table_header" aria-sort="{{ 'descending' if sort_key == 'created_at' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_at' else 'none' }}">{{ sort_link('created_at', 'Created') }}</th>
+                    <th scope="col" class="table_header cell-name" aria-sort="{{ 'descending' if sort_key == 'name' and sort_dir == 'desc' else 'ascending' if sort_key == 'name' else 'none' }}">{{ sort_link('name', 'Name') }}</th>
+                    <th scope="col" class="table_header cell-client" aria-sort="{{ 'descending' if sort_key == 'client' and sort_dir == 'desc' else 'ascending' if sort_key == 'client' else 'none' }}">{{ sort_link('client', 'Client') }}</th>
+                    <th scope="col" class="table_header cell-agency d-none d-xl-table-cell" aria-sort="{{ 'descending' if sort_key == 'agency' and sort_dir == 'desc' else 'ascending' if sort_key == 'agency' else 'none' }}">{{ sort_link('agency', 'Agency') }}</th>
+                    <th scope="col" class="table_header cell-created-by d-none d-xl-table-cell" aria-sort="{{ 'descending' if sort_key == 'created_by' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_by' else 'none' }}">{{ sort_link('created_by', 'Created by') }}</th>
+                    <th scope="col" class="table_header cell-created" aria-sort="{{ 'descending' if sort_key == 'created_at' and sort_dir == 'desc' else 'ascending' if sort_key == 'created_at' else 'none' }}">{{ sort_link('created_at', 'Created') }}</th>
                     <th scope="col" class="table_header d-none" aria-sort="{{ 'descending' if sort_key == 'id' and sort_dir == 'desc' else 'ascending' if sort_key == 'id' else 'none' }}">{{ sort_link('id', 'Survey ID') }}</th>
                     <th scope="col" class="table_header d-none">Survey Questions</th>
-                    <th scope="col" class="table_header d-none d-lg-table-cell" style="width:90px;" aria-sort="{{ 'descending' if sort_key == 'sizes' and sort_dir == 'desc' else 'ascending' if sort_key == 'sizes' else 'none' }}">{{ sort_link('sizes', 'Sizes') }}</th>
-                    <th scope="col" class="table_header">Actions</th>
+                    <th scope="col" class="table_header cell-sizes d-none d-xxl-table-cell" aria-sort="{{ 'descending' if sort_key == 'sizes' and sort_dir == 'desc' else 'ascending' if sort_key == 'sizes' else 'none' }}">{{ sort_link('sizes', 'Sizes') }}</th>
+                    <th scope="col" class="table_header cell-actions">Actions</th>
                     <th scope="col" class="table_header d-none d-lg-table-cell cell-count" title="Response count (segment:count)">Count</th>
                     <th scope="col" class="table_header d-none d-lg-table-cell cell-last" title="Days since last received response">Last Rcvd<br>Data (days)</th>
-                    <th scope="col" class="table_header">Status</th>
-                    <th scope="col" class="table_header d-none d-xl-table-cell cell-progress" aria-sort="{{ 'descending' if sort_key == 'progress' and sort_dir == 'desc' else 'ascending' if sort_key == 'progress' else 'none' }}" title="Sample progress (saved plan or ±3pp target)">{{ sort_link('progress', 'Progress') }}</th>
+                    <th scope="col" class="table_header cell-status">Status</th>
                     <th scope="col" class="table_header cell-result" aria-sort="{{ 'descending' if sort_key == 'result' and sort_dir == 'desc' else 'ascending' if sort_key == 'result' else 'none' }}">{{ sort_link('result', 'Result') }}</th>
+                    <th scope="col" class="table_header d-none d-xxl-table-cell cell-progress" aria-sort="{{ 'descending' if sort_key == 'progress' and sort_dir == 'desc' else 'ascending' if sort_key == 'progress' else 'none' }}" title="Sample progress (saved plan or ±3pp target)">{{ sort_link('progress', 'Progress') }}</th>
             </tr>
         </thead>
         <tbody>
@@ -216,41 +257,41 @@
         {% set size_compact = sizes | sizes_compact %}
         {% set questions = survey | get_all_question_text %}
         <tr>
-            <td class="text-center small text-truncate text-nowrap cell-name" title="{{ survey | survey_label }}">
+            <td class="text-center small cell-clip cell-name" title="{{ survey | survey_label }}">
                 {{ survey | survey_label }}
             </td>
-            <td class="text-center small text-truncate text-nowrap" title="{{ survey.to_dict().get('client') or 'Unknown' }}">{{ survey.to_dict().get('client') or 'Unknown' }}</td>
-            <td class="text-center small text-truncate text-nowrap d-none d-xl-table-cell" title="{{ survey.to_dict().get('agency') or 'Unknown' }}">{{ survey.to_dict().get('agency') or 'Unknown' }}</td>
-            <td class="text-center small text-truncate text-nowrap d-none d-lg-table-cell cell-created-by" title="{{ survey | created_by_display }}">{{ survey | created_by_display }}</td>
-            <td class="text-center small text-nowrap"{% if survey | created_at_title %} title="{{ survey | created_at_title }}"{% endif %}>
+            <td class="text-center small cell-clip cell-client" title="{{ survey.to_dict().get('client') or 'Unknown' }}">{{ survey.to_dict().get('client') or 'Unknown' }}</td>
+            <td class="text-center small cell-clip cell-agency d-none d-xl-table-cell" title="{{ survey.to_dict().get('agency') or 'Unknown' }}">{{ survey.to_dict().get('agency') or 'Unknown' }}</td>
+            <td class="text-center small cell-clip cell-created-by d-none d-xl-table-cell" title="{{ survey | created_by_display }}">{{ survey | created_by_display }}</td>
+            <td class="text-center small cell-compact cell-created"{% if survey | created_at_title %} title="{{ survey | created_at_title }}"{% endif %}>
                 {{ survey | created_at_display or 'Unknown' }}
             </td>
-            <td class="text-center small text-truncate text-nowrap d-none" title="{{ survey.id }}">
+            <td class="text-center small cell-clip d-none" title="{{ survey.id }}">
                 {{ survey.id }}
             </td>
-            <td class="small text-truncate text-nowrap d-none cell-questions" title="{{ questions|join(' · ') }}">
+            <td class="small cell-clip d-none cell-questions" title="{{ questions|join(' · ') }}">
                 {{ questions|join(' · ') }}
             </td>
-            <td class="text-center small text-nowrap d-none d-lg-table-cell"{% if size_compact.title %} title="{{ size_compact.title }}"{% endif %}>
+            <td class="text-center small cell-compact cell-sizes d-none d-xxl-table-cell"{% if size_compact.title %} title="{{ size_compact.title }}"{% endif %}>
                 {{ size_compact.text }}
             </td>
-            <td class="text-center survey-actions-cell text-nowrap">
+            <td class="text-center survey-actions-cell cell-actions">
                 {{ survey_actions(survey, sizes, show_archived, 'actions-' + survey.id) }}
             </td>
-            <td class="text-center small text-nowrap d-none d-lg-table-cell cell-count">
+            <td class="text-center small cell-compact d-none d-lg-table-cell cell-count">
                 <div id="count-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ count_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
-            <td class="text-center small text-nowrap d-none d-lg-table-cell">
+            <td class="text-center small cell-compact d-none d-lg-table-cell cell-last">
                 <div id="last-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ last_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
-            <td class="text-center text-nowrap">
+            <td class="text-center cell-compact cell-status">
                 <div id="status-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ status_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
-            <td class="text-center small text-nowrap d-none d-xl-table-cell cell-progress">
-                <div id="progress-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ progress_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
-            </td>
-            <td class="text-center small text-nowrap cell-result">
+            <td class="text-center small cell-compact cell-result">
                 <div id="result-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ result_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
+            </td>
+            <td class="text-center small cell-compact d-none d-xxl-table-cell cell-progress">
+                <div id="progress-{{ survey.id }}"{% if stats_pending %} data-stats-pending="1"{% endif %}>{% if stats_pending %}<span class="text-muted">Loading…</span>{% else %}{{ progress_content(stats_by_id.get(survey.id)) }}{% endif %}</div>
             </td>
         </tr>
         {% endfor %}
