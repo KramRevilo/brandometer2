@@ -104,6 +104,11 @@ class ThankyouHtmlTest(unittest.TestCase):
     self.assertIn("addEventListener('pagehide'", html)
     self.assertIn('capPixelUrl', html)
     self.assertIn('var max = 1800', html)
+    self.assertIn('pixelConfirmed', html)
+    self.assertIn('appendSubmissionNonce', html)
+    self.assertIn('armImageBackup', html)
+    self.assertIn('deliverTestPixel', html)
+    self.assertNotIn('this.insertIframePixel(url);\n                    this.insertImagePixel(url);', html)
 
   def test_preview_response_server_is_empty(self):
     # main.preview passes receiver_url=''. Same creative JS as the zip.
@@ -362,8 +367,9 @@ class ThankyouBrowserTest(unittest.TestCase):
           page = browser.new_page()
           errors = []
           page.on('pageerror', lambda exc: errors.append(str(exc)))
-          page.goto('http://127.0.0.1:%s/survey/preview/sid' % port)
-          csp = urlopen('http://127.0.0.1:%s/survey/preview/sid' % port).headers.get(
+          page.goto('http://127.0.0.1:%s/survey/preview/sid?embed=1' % port)
+          csp = urlopen(
+              'http://127.0.0.1:%s/survey/preview/sid?embed=1' % port).headers.get(
               'Content-Security-Policy', '')
           self.assertIn("script-src 'self' 'unsafe-inline'", csp)
           self._click_through(page, 1)
@@ -416,7 +422,7 @@ class ThankyouBrowserTest(unittest.TestCase):
           with sync_playwright() as playwright:
             browser = playwright.chromium.launch(headless=True)
             page = browser.new_page()
-            page.goto('http://127.0.0.1:%s/survey/preview/sid' % port)
+            page.goto('http://127.0.0.1:%s/survey/preview/sid?embed=1' % port)
             rgb = page.evaluate(
                 "getComputedStyle(document.getElementById('master_container'))"
                 ".backgroundColor")

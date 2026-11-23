@@ -121,6 +121,22 @@ class ConsolidationTest(unittest.TestCase):
     self.assertEqual(len(out), 1)
     self.assertEqual(out.iloc[0]['RespondentID'], 'rid-1')
 
+  def test_consolidate_test_prefix_collapses_blank_ids_stay_split(self):
+    t1 = datetime.datetime(2026, 11, 22, 23, 43, 8, 383234)
+    t2 = datetime.datetime(2026, 11, 22, 23, 43, 8, 392334)
+    dupes = pandas.DataFrame({
+        'CreatedAt': [t1, t2, t1, t2],
+        'Segmentation': ['default_control'] * 4,
+        'Response': ['1:A'] * 4,
+        'BomID': ['test_aaa', 'test_aaa', '', None],
+        'RespondentID': ['test_aaa', 'test_aaa', None, ''],
+        'Type': ['test'] * 4,
+    })
+    out = reporting.consolidate_frame(dupes)
+    self.assertEqual(len(out), 3)
+    self.assertEqual(
+        (out['RespondentID'].fillna('') == 'test_aaa').sum(), 1)
+
   def test_consolidate_blank_bomid_stays_as_individual_rows(self):
     t1 = datetime.datetime(2026, 11, 1)
     df = pandas.DataFrame({

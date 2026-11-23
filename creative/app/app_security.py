@@ -123,9 +123,9 @@ def content_security_policy(environ=None):
   and the creative HTML are inline, and editor preview uses iframe srcdoc of
   that creative. Zip downloads are attachments and are not governed by this
   header once they leave the app. Set GTAG_ID to also allow Tag Manager.
-  Standalone preview Submit test response posts to RECEIVER_URL (iframe GET,
+  Standalone preview test pixels post to RECEIVER_URL (fetch, iframe GET,
   img pixel, sendBeacon), so that origin is added to img-src / connect-src /
-  frame-src when configured.
+  frame-src when configured. frame-src 'self' covers the preview chrome iframe.
   """
   env = environ if environ is not None else os.environ
   script = ["'self'", "'unsafe-inline'", "'unsafe-eval'"]

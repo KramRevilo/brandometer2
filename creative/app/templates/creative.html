@@ -108,7 +108,9 @@
                 pixelUrl: '',
                 pixelPrimarySent: false,
                 pixelBackupSent: false,
+                pixelConfirmed: false,
                 pixelUnloadBound: false,
+                _backupTimer: null,
 
                 init: function() {
                     for (var questionIndex = 0; questionIndex < this.surveyConfig.questions.length; questionIndex++) {
@@ -269,6 +271,10 @@
                         var uid = self.expandedAdUserId();
                         var token = self.surveyConfig.receiver_token || '';
                         var fallback = function() {
+                            if (self.surveyConfig.is_test_pixel) {
+                                finish(self.uuidv4(), 'impression');
+                                return;
+                            }
                             if (stored) {
                                 finish(stored, 'storage');
                                 return;
@@ -838,14 +844,82 @@
                     if (!url) {
                         return;
                     }
+                    url = this.appendSubmissionNonce(url);
                     this.pixelUrl = url;
                     this.bindPixelRetry();
                     if (this.pixelPrimarySent) {
                         return;
                     }
                     this.pixelPrimarySent = true;
+                    if (this.surveyConfig.is_test_pixel) {
+                        this.deliverTestPixel(url);
+                        return;
+                    }
                     this.insertIframePixel(url);
-                    this.insertImagePixel(url);
+                    this.armImageBackup(url);
+                },
+
+                appendSubmissionNonce: function(url) {
+                    if (!url || /[?&]sub=/.test(url)) {
+                        return url;
+                    }
+                    var sub = this.uuidv4().replace(/-/g, '').slice(0, 16);
+                    return url + (url.indexOf('?') >= 0 ? '&' : '?') +
+                        'sub=' + encodeURIComponent(sub);
+                },
+
+                deliverTestPixel: function(url) {
+                    var self = this;
+                    {% if is_test_pixel %}
+                    if (window.fetch) {
+                        try {
+                            fetch(url, {
+                                method: 'GET',
+                                mode: 'cors',
+                                credentials: 'omit',
+                                cache: 'no-store'
+                            }).then(function(res) {
+                                self.pixelConfirmed = true;
+                                self.reportPixelStatus(res.status, 'fetch');
+                            }).catch(function() {
+                                self.insertIframePixel(url);
+                                self.armImageBackup(url);
+                            });
+                            return;
+                        } catch (e1) {}
+                    }
+                    {% endif %}
+                    this.insertIframePixel(url);
+                    this.armImageBackup(url);
+                },
+
+                reportPixelStatus: function(status, via) {
+                    try {
+                        if (window.parent && window.parent !== window) {
+                            window.parent.postMessage({
+                                source: 'brandometer2',
+                                kind: 'pixel_result',
+                                status: status,
+                                via: via || '',
+                                survey_id: this.surveyConfig.id
+                            }, window.location.origin);
+                        }
+                    } catch (e) {}
+                },
+
+                armImageBackup: function(url) {
+                    var self = this;
+                    if (this._backupTimer) {
+                        return;
+                    }
+                    this._backupTimer = window.setTimeout(function() {
+                        if (self.pixelConfirmed) {
+                            return;
+                        }
+                        try {
+                            self.insertImagePixel(url || self.pixelUrl);
+                        } catch (e) {}
+                    }, 2000);
                 },
 
                 bindPixelRetry: function() {
@@ -870,16 +944,15 @@
                 },
 
                 sendPixelBackup: function() {
-                    if (!this.pixelUrl || this.pixelBackupSent) {
+                    if (!this.pixelUrl || this.pixelBackupSent || this.pixelConfirmed) {
                         return;
                     }
                     this.pixelBackupSent = true;
                     try {
-                        this.insertImagePixel(this.pixelUrl);
-                    } catch (e1) {}
-                    try {
                         if (navigator.sendBeacon) {
                             navigator.sendBeacon(this.pixelUrl, '');
+                        } else {
+                            this.insertImagePixel(this.pixelUrl);
                         }
                     } catch (e2) {}
                 },
@@ -926,10 +999,17 @@
                     if (!url) {
                         return;
                     }
+                    var self = this;
                     var pixelFrame = document.createElement('iframe');
                     pixelFrame.setAttribute('width', '0');
                     pixelFrame.setAttribute('height', '0');
                     pixelFrame.setAttribute('src', url);
+                    pixelFrame.onload = function() {
+                        self.pixelConfirmed = true;
+                        if (self.surveyConfig.is_test_pixel) {
+                            self.reportPixelStatus(204, 'iframe');
+                        }
+                    };
                     document.body.appendChild(pixelFrame);
 
                     if ("{{manual_responses}}" === "True") {

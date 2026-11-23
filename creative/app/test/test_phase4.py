@@ -240,7 +240,10 @@ class EditorAndPreviewRoutesTest(unittest.TestCase):
         'creativesize': '160x600',
         'responsetype': 'Submit Responses at End of Survey',
     })
-    response = self.client.get('/survey/preview/abc')
+    chrome = self.client.get('/survey/preview/abc')
+    self.assertEqual(chrome.status_code, 200)
+    self.assertIn(b'id="preview-test-frame"', chrome.data)
+    response = self.client.get('/survey/preview/abc?embed=1')
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'width=160,height=600', response.data)
     self.assertIn(b'"width": 160', response.data)

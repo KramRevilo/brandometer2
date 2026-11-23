@@ -664,7 +664,9 @@ def identity_suggestions():
   clients = set()
   agencies = set()
   try:
-    docs = survey_collection.get_all(survey_collection.IDENTITY_SUGGESTION_FIELDS)
+    docs = list(
+        survey_collection.get_all(survey_collection.IDENTITY_SUGGESTION_FIELDS)
+        or [])
   except Exception:
     return {'clients': [], 'agencies': []}
   for doc in docs:
@@ -1089,7 +1091,7 @@ def build_stat_array(survey_ids, counts_df=None, surveys=None,
     counts_df = get_response_counts(survey_ids, include_test=include_test)
   stat_array = []
   for survey_id in survey_ids:
-    df = counts_df.loc[counts_df['ID'] == survey_id]
+    df = _counts_for_survey(counts_df, survey_id)
     segmentation_rows = df.to_dict()
     most_recent_change = _MRC_INIT
     last_at = ''
@@ -1673,10 +1675,45 @@ def _l2_available():
   return shared_stats_cache_enabled() and survey_collection._db is not None
 
 
+def _as_survey_id(value):
+  """Normalize a survey id from BigQuery/pandas so string compare is safe."""
+  if value is None:
+    return ''
+  try:
+    if isinstance(value, float) and math.isnan(value):
+      return ''
+  except (TypeError, ValueError):
+    pass
+  text = str(value).strip()
+  if text.lower() in ('nan', 'none', '<na>'):
+    return ''
+  return text
+
+
+def _counts_for_survey(frame, survey_id):
+  """Slice homepage counts by ID, coercing BQ/pandas dtypes to str."""
+  empty = _empty_counts_frame()
+  if frame is None or getattr(frame, 'empty', True):
+    return empty
+  if 'ID' not in getattr(frame, 'columns', []):
+    return empty
+  wanted = _as_survey_id(survey_id)
+  if not wanted:
+    return empty
+  matched = frame['ID'].map(_as_survey_id) == wanted
+  out = frame.loc[matched]
+  return out if not out.empty else empty
+
+
 def _l2_rows_current(rows):
-  """Reject pre-headline StatsCache docs so Result/Progress refetch k_q1_a."""
+  """Reject empty and pre-headline StatsCache docs so new rows can appear.
+
+  An empty list used to count as a hit, so a first include_test visit (or a
+  streaming-buffer miss) cached “no rows” in Firestore for the full TTL and
+  hid Type=test pixels that landed seconds later.
+  """
   if not rows:
-    return True
+    return False
   for rec in rows:
     if not isinstance(rec, dict) or 'k_q1_a' not in rec or 'n_q1' not in rec:
       return False
@@ -1747,8 +1784,12 @@ def _l2_put(frames_by_id, ttl, include_test=False):
       seconds=int(ttl))
   payload = {}
   for sid, frame in (frames_by_id or {}).items():
-    payload[stats_l2_doc_id(sid, include_test)] = _counts_rows_from_frame(
-        frame, sid)
+    rows = _counts_rows_from_frame(frame, sid)
+    if not rows:
+      continue
+    payload[stats_l2_doc_id(sid, include_test)] = rows
+  if not payload:
+    return
   try:
     survey_collection.write_stats_cache(payload, expires)
   except Exception:
@@ -1771,7 +1812,9 @@ def _fetch_all_response_counts(survey_ids=None, include_test=False):
   Restricted to the given survey IDs (current homepage page, or every
   remaining id when the Status filter needs a full-list classify) and, when
   STATS_LOOKBACK_DAYS > 0, a CreatedAt partition window so BigQuery can prune.
-  Type=test preview rows are excluded unless include_test is true.
+  CAST(CreatedAt AS TIMESTAMP) works for DATETIME or TIMESTAMP columns.
+  Blank RespondentID/BomID are kept (synthetic row:id keys) — they are not
+  dropped. Type=test preview rows are excluded unless include_test is true.
   """
   ids = [sid for sid in (survey_ids or []) if sid]
   if not ids:
@@ -1783,8 +1826,8 @@ def _fetch_all_response_counts(survey_ids=None, include_test=False):
   partition = ''
   if lookback > 0:
     partition = (
-        'AND CreatedAt >= DATETIME_SUB(CURRENT_DATETIME(), '
-        'INTERVAL @lookback_days DAY)')
+        'AND CAST(CreatedAt AS TIMESTAMP) >= TIMESTAMP_SUB('
+        'CURRENT_TIMESTAMP(), INTERVAL @lookback_days DAY)')
   test_filter = '' if include_test else _EXCLUDE_TEST_SQL
   query = f"""
     WITH numbered AS (
@@ -1856,8 +1899,8 @@ def get_response_counts(survey_ids=None, include_test=False):
   are acceptable. L2 is skipped until a Firestore client already exists so
   unit tests without a mock db never open a real client.
 
-  include_test uses a separate L1/L2 key so excluded counts are never served
-  when Type=test rows should be visible (and vice versa).
+  include_test bypasses L1/L2 so a just-submitted Type=test pixel is visible
+  on the next refresh (empty StatsCache docs must not hide it for 90s).
   """
   ids = []
   for sid in survey_ids or []:
@@ -1867,7 +1910,7 @@ def get_response_counts(survey_ids=None, include_test=False):
     return _empty_counts_frame()
   include_test = bool(include_test)
   ttl = stats_cache_seconds()
-  if ttl <= 0:
+  if include_test or ttl <= 0:
     return _fetch_all_response_counts(ids, include_test=include_test)
   now = time.monotonic()
   with _stats_lock:
@@ -1888,13 +1931,11 @@ def get_response_counts(survey_ids=None, include_test=False):
     fetched_by_id = {}
     if still:
       fetched = _fetch_all_response_counts(still, include_test=include_test)
-      empty = _empty_counts_frame()
       for sid in still:
-        if fetched is None or fetched.empty or 'ID' not in fetched.columns:
-          fetched_by_id[sid] = empty
-        else:
-          slice_df = fetched.loc[fetched['ID'] == sid]
-          fetched_by_id[sid] = slice_df if not slice_df.empty else empty
+        slice_df = _counts_for_survey(fetched, sid)
+        if slice_df is None or slice_df.empty:
+          continue
+        fetched_by_id[sid] = slice_df
       _l2_put(fetched_by_id, ttl, include_test=include_test)
     elif l2_hits:
       _log.debug('stats.bq_ms=0.0 cache=l2 n_ids=%d include_test=%s',

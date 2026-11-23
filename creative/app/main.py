@@ -424,7 +424,12 @@ def bulk_create():
 
 @app.route('/survey/preview/<string:survey_id>', methods=['GET'])
 def preview(survey_id):
-  """Survey preview."""
+  """Survey preview: chrome page with an inline sandboxed creative iframe.
+
+  Homepage modal uses ?embed=1 (creative only, never posts). The inner
+  creative uses ?frame=1. Editors' standalone preview loads that frame with
+  submit_test=1 so answers write Type=test without a pop-up.
+  """
   survey_doc = survey_service.get_doc_by_id(survey_id)
   if survey_doc.exists:
     survey_info = survey_doc.to_dict()
@@ -444,14 +449,19 @@ def preview(survey_id):
     custom_css = Markup(creative_size.apply_overlay(
         css_theme.sanitize_user_css(custom_css), size))
     embed = (request.args.get('embed') or '').strip() == '1'
-    can_submit_test = (not embed) and google_auth.can_edit()
-    submit_test = can_submit_test and _truthy_arg(request.args.get('submit_test'))
+    frame = (request.args.get('frame') or '').strip() == '1'
+    inner = embed or frame
+    can_edit = google_auth.can_edit()
+    # Homepage modal never posts. Standalone chrome and its inner frame can.
+    can_submit_test = (not embed) and can_edit
+    submit_test = can_submit_test and (
+        frame or _truthy_arg(request.args.get('submit_test')) or not inner)
     receiver_url = ''
     receiver_token = ''
     creative_version = None
     pixel_type = 'survey'
     is_test_pixel = False
-    if submit_test:
+    if submit_test and inner:
       receiver_url = os.environ.get('RECEIVER_URL') or ''
       hmac_secret = app.config.get('RECEIVER_HMAC_SECRET') or ''
       creative_version = receiver_crypto.parse_creative_version(
@@ -465,12 +475,34 @@ def preview(survey_id):
     cell_arg = request.args.get('cell') or request.args.get('seg')
     preview_seg = cells_mod.resolve_preview_seg(survey_info, cell_arg)
 
+    if not inner:
+      frame_query = {'frame': 1, 'size': size['key']}
+      if preview_seg:
+        frame_query['cell'] = preview_seg
+      if can_submit_test:
+        frame_query['submit_test'] = 1
+      return render_template(
+          'preview.html',
+          survey=survey_info,
+          survey_id=survey_id,
+          preview_sizes=preview_sizes,
+          preview_cells=preview_cells,
+          seg=preview_seg,
+          size_key=size['key'],
+          creative_width=size['width'],
+          creative_height=size['height'],
+          can_submit_test=can_submit_test,
+          frame_src=url_for('preview', survey_id=survey_id, **frame_query),
+          title=(survey_info.get('displayname') or
+                 survey_info.get('surveyname') or survey_id),
+          **brand.badge_render_vars(survey_info))
+
     return render_template(
         'creative.html',
         survey=survey_info,
         survey_id=survey_id,
         manual_responses=True,
-        show_back_button=not embed,
+        show_back_button=False,
         embed=embed,
         preview_sizes=preview_sizes,
         preview_cells=preview_cells,
@@ -483,13 +515,11 @@ def preview(survey_id):
         size_key=size['key'],
         size_layout=size.get('layout') or 'stack',
         ad_size_meta=creative_size.ad_size_meta(size),
-        # Homepage modal (embed=1) never posts. Standalone preview posts only
-        # when an editor turns on Submit test response (Type=test).
         receiver_url=receiver_url,
         receiver_token=receiver_token,
         pixel_type=pixel_type,
         is_test_pixel=is_test_pixel,
-        can_submit_test=can_submit_test,
+        can_submit_test=False,
         submit_test=submit_test,
         creative_version=creative_version,
         thankyou_text=survey_service.get_thank_you_text(survey_info),

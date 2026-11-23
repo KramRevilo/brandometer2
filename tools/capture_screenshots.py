@@ -891,10 +891,10 @@ def run_browser(app, out: Path) -> None:
         page, out / 'editor-html5-qa.png', full_page=False, clip=box,
         max_width=UI_MAX_WIDTH)
 
-    page.set_viewport_size({'width': 720, 'height': 420})
+    page.set_viewport_size({'width': 900, 'height': 720})
     page.goto(
         base + '/survey/preview/lift-demo?size=300x250', wait_until='networkidle')
-    page.wait_for_selector('#master_container')
+    page.wait_for_selector('#preview-test-frame')
     page.wait_for_timeout(400)
     capture(page, out / 'preview-300x250.png', full_page=False)
     page.set_viewport_size({'width': 1280, 'height': 900})
@@ -915,7 +915,7 @@ def run_browser(app, out: Path) -> None:
       w, h = (int(part) for part in size.split('x'))
       page.set_viewport_size({'width': max(w + 48, 400), 'height': h + 80})
       page.goto(
-          '%s/survey/preview/%s?size=%s' % (base, survey_id, size),
+          '%s/survey/preview/%s?embed=1&size=%s' % (base, survey_id, size),
           wait_until='networkidle')
       page.wait_for_selector('#master_container')
       page.wait_for_timeout(300)

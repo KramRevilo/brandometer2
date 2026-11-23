@@ -15,6 +15,8 @@
 import datetime
 import hashlib
 import importlib.util
+import io
+import json
 import os
 import unittest
 from unittest import mock
@@ -39,9 +41,10 @@ IPSEC = 'unit-ip-hmac'
 
 class FakeRequest(object):
 
-  def __init__(self, args, remote_addr='127.0.0.1'):
+  def __init__(self, args, remote_addr='127.0.0.1', method='GET'):
     self.args = args
     self.remote_addr = remote_addr
+    self.method = method
 
 
 class FakeSnap(object):
@@ -117,6 +120,23 @@ class ReceiverTest(unittest.TestCase):
     self.assertEqual(fields['Segmentation'], 'preview')
     self.assertEqual(fields['BomID'], 'test_abc123')
     self.assertEqual(fields['RespondentID'], 'test_abc123')
+
+  def test_validate_params_accepts_default_control_and_blank_ids(self):
+    fields, error = receiver.validate_params({
+        'id': 'L0hng8nGp4Bl6JjRMTrO',
+        'type': 'test',
+        'seg': 'default_control',
+        'response': '1:A',
+        'creative_size': '300x250',
+        'bomid': '',
+        'rid': '',
+        'token': _token('L0hng8nGp4Bl6JjRMTrO'),
+    })
+    self.assertIsNone(error)
+    self.assertEqual(fields['Type'], 'test')
+    self.assertEqual(fields['Segmentation'], 'default_control')
+    self.assertEqual(fields['BomID'], '')
+    self.assertEqual(fields['RespondentID'], '')
 
   def test_validate_params_accepts_uuid_bomid(self):
     fields, error = receiver.validate_params({
@@ -234,9 +254,20 @@ class ReceiverTest(unittest.TestCase):
       with mock.patch.object(receiver, '_bq', return_value=bq):
         with mock.patch.object(receiver, 'hash_ip', return_value=expected):
           with mock.patch.dict(os.environ, _secrets()):
-            body, status, headers = receiver.receiver(request)
+            stdout = io.StringIO()
+            with mock.patch.object(receiver.sys, 'stdout', stdout):
+              body, status, headers = receiver.receiver(request)
     self.assertEqual(status, 204)
     self.assertEqual(body, '')
+    self.assertEqual(headers.get('Access-Control-Allow-Origin'), '*')
+    logged = stdout.getvalue()
+    self.assertIn('receiver_insert', logged)
+    payload = json.loads(logged.strip().splitlines()[-1])
+    self.assertEqual(payload.get('severity'), 'INFO')
+    self.assertEqual(payload.get('status'), 204)
+    self.assertEqual(payload.get('survey_id'), 'abc')
+    self.assertEqual(payload.get('type'), 'survey')
+    self.assertEqual(payload.get('seg'), 'default_expose')
     bq.insert_rows_json.assert_called_once()
     row = bq.insert_rows_json.call_args[0][1][0]
     self.assertEqual(row['ID'], 'abc')
@@ -246,6 +277,13 @@ class ReceiverTest(unittest.TestCase):
     self.assertEqual(len(row['RandomTimeStamp']), 64)
     self.assertEqual(row['RespondentID'], 'b1')
     self.assertEqual(row['RespondentIDSource'], 'bomid')
+
+  def test_options_preflight_is_204_with_cors(self):
+    request = FakeRequest({}, method='OPTIONS')
+    body, status, headers = receiver.receiver(request)
+    self.assertEqual(status, 204)
+    self.assertEqual(body, '')
+    self.assertEqual(headers.get('Access-Control-Allow-Origin'), '*')
 
   def test_rid_and_rsrc_are_stored(self):
     request = FakeRequest(_args(rid='deadbeef' * 8, rsrc='macro'))

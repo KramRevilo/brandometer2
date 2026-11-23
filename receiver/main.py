@@ -16,18 +16,48 @@
 import datetime
 import hashlib
 import hmac
+import json
 import logging
 import os
 import re
+import sys
 import threading
 import time
+import warnings
+
+warnings.filterwarnings(
+    'ignore', message=r'.*pkg_resources.*', category=UserWarning)
 
 from google.api_core.exceptions import NotFound
 from google.cloud import bigquery
 from google.cloud import firestore
 
 _log = logging.getLogger(__name__)
-logging.basicConfig(level=logging.INFO)
+_log.setLevel(logging.INFO)
+if not _log.handlers:
+  _stderr = logging.StreamHandler(sys.stderr)
+  _stderr.setLevel(logging.INFO)
+  _log.addHandler(_stderr)
+_log.propagate = False
+
+_CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Max-Age': '3600',
+}
+
+
+def _emit(severity, message, **fields):
+  """One JSON line on stdout so `gcloud functions logs read` shows app logs."""
+  payload = {'severity': str(severity).upper(), 'message': str(message)}
+  for key, value in fields.items():
+    if value is None or value == '':
+      continue
+    payload[key] = value
+  try:
+    print(json.dumps(payload, default=str), file=sys.stdout, flush=True)
+  except Exception:
+    pass
 
 _bq_client = None
 _fs_client = None
@@ -304,26 +334,34 @@ def _pixel_response(status, errors=None, reason=None):
   if reason:
     payload['reason'] = reason
   headers = {'Content-Type': 'application/json'}
+  headers.update(_CORS_HEADERS)
   return (payload, status, headers)
 
 
 def receiver(request):
+  if str(getattr(request, 'method', 'GET') or 'GET').upper() == 'OPTIONS':
+    return ('', 204, dict(_CORS_HEADERS))
   params = {}
   params.update(request.args or {})
   fields, error = validate_params(params)
   if error:
-    _log.info('event=receiver_reject status=400 reason=%s', error)
+    _emit('INFO', 'event=receiver_reject status=400 reason=%s' % error,
+          event='receiver_reject', status=400, reason=error)
     return _pixel_response(400, reason=error)
 
   secret = receiver_hmac_secret()
   if not secret:
-    _log.error('event=receiver_hmac_secret_missing')
+    _emit('ERROR', 'event=receiver_hmac_secret_missing',
+          event='receiver_hmac_secret_missing')
     return _pixel_response(500, reason='hmac_secret_missing')
   if not token_is_valid(
       fields['ID'], fields.get('token'), secret,
       version=fields.get('CreativeVersion')):
-    _log.info('event=receiver_reject status=403 reason=bad_token survey_id=%s',
-              fields['ID'])
+    _emit('INFO',
+          'event=receiver_reject status=403 reason=bad_token survey_id=%s' %
+          fields['ID'],
+          event='receiver_reject', status=403, reason='invalid_token',
+          survey_id=fields['ID'])
     return _pixel_response(403, reason='invalid_token')
 
   ip_secret = ip_hmac_secret()
@@ -333,7 +371,9 @@ def receiver(request):
   ip_hash = hash_ip(getattr(request, 'remote_addr', None), ip_secret)
   rate_key = '%s:%s' % (ip_hash, fields['ID'])
   if not allow_request(rate_key):
-    _log.info('event=receiver_reject status=429 survey_id=%s', fields['ID'])
+    _emit('INFO', 'event=receiver_reject status=429 survey_id=%s' % fields['ID'],
+          event='receiver_reject', status=429, reason='rate_limited',
+          survey_id=fields['ID'])
     return _pixel_response(429, reason='rate_limited')
 
   survey_id = fields['ID']
@@ -343,7 +383,9 @@ def receiver(request):
     _log.exception('event=receiver_firestore_error survey_id=%s', survey_id)
     return _pixel_response(500, reason='survey_lookup_failed')
   if not active:
-    _log.info('event=receiver_reject status=404 survey_id=%s', survey_id)
+    _emit('INFO', 'event=receiver_reject status=404 survey_id=%s' % survey_id,
+          event='receiver_reject', status=404, reason='survey_not_found',
+          survey_id=survey_id)
     return _pixel_response(404, reason='survey_not_found')
 
   try:
@@ -380,8 +422,18 @@ def receiver(request):
     _log.exception('event=receiver_insert_error survey_id=%s', survey_id)
     return _pixel_response(500, reason='insert_failed')
   if errors:
-    _log.error('event=receiver_insert_rejected survey_id=%s errors=%s',
-               survey_id, errors)
+    _emit('ERROR',
+          'event=receiver_insert_rejected survey_id=%s errors=%s' %
+          (survey_id, errors),
+          event='receiver_insert_rejected', survey_id=survey_id)
     return _pixel_response(500, errors=errors, reason='insert_rejected')
-  _log.info('event=receiver_insert status=204 survey_id=%s', survey_id)
-  return ('', 204, {})
+  _emit(
+      'INFO',
+      'event=receiver_insert status=204 survey_id=%s type=%s seg=%s' % (
+          survey_id, fields.get('Type') or '', fields.get('Segmentation') or ''),
+      event='receiver_insert',
+      status=204,
+      survey_id=survey_id,
+      type=fields.get('Type') or '',
+      seg=fields.get('Segmentation') or '')
+  return ('', 204, dict(_CORS_HEADERS))

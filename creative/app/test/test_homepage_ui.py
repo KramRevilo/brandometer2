@@ -612,15 +612,23 @@ class HomepageBrowserTest(unittest.TestCase):
     hits = []
 
     class Handler(BaseHTTPRequestHandler):
-      def do_GET(self):
+      def _reply(self):
         hits.append(self.path)
         self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
         self.end_headers()
 
-      def do_POST(self):
-        hits.append(self.path)
+      def do_OPTIONS(self):
         self.send_response(204)
+        self.send_header('Access-Control-Allow-Origin', '*')
+        self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
         self.end_headers()
+
+      def do_GET(self):
+        self._reply()
+
+      def do_POST(self):
+        self._reply()
 
       def log_message(self, *_args):
         pass
@@ -654,11 +662,14 @@ class HomepageBrowserTest(unittest.TestCase):
           page = browser.new_page(viewport={'width': 1400, 'height': 900})
           page.goto(
               base + '/survey/preview/track-two', wait_until='networkidle')
-          page.locator('a', has_text='Submit test response').click()
-          page.wait_for_selector('text=Test submissions on')
-          page.wait_for_selector('#option_container_0')
-          page.locator('#option_container_0').click()
-          page.wait_for_selector('#thankyou_container.thankyoucontainer')
+          page.wait_for_selector('#preview-test-frame')
+          self.assertTrue(page.locator('#preview-reset').is_visible())
+          frame = page.frame_locator('#preview-test-frame')
+          frame.locator('#option_container_0').click()
+          frame.locator('#thankyou_container.thankyoucontainer').wait_for()
+          page.wait_for_selector('#preview-test-status.alert-success')
+          self.assertIn(
+              'HTTP 204', page.locator('#preview-test-status').inner_text())
           for _ in range(25):
             if hits:
               break
@@ -671,8 +682,16 @@ class HomepageBrowserTest(unittest.TestCase):
           self.assertEqual(query.get('id', [''])[0], 'track-two')
           self.assertEqual(query.get('seg', [''])[0], 'preview')
           self.assertTrue(query.get('token', [''])[0])
+          self.assertTrue(query.get('sub', [''])[0])
           rid = query.get('rid', [''])[0] or query.get('bomid', [''])[0]
           self.assertTrue(rid.startswith('test_'), rid)
+          self.assertLessEqual(len(hits), 1)
+          page.locator('#preview-reset').click()
+          page.wait_for_function(
+              """() => {
+                const el = document.getElementById('preview-test-status');
+                return el && !el.classList.contains('alert-success');
+              }""")
 
           page.goto(base + '/index', wait_until='networkidle')
           page.wait_for_selector('#filter-include-test')

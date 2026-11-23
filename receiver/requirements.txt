@@ -2,3 +2,5 @@
 google-cloud-bigquery==3.27.0
 google-cloud-firestore==2.19.0
 functions-framework==3.8.3
+# setuptools 81+ emits pkg_resources deprecation noise from older google libs.
+setuptools>=70,<81

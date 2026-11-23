@@ -125,10 +125,10 @@
 
   {% if report.empty_reason == 'no_data' %}
   <div class="alert alert-secondary" role="alert">
-    No responses yet. The homepage modal and default preview do not post.
-    Editors can <strong>Submit test response</strong> on the standalone preview
-    (<code>Type=test</code>). Turn on <strong>Include test responses</strong> to
-    see those rows, or wait for live creatives.
+    No responses yet. The homepage modal does not post. Editors can complete
+    the survey on the standalone preview (<code>Type=test</code>). Turn on
+    <strong>Include test responses</strong> to see those rows, or wait for live
+    creatives.
     {{ meaning('report.no_data', 'help-no-data') }}
   </div>
   {% else %}

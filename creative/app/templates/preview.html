@@ -1,0 +1,121 @@
+{% extends "base.html" %}
+{% block styles %}
+<style>
+  .preview-stage {
+    background: #e9eef2;
+    border-radius: 0.5rem;
+    padding: 1rem;
+    overflow: auto;
+  }
+  #preview-test-frame {
+    display: block;
+    border: 0;
+    background: #fff;
+    margin: 0 auto;
+    max-width: 100%;
+  }
+  #preview-test-status:empty { display: none; }
+</style>
+{% endblock %}
+{% block content %}
+<div class="container py-3">
+  <div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3">
+    <div>
+      <p class="mb-1"><a href="{{ url_for('index') }}">Back</a></p>
+      <h1 class="h4 mb-1">{{ survey.get('displayname') or survey.get('surveyname') or survey_id }}</h1>
+      <p class="text-muted small mb-0">{{ size_key.replace('x', '×') }}
+        {% if seg %} · cell <code>{{ seg }}</code>{% endif %}
+      </p>
+    </div>
+    <div class="d-flex flex-wrap gap-2">
+      {% if can_submit_test %}
+      <button type="button" class="btn btn-outline-secondary" id="preview-reset">Reset / take again</button>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if preview_sizes and preview_sizes|length > 1 %}
+  <p class="mb-2">
+    <span class="text-muted me-2">Size:</span>
+    {% for key in preview_sizes %}
+      {% if key == size_key %}
+      <strong class="me-2">{{ key.replace('x', '×') }}</strong>
+      {% else %}
+      <a class="me-2" href="{{ url_for('preview', survey_id=survey_id, size=key, cell=seg) }}">{{ key.replace('x', '×') }}</a>
+      {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
+
+  {% if preview_cells and preview_cells|length %}
+  <p class="mb-2">
+    <span class="text-muted me-2">Cell:</span>
+    {% for cell in preview_cells %}
+      {% if cell.id == seg %}
+      <strong class="me-2">{{ cell.label or cell.id }}</strong>
+      {% else %}
+      <a class="me-2" href="{{ url_for('preview', survey_id=survey_id, size=size_key, cell=cell.id) }}">{{ cell.label or cell.id }}</a>
+      {% endif %}
+    {% endfor %}
+  </p>
+  {% endif %}
+
+  {% if can_submit_test %}
+  <p class="small mb-2" id="preview-test-note">
+    Test mode is on. Completing the survey writes <code>Type=test</code> with
+    respondent ids prefixed <code>test_</code>. Turn on
+    <strong>Include test responses</strong> on the homepage or report to see them.
+  </p>
+  <div id="preview-test-status" class="alert py-2 mb-3" role="status"></div>
+  {% else %}
+  <p class="small text-muted mb-3">This preview does not post to BigQuery.</p>
+  {% endif %}
+
+  <div class="preview-stage">
+    <iframe id="preview-test-frame"
+            sandbox="allow-scripts allow-same-origin allow-popups"
+            src="{{ frame_src }}"
+            width="{{ creative_width }}"
+            height="{{ creative_height }}"
+            title="Survey preview"></iframe>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var frame = document.getElementById('preview-test-frame');
+  var statusEl = document.getElementById('preview-test-status');
+  var reset = document.getElementById('preview-reset');
+  if (!frame) return;
+
+  function showStatus(ok, text) {
+    if (!statusEl) return;
+    statusEl.textContent = text;
+    statusEl.className = 'alert py-2 mb-3 alert-' + (ok ? 'success' : 'danger');
+  }
+
+  window.addEventListener('message', function (evt) {
+    var data = evt.data || {};
+    if (evt.origin !== window.location.origin) return;
+    if (data.source !== 'brandometer2' || data.kind !== 'pixel_result') return;
+    var status = data.status;
+    var ok = status >= 200 && status < 300;
+    showStatus(ok, 'Receiver HTTP ' + status + (ok ? ' — test response saved.' : ' — not saved.'));
+  });
+
+  if (reset) {
+    reset.addEventListener('click', function () {
+      var url = frame.getAttribute('src') || '';
+      url = url.replace(/([?&])cb=[^&]*/, '$1').replace(/[?&]$/, '');
+      var sep = url.indexOf('?') >= 0 ? '&' : '?';
+      frame.src = url + sep + 'cb=' + Date.now();
+      if (statusEl) {
+        statusEl.textContent = '';
+        statusEl.className = 'alert py-2 mb-3';
+      }
+    });
+  }
+})();
+</script>
+{% endblock %}

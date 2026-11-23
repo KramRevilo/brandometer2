@@ -437,6 +437,10 @@ class DeployIamTest(unittest.TestCase):
     self.assertIn('google-cloud-secret-manager', reqs)
     self.assertIn('Authlib==1.9.9', reqs)
     self.assertIn('protobuf==5.29.6', reqs)
+    receiver_reqs = open(
+        os.path.join(_REPO_ROOT, 'receiver', 'requirements.txt'),
+        encoding='utf-8').read()
+    self.assertIn('setuptools>=70,<81', receiver_reqs)
     self.assertIn('pytest==9.0.3', reqs)
     self.assertIn('pyarrow==', reqs)
 

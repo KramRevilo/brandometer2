@@ -1203,16 +1203,20 @@ class MainRoutesTest(unittest.TestCase):
 
     self.assertEqual(response.status_code, 200)
     self.assertNotIn(b'?type=survey', response.data)
+    self.assertNotIn(b'?type=test', response.data)
     self.assertNotIn(b'AW-968433116', response.data)
-    self.assertNotIn(b'>Size:</span>', response.data)
+    self.assertIn(b'id="preview-test-frame"', response.data)
+    self.assertIn(b'sandbox="allow-scripts allow-same-origin allow-popups"',
+                  response.data)
+    self.assertIn(b'frame=1', response.data)
+    self.assertIn(b'submit_test=1', response.data)
+    self.assertIn(b'Reset / take again', response.data)
+    self.assertNotIn(b'Submit test response', response.data)
     csp = response.headers.get('Content-Security-Policy', '')
     self.assertIn("default-src 'self'", csp)
     self.assertIn("'unsafe-inline'", csp)
+    self.assertIn("frame-src 'self'", csp)
     self.assertIsNone(response.headers.get('Content-Security-Policy-Report-Only'))
-    self.assertIn(b'<script>', response.data)
-    self.assertIn(b'brand-badge', response.data)
-    self.assertIn(b'Submit test response', response.data)
-    self.assertNotIn(b'?type=test', response.data)
 
   @mock.patch.object(survey_service, 'get_question_json', return_value=[])
   @mock.patch.object(survey_service, 'get_doc_by_id')
@@ -1228,9 +1232,14 @@ class MainRoutesTest(unittest.TestCase):
     main.app.config['RECEIVER_HMAC_SECRET'] = 'unit-hmac-secret'
     try:
       with mock.patch.dict(os.environ, env):
-        response = self.client.get('/survey/preview/abc?submit_test=1')
+        chrome = self.client.get('/survey/preview/abc?submit_test=1')
+        response = self.client.get(
+            '/survey/preview/abc?frame=1&submit_test=1')
     finally:
       main.app.config['RECEIVER_HMAC_SECRET'] = ''
+    self.assertEqual(chrome.status_code, 200)
+    self.assertIn(b'id="preview-test-frame"', chrome.data)
+    self.assertIn(b'Test mode is on', chrome.data)
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'?type=test', response.data)
     self.assertNotIn(b'?type=survey', response.data)
@@ -1239,11 +1248,11 @@ class MainRoutesTest(unittest.TestCase):
     self.assertRegex(csp, r'img-src [^;]*https://recv\.example')
     self.assertRegex(csp, r'connect-src [^;]*https://recv\.example')
     self.assertRegex(csp, r'frame-src [^;]*https://recv\.example')
-    self.assertIn(b'Test submissions on', response.data)
     self.assertIn(b'"seg": "preview"', response.data)
     embed = self.client.get('/survey/preview/abc?embed=1&submit_test=1')
     self.assertNotIn(b'?type=test', embed.data)
     self.assertNotIn(b'Submit test response', embed.data)
+    self.assertNotIn(b'id="preview-test-frame"', embed.data)
 
   @mock.patch.object(survey_service, 'get_question_json', return_value=[])
   @mock.patch.object(survey_service, 'get_doc_by_id')
@@ -1257,19 +1266,25 @@ class MainRoutesTest(unittest.TestCase):
 
     default = self.client.get('/survey/preview/abc')
     self.assertEqual(default.status_code, 200)
-    self.assertIn(b'width=300,height=250', default.data)
+    self.assertIn(b'id="preview-test-frame"', default.data)
     self.assertIn(b'>300', default.data)
     self.assertIn(b'>Back</a>', default.data)
     self.assertIn(b'/survey/preview/abc?size=970x250', default.data)
+    inner = self.client.get('/survey/preview/abc?frame=1')
+    self.assertIn(b'width=300,height=250', inner.data)
 
     requested = self.client.get('/survey/preview/abc?size=970x250')
     self.assertEqual(requested.status_code, 200)
-    self.assertIn(b'width=970,height=250', requested.data)
+    self.assertIn(b'size=970x250', requested.data)
     self.assertIn(b'/survey/preview/abc?size=300x250', requested.data)
+    requested_frame = self.client.get(
+        '/survey/preview/abc?frame=1&size=970x250')
+    self.assertIn(b'width=970,height=250', requested_frame.data)
 
     unknown = self.client.get('/survey/preview/abc?size=160x600')
     self.assertEqual(unknown.status_code, 200)
-    self.assertIn(b'width=300,height=250', unknown.data)
+    unknown_frame = self.client.get('/survey/preview/abc?frame=1&size=160x600')
+    self.assertIn(b'width=300,height=250', unknown_frame.data)
 
     embed = self.client.get('/survey/preview/abc?embed=1&size=970x250')
     self.assertEqual(embed.status_code, 200)
@@ -1295,9 +1310,11 @@ class MainRoutesTest(unittest.TestCase):
     response = self.client.get('/survey/preview/abc')
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'>Cell:</span>', response.data)
-    self.assertIn(b'"seg": "default_control"', response.data)
     self.assertIn(b'cell=default_expose', response.data)
-    expose = self.client.get('/survey/preview/abc?cell=default_expose')
+    inner = self.client.get('/survey/preview/abc?frame=1')
+    self.assertIn(b'"seg": "default_control"', inner.data)
+    expose = self.client.get(
+        '/survey/preview/abc?frame=1&cell=default_expose')
     self.assertIn(b'"seg": "default_expose"', expose.data)
 
   @mock.patch.object(survey_service, 'get_response_counts')

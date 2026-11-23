@@ -120,7 +120,7 @@ class AnswerBoxChromeTest(unittest.TestCase):
           with mock.patch.object(
               survey_service, 'get_doc_by_id', return_value=Doc()):
             page.goto(
-                'http://127.0.0.1:%s/survey/preview/sid?size=300x600'
+                'http://127.0.0.1:%s/survey/preview/sid?embed=1&size=300x600'
                 % port,
                 wait_until='networkidle')
             page.wait_for_selector('.Abox')
@@ -176,7 +176,7 @@ class AnswerBoxChromeTest(unittest.TestCase):
           with mock.patch.object(
               survey_service, 'get_doc_by_id', return_value=Doc()):
             page.goto(
-                'http://127.0.0.1:%s/survey/preview/sid?size=300x600'
+                'http://127.0.0.1:%s/survey/preview/sid?embed=1&size=300x600'
                 % port,
                 wait_until='networkidle')
             page.wait_for_selector('.Abox')

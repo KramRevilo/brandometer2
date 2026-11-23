@@ -380,7 +380,9 @@ class TestSurveyService(unittest.TestCase):
     self.assertIn('PARTITION BY ID, session_key', sql)
     self.assertIn('ID IN UNNEST(@survey_ids)', sql)
     self.assertIn("IFNULL(Type, 'survey') != 'test'", sql)
-    self.assertIn('CreatedAt >= DATETIME_SUB', sql)
+    self.assertIn('CAST(CreatedAt AS TIMESTAMP)', sql)
+    self.assertIn('TIMESTAMP_SUB', sql)
+    self.assertNotIn('WHERE RespondentID IS NOT NULL', sql)
     self.assertNotIn('RandomTimeStamp', sql)
     self.assertIn('survey_ids', names)
     self.assertIn('lookback_days', names)
@@ -415,6 +417,7 @@ class TestSurveyService(unittest.TestCase):
     job_config = client.query.call_args.kwargs['job_config']
     names = [p.name for p in job_config.query_parameters]
     self.assertIn('ID IN UNNEST(@survey_ids)', sql)
+    self.assertNotIn('TIMESTAMP_SUB', sql)
     self.assertNotIn('DATETIME_SUB', sql)
     self.assertNotIn('lookback_days', names)
 
@@ -1231,7 +1234,7 @@ class TestSurveyService(unittest.TestCase):
         excluded_again = survey_service.get_response_counts(['s1'])
         included_again = survey_service.get_response_counts(
             ['s1'], include_test=True)
-    self.assertEqual(fetch.call_count, 2)
+    self.assertEqual(fetch.call_count, 3)
     self.assertEqual(int(excluded['response_count'].iloc[0]), 2)
     self.assertEqual(int(included['response_count'].iloc[0]), 9)
     self.assertEqual(int(excluded_again['response_count'].iloc[0]), 2)
@@ -1447,6 +1450,75 @@ class TestSurveyService(unittest.TestCase):
     self.assertEqual(custom['title'], 'north: 10 · south: 11')
     self.assertEqual(survey_service.compact_count(None)['text'], '')
     self.assertEqual(survey_service.compact_count({})['text'], '')
+    live_test = survey_service.compact_count({
+        'stats': [{'Segmentation': 'default_control', 'response_count': 2}],
+    })
+    self.assertEqual(live_test['text'], 'C 2')
+
+  def test_counts_for_survey_coerces_id_and_keeps_blank_keys(self):
+    sid = 'L0hng8nGp4Bl6JjRMTrO'
+    df = pandas.DataFrame({
+        'ID': ['  %s  ' % sid],
+        'Segmentation': ['default_control'],
+        'max_date': ['2026-11-22'],
+        'days_since_response': [0],
+        'response_count': [2],
+        'n_q1': [2],
+        'k_q1_a': [1],
+    })
+    sliced = survey_service._counts_for_survey(df, sid)
+    self.assertEqual(len(sliced), 1)
+    rows = survey_service.build_stat_array([sid], counts_df=df)
+    self.assertEqual(survey_service.compact_count(rows[0])['text'], 'C 2')
+    self.assertEqual(rows[0]['status'], 'Active')
+    self.assertFalse(survey_service._l2_rows_current([]))
+
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  def test_get_report_include_test_live_shaped_rows(
+      self, responses_mock, doc_mock):
+    sid = 'L0hng8nGp4Bl6JjRMTrO'
+    now = datetime.datetime(2026, 11, 22, 23, 43, 8)
+    doc = mock.Mock()
+    doc.exists = True
+    doc.to_dict.return_value = {
+        'surveyname': 'Live test',
+        'surveytype': 'brand_lift',
+        'question1': 'Q1?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+        'cells': [
+            {'id': 'default_control', 'label': 'Control', 'role': 'control'},
+            {'id': 'default_expose', 'label': 'Exposed', 'role': 'expose'},
+        ],
+    }
+    doc_mock.return_value = doc
+    blank = pandas.DataFrame({
+        'CreatedAt': [now, now],
+        'Segmentation': ['default_control', 'default_control'],
+        'Response': ['1:A', '1:A'],
+        'BomID': ['', None],
+        'RespondentID': [None, ''],
+        'Type': ['test', 'test'],
+        'CampaignID': ['', ''],
+        'PlacementID': ['', ''],
+        'SiteID': ['', ''],
+        'AdCreativeID': ['', ''],
+        'CreativeSize': ['300x250', '300x250'],
+        'CreativeVersion': [None, None],
+        'RespondentIDSource': ['', ''],
+    })
+    prefixed = blank.copy()
+    prefixed['BomID'] = ['test_aaa', 'test_aaa']
+    prefixed['RespondentID'] = ['test_aaa', 'test_aaa']
+    responses_mock.return_value = pandas.concat([blank, prefixed], ignore_index=True)
+    report = survey_service.get_report(sid, include_test=True)
+    self.assertEqual(report['n_raw'], 4)
+    self.assertEqual(report['n_total'], 3)
+    self.assertTrue(report['has_control'])
+    self.assertFalse(report['has_expose'])
+    self.assertEqual(report['empty_reason'], 'no_expose')
+    self.assertNotEqual(report['empty_reason'], 'no_data')
 
   def test_build_stat_array_zero_days_is_active_with_date_title(self):
     df = pandas.DataFrame({
@@ -1675,10 +1747,46 @@ class SharedStatsCacheTest(unittest.TestCase):
         excluded = survey_service.get_response_counts(['s1'])
         included = survey_service.get_response_counts(
             ['s1'], include_test=True)
-        self.assertEqual(fetch.call_count, 2)
+        self.assertEqual(fetch.call_count, 3)
     self.assertEqual(int(excluded['response_count'].iloc[0]), 2)
     self.assertEqual(int(included['response_count'].iloc[0]), 9)
     self.assertTrue(
         self.fs.collection('StatsCache').document('s1').get().exists)
-    self.assertTrue(
+    self.assertFalse(
         self.fs.collection('StatsCache').document('s1__incltest').get().exists)
+
+  def test_empty_counts_are_not_cached_in_l1_or_l2(self):
+    empty = pandas.DataFrame(columns=[
+        'ID', 'Segmentation', 'max_date', 'days_since_response',
+        'response_count', 'n_q1', 'k_q1_a',
+    ])
+    with mock.patch.dict(os.environ, {
+        'STATS_CACHE_SECONDS': '90',
+        'STATS_SHARED_CACHE': '1',
+    }):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          return_value=empty) as fetch:
+        first = survey_service.get_response_counts(['s1'])
+        self.assertTrue(first.empty)
+        self.assertEqual(fetch.call_count, 1)
+        survey_service.get_response_counts(['s1'])
+        self.assertEqual(fetch.call_count, 2)
+    self.assertFalse(
+        self.fs.collection('StatsCache').document('s1').get().exists)
+
+  def test_stale_empty_l2_doc_is_not_a_hit(self):
+    filled = self._frame(count=2)
+    future = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(
+        seconds=90)
+    survey_collection.write_stats_cache({'s1': []}, future)
+    with mock.patch.dict(os.environ, {
+        'STATS_CACHE_SECONDS': '90',
+        'STATS_SHARED_CACHE': '1',
+    }):
+      with mock.patch.object(
+          survey_service, '_fetch_all_response_counts',
+          return_value=filled) as fetch:
+        out = survey_service.get_response_counts(['s1'])
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(int(out['response_count'].iloc[0]), 2)
