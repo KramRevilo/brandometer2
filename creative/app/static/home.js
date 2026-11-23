@@ -30,10 +30,21 @@
   var iframe = document.getElementById('previewModalFrame');
   var titleEl = document.getElementById('previewModalLabel');
   var switcher = document.getElementById('previewModalSizes');
+  var cellSwitcher = document.getElementById('previewModalCells');
   var openLink = document.getElementById('previewModalOpen');
+  var testBtn = document.getElementById('previewModalTest');
+  var resetBtn = document.getElementById('previewModalReset');
+  var statusEl = document.getElementById('previewModalStatus');
+  var noteEl = document.getElementById('previewModalNote');
   if (!modalEl || !iframe || !window.bootstrap) return;
 
+  var helpers = window.bv2PreviewTest || {};
   var modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+  var canTest = modalEl.getAttribute('data-can-test') === '1';
+  var testMode = canTest;
+  var current = { id: '', sizes: [], size: '', cells: [], cell: '', label: '' };
+
+  if (statusEl && helpers.bindPixelToast) helpers.bindPixelToast(statusEl);
 
   function parseSizes(value) {
     if (!value) return [];
@@ -42,10 +53,20 @@
     }).filter(Boolean);
   }
 
-  function previewUrl(id, size) {
-    var url = '/survey/preview/' + encodeURIComponent(id) + '?embed=1';
-    if (size) url += '&size=' + encodeURIComponent(size);
-    return url;
+  function parseCells(value) {
+    if (!value) return [];
+    try {
+      var parsed = JSON.parse(value);
+      if (Array.isArray(parsed)) {
+        return parsed.map(function (cell) {
+          return {
+            id: String((cell && cell.id) || ''),
+            label: String((cell && cell.label) || (cell && cell.id) || '')
+          };
+        }).filter(function (cell) { return cell.id; });
+      }
+    } catch (err) { /* ignore */ }
+    return [];
   }
 
   function standaloneUrl(id, size) {
@@ -70,31 +91,87 @@
     iframe.style.height = dims.h + 'px';
   }
 
-  function openPreview(id, sizes, size, label) {
-    var chosen = size || sizes[0] || '300x250';
-    iframe.src = previewUrl(id, sizes.length ? chosen : '');
-    setFrameSize(chosen);
-    if (titleEl) titleEl.textContent = label || 'Survey preview';
+  function syncTestChrome() {
+    if (testBtn) {
+      testBtn.className = 'btn btn-sm ' + (testMode ? 'btn-primary' : 'btn-outline-secondary');
+      testBtn.setAttribute('aria-pressed', testMode ? 'true' : 'false');
+    }
+    if (resetBtn) resetBtn.classList.toggle('d-none', !testMode);
+    if (noteEl) noteEl.classList.toggle('d-none', !testMode);
+    if (!testMode && helpers.clearStatus) helpers.clearStatus(statusEl);
+  }
+
+  function frameSrc() {
+    var sizeArg = current.sizes.length ? current.size : '';
+    if (testMode && helpers.testFrameUrl) {
+      return helpers.testFrameUrl(current.id, sizeArg, current.cell);
+    }
+    if (helpers.embedFrameUrl) {
+      return helpers.embedFrameUrl(current.id, sizeArg);
+    }
+    var url = '/survey/preview/' + encodeURIComponent(current.id) + '?embed=1';
+    if (sizeArg) url += '&size=' + encodeURIComponent(sizeArg);
+    return url;
+  }
+
+  function renderSwitcher(el, items, currentKey, onPick, labelFn) {
+    if (!el) return;
+    el.innerHTML = '';
+    if (!items || items.length < 2) return;
+    items.forEach(function (item) {
+      var key = typeof item === 'string' ? item : item.id;
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn btn-sm ' + (key === currentKey ? 'btn-primary' : 'btn-outline-secondary');
+      btn.textContent = labelFn(item);
+      btn.addEventListener('click', function () { onPick(key); });
+      el.appendChild(btn);
+    });
+  }
+
+  function applyFrame() {
+    iframe.src = frameSrc();
+    setFrameSize(current.size || '300x250');
+    if (titleEl) titleEl.textContent = current.label || 'Survey preview';
     if (openLink) {
-      openLink.href = standaloneUrl(id, sizes.length > 1 ? chosen : '');
+      openLink.href = standaloneUrl(
+          current.id, current.sizes.length > 1 ? current.size : '');
+      openLink.removeAttribute('target');
+      openLink.removeAttribute('rel');
     }
-    if (switcher) {
-      switcher.innerHTML = '';
-      if (sizes.length > 1) {
-        sizes.forEach(function (key) {
-          var btn = document.createElement('button');
-          btn.type = 'button';
-          btn.className = 'btn btn-sm ' + (key === chosen ? 'btn-primary' : 'btn-outline-secondary');
-          btn.textContent = key.replace('x', '\u00d7');
-          btn.setAttribute('data-preview-size', key);
-          btn.addEventListener('click', function () {
-            openPreview(id, sizes, key, label);
-          });
-          switcher.appendChild(btn);
-        });
-      }
-    }
+    renderSwitcher(switcher, current.sizes, current.size, function (key) {
+      current.size = key;
+      applyFrame();
+    }, function (key) { return String(key).replace('x', '\u00d7'); });
+    renderSwitcher(cellSwitcher, current.cells, current.cell, function (key) {
+      current.cell = key;
+      applyFrame();
+    }, function (cell) { return cell.label || cell.id; });
+    syncTestChrome();
+  }
+
+  function openPreview(id, sizes, size, label, cells) {
+    current.id = id;
+    current.sizes = sizes;
+    current.size = size || sizes[0] || '300x250';
+    current.cells = cells || [];
+    current.cell = (cells && cells[0] && cells[0].id) || '';
+    current.label = label || 'Survey preview';
+    testMode = canTest;
+    applyFrame();
     modal.show();
+  }
+
+  if (testBtn) {
+    testBtn.addEventListener('click', function () {
+      testMode = !testMode;
+      applyFrame();
+    });
+  }
+  if (resetBtn && helpers.reloadFrame) {
+    resetBtn.addEventListener('click', function () {
+      helpers.reloadFrame(iframe, statusEl);
+    });
   }
 
   document.addEventListener('click', function (evt) {
@@ -107,11 +184,13 @@
     var sizes = parseSizes(trigger.getAttribute('data-preview-sizes'));
     var size = trigger.getAttribute('data-preview-size') || '';
     var label = trigger.getAttribute('data-preview-label') || 'Survey preview';
-    openPreview(id, sizes, size, label);
+    var cells = parseCells(trigger.getAttribute('data-preview-cells') || '');
+    openPreview(id, sizes, size, label, cells);
   });
 
   modalEl.addEventListener('hidden.bs.modal', function () {
     iframe.src = 'about:blank';
+    if (helpers.clearStatus) helpers.clearStatus(statusEl);
   });
 })();
 

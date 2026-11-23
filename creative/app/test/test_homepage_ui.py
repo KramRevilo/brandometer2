@@ -184,8 +184,26 @@ class HomepageBrowserTest(unittest.TestCase):
         page.locator('#mainTable a.js-preview-open').first.click()
         page.wait_for_selector('#previewModal.show')
         frame = page.locator('#previewModalFrame')
-        self.assertIn('embed=1', frame.get_attribute('src') or '')
-        self.assertIn('/survey/preview/lift-demo', frame.get_attribute('src') or '')
+        src = frame.get_attribute('src') or ''
+        self.assertIn('/survey/preview/lift-demo', src)
+        self.assertIn('frame=1', src)
+        self.assertIn('submit_test=1', src)
+        self.assertNotIn('embed=1', src)
+        self.assertTrue(page.locator('#previewModalTest').is_visible())
+        self.assertEqual(
+            page.locator('#previewModalOpen').get_attribute('target'), None)
+        page.locator('#previewModalTest').click()
+        page.wait_for_function(
+            """() => {
+              const iframe = document.getElementById('previewModalFrame');
+              return iframe && (iframe.getAttribute('src') || '').indexOf('embed=1') !== -1;
+            }""")
+        page.locator('#previewModalTest').click()
+        page.wait_for_function(
+            """() => {
+              const iframe = document.getElementById('previewModalFrame');
+              return iframe && (iframe.getAttribute('src') || '').indexOf('submit_test=1') !== -1;
+            }""")
         page.wait_for_function(
             """() => {
               const iframe = document.getElementById('previewModalFrame');
@@ -642,9 +660,10 @@ class HomepageBrowserTest(unittest.TestCase):
     filled = pandas.DataFrame({
         'ID': ['track-two'],
         'Segmentation': ['survey'],
+        'Type': ['test'],
         'max_date': ['2026-11-22'],
         'days_since_response': [0],
-        'response_count': [3],
+        'response_count': [5],
     })
 
     def counts(survey_ids=None, include_test=False):
@@ -698,7 +717,7 @@ class HomepageBrowserTest(unittest.TestCase):
           page.wait_for_timeout(400)
           count = page.locator('#count-track-two').inner_text()
           self.assertNotIn('incl. test', count)
-          self.assertNotIn('3', count.strip())
+          self.assertNotIn('T 5', count)
           self.assertFalse(page.locator('#filter-include-test').is_checked())
           page.locator('#filter-include-test').check()
           page.wait_for_function(
@@ -706,8 +725,8 @@ class HomepageBrowserTest(unittest.TestCase):
           page.wait_for_function(
               """() => {
                 const el = document.getElementById('count-track-two');
-                return el && el.textContent.indexOf('3') !== -1
-                    && el.textContent.indexOf('incl. test') !== -1;
+                return el && el.textContent.indexOf('T 5') !== -1
+                    && el.textContent.indexOf('incl. test') === -1;
               }""")
           poller = page.locator('#stats-poller').get_attribute('hx-get') or ''
           self.assertIn('include_test=1', poller)

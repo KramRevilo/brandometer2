@@ -47,7 +47,8 @@ def _start_app(app):
 
 
 _PREVIEW_BADGE_JS = """() => {
-  const iframe = document.querySelector('iframe.preview-frame');
+  const iframe = document.getElementById('editor-live-frame')
+      || document.querySelector('iframe.preview-frame');
   try {
     const doc = iframe && iframe.contentDocument;
     const badge = doc && doc.querySelector('.brand-badge');

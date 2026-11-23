@@ -6,11 +6,16 @@
   <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
     <div>
       <h1 class="h3 mb-1">{{ survey.get('displayname') or survey.get('surveyname') or survey_id }}</h1>
+      {% set count_line = report.get('count_summary') or {} %}
       <p class="text-muted mb-0">
         {% if is_lift %}Brand Lift stats{% else %}Brand Track stats{% endif %}
+        {% if count_line.text %}
+        · <span title="{{ count_line.title }}">{{ count_line.text }}</span>
+        {% else %}
         · {{ report.n_total }} respondent{% if report.n_total != 1 %}s{% endif %}
-        {% if include_test %}
-          <span class="badge rounded-pill text-bg-secondary" title="Includes Type=test preview responses">incl. test</span>
+        {% endif %}
+        {% if count_line.source == 'test' %}
+          <span class="badge rounded-pill text-bg-warning" title="Lift and counts on this page use Type=test rows because there is no live data">test</span>
         {% endif %}
         {% if report.n_raw and report.n_raw != report.n_total %}
           ({{ report.n_raw }} raw BigQuery rows before consolidating per-question submits)
@@ -41,6 +46,9 @@
       <a class="btn btn-outline-primary" href="{{ url_for('download_breakouts', survey_id=survey_id, include_test=1) }}">Breakouts CSV</a>
       {% else %}
       <a class="btn btn-outline-primary" href="{{ url_for('download_breakouts', survey_id=survey_id) }}">Breakouts CSV</a>
+      {% endif %}
+      {% if can_edit %}
+      <a class="btn btn-outline-primary" href="{{ url_for('preview', survey_id=survey_id) }}">Test survey</a>
       {% endif %}
       <a class="btn btn-outline-secondary" href="{{ url_for('sample_size_planner', survey_id=survey_id) }}">Sample size</a>
       <a class="btn btn-outline-secondary" href="{{ url_for('index') }}">Back to surveys</a>
@@ -125,10 +133,10 @@
 
   {% if report.empty_reason == 'no_data' %}
   <div class="alert alert-secondary" role="alert">
-    No responses yet. The homepage modal does not post. Editors can complete
-    the survey on the standalone preview (<code>Type=test</code>). Turn on
-    <strong>Include test responses</strong> to see those rows, or wait for live
-    creatives.
+    No responses yet. Editors can take the survey in the homepage preview
+    (Test survey) or on this page’s Test survey link. Completing it writes
+    <code>Type=test</code>. Turn on <strong>Include test responses</strong>
+    to see those rows separately from live counts, or wait for live creatives.
     {{ meaning('report.no_data', 'help-no-data') }}
   </div>
   {% else %}

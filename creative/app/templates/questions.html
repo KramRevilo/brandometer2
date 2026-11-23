@@ -13,6 +13,7 @@
     background: #fff;
   }
   .preview-sticky { top: 1rem; }
+  #editor-test-status:empty { display: none; }
   .color-row input[type="color"] { width: 3rem; height: 2.25rem; padding: 0.15rem; }
   [x-cloak] { display: none !important; }
   .preset-swatch {
@@ -332,17 +333,55 @@
       <div class="col-lg-5">
         <section class="card mb-4 preview-sticky sticky-top">
           <div class="card-body">
-            <h2 class="h5 mb-3">Live preview (<span x-text="sizeLabel()"></span>)</h2>
+            <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-3">
+              <h2 class="h5 mb-0">Live preview (<span x-text="sizeLabel()"></span>)</h2>
+              {% if survey_id %}
+              <div class="d-flex flex-wrap gap-2">
+                <button type="button" class="btn btn-sm"
+                        :class="testMode ? 'btn-primary' : 'btn-outline-primary'"
+                        :aria-pressed="testMode ? 'true' : 'false'"
+                        @click="toggleTestMode()">Test survey</button>
+                <button type="button" class="btn btn-sm btn-outline-secondary"
+                        x-show="testMode" x-cloak
+                        @click="reloadTestFrame()">Reset / take again</button>
+              </div>
+              {% else %}
+              <button type="button" class="btn btn-sm btn-outline-secondary" disabled
+                      title="Save the survey first">Test survey</button>
+              {% endif %}
+            </div>
             <div class="d-flex flex-wrap gap-2 mb-2" x-show="selectedSizeKeys().length > 1">
               <template x-for="key in selectedSizeKeys()" :key="key">
                 <button type="button" class="btn btn-sm"
                         :class="previewSize === key ? 'btn-primary' : 'btn-outline-secondary'"
-                        @click="previewSize = key; syncCss()"
+                        @click="previewSize = key; syncCss(); if (testMode) reloadTestFrame()"
                         x-text="key.replace('x', '×')"></button>
               </template>
             </div>
-            <iframe class="preview-frame" title="Survey creative preview" scrolling="no" :srcdoc="previewSrcdoc" :style="previewFrameStyle()"></iframe>
-            <p class="form-text mb-0 mt-2">Updates as you type. Switch sizes above when more than one is selected.</p>
+            <div class="mb-2" x-show="testMode && cells.length" x-cloak>
+              <div class="d-flex flex-wrap gap-2">
+                <template x-for="cell in cells" :key="cell.id">
+                  <button type="button" class="btn btn-sm"
+                          :class="testCell === cell.id ? 'btn-primary' : 'btn-outline-secondary'"
+                          @click="testCell = cell.id; reloadTestFrame()"
+                          x-text="cell.label || cell.id"></button>
+                </template>
+              </div>
+            </div>
+            <p class="small mb-2" x-show="testMode" x-cloak>
+              Test mode uses the last saved survey. Completing it writes
+              <code>Type=test</code> with respondent ids prefixed <code>test_</code>.
+            </p>
+            <div id="editor-test-status" class="alert py-2 mb-2" role="status"
+                 x-show="testMode" x-cloak></div>
+            <iframe class="preview-frame" id="editor-live-frame" title="Survey creative preview" scrolling="no"
+                    x-show="!testMode"
+                    :srcdoc="previewSrcdoc" :style="previewFrameStyle()"></iframe>
+            <iframe class="preview-frame" id="editor-test-frame" title="Test survey"
+                    scrolling="no" x-show="testMode" x-cloak
+                    sandbox="allow-scripts allow-same-origin allow-popups"
+                    :src="testFrameSrc" :style="previewFrameStyle()"></iframe>
+            <p class="form-text mb-0 mt-2" x-show="!testMode">Updates as you type. Switch sizes above when more than one is selected.</p>
           </div>
         </section>
       </div>
@@ -548,6 +587,7 @@
     presets: {{ presets|tojson }},
     layoutFixCss: {{ layout_fix_css|tojson }},
     sizeOverlayCss: {{ size_overlay_css|tojson }},
+    surveyId: {{ survey_id|tojson }},
     brand: {
       name: {{ brand_name|tojson }},
       letter: {{ badge_letter|tojson }},
@@ -557,6 +597,7 @@
     badgeTextDefault: {{ badge_text_default|tojson }}
   };
 </script>
+<script src="{{ url_for('static', filename='preview-test.js') }}"></script>
 <script src="{{ url_for('static', filename='survey-editor.js') }}"></script>
 <script defer src="{{ url_for('static', filename='vendor/alpine.min.js') }}"></script>
 {% endblock %}

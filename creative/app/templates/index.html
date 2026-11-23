@@ -64,6 +64,7 @@
   #mainTable th.cell-actions, #mainTable td.cell-actions { width: 11%; }
   .survey-card .survey-card-title { min-width: 0; }
   #previewModalFrame { border: 0; background: #fff; display: block; }
+  #previewModalStatus:empty { display: none; }
 </style>
 {% endblock %}
 {% block content %}
@@ -348,22 +349,38 @@
       Surveys that submit after each question will show fewer responses than raw BigQuery row counts.
     </p>
 </div>
-<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true"{% if can_edit %} data-can-test="1"{% endif %}>
   <div class="modal-dialog modal-dialog-centered modal-xl">
     <div class="modal-content">
       <div class="modal-header py-2 flex-wrap gap-2">
         <h2 class="modal-title h5 mb-0" id="previewModalLabel">Survey preview</h2>
         <div class="btn-group" id="previewModalSizes" role="group" aria-label="Creative size"></div>
-        <a class="btn btn-sm btn-outline-secondary ms-auto" id="previewModalOpen" href="/survey/preview/" target="_blank" rel="noopener">Open page</a>
+        <div class="btn-group" id="previewModalCells" role="group" aria-label="Cell"></div>
+        {% if can_edit %}
+        <button type="button" class="btn btn-sm btn-primary" id="previewModalTest" aria-pressed="true">Test survey</button>
+        <button type="button" class="btn btn-sm btn-outline-secondary" id="previewModalReset">Reset / take again</button>
+        {% endif %}
+        <a class="btn btn-sm btn-outline-secondary{% if not can_edit %} ms-auto{% endif %}" id="previewModalOpen" href="/survey/preview/">Open page</a>
         <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
       </div>
+      {% if can_edit %}
+      <div class="px-3 pt-2">
+        <p class="small mb-2" id="previewModalNote">
+          Test mode is on. Completing the survey writes <code>Type=test</code>
+          with respondent ids prefixed <code>test_</code>.
+        </p>
+        <div id="previewModalStatus" class="alert py-2 mb-2" role="status"></div>
+      </div>
+      {% endif %}
       <div class="modal-body d-flex justify-content-center overflow-auto bg-light">
-        <iframe id="previewModalFrame" title="Survey preview" scrolling="no"></iframe>
+        <iframe id="previewModalFrame" title="Survey preview" scrolling="no"
+                sandbox="allow-scripts allow-same-origin allow-popups"></iframe>
       </div>
     </div>
   </div>
 </div>
 {% endblock content %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='preview-test.js') }}"></script>
 <script src="{{ url_for('static', filename='home.js') }}"></script>
 {% endblock %}

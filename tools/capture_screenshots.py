@@ -831,6 +831,7 @@ def run_browser(app, out: Path) -> None:
     page.wait_for_selector('#mainTable a.js-preview-open')
     page.locator('#mainTable a.js-preview-open').first.click()
     page.wait_for_selector('#previewModal.show')
+    page.wait_for_selector('#previewModalTest')
     page.wait_for_function(
         """() => {
           const iframe = document.getElementById('previewModalFrame');
@@ -848,7 +849,7 @@ def run_browser(app, out: Path) -> None:
 
     page.set_viewport_size({'width': DESKTOP_WIDTH, 'height': 2100})
     page.goto(base + '/survey/edit?survey_id=lift-demo', wait_until='networkidle')
-    page.wait_for_selector('iframe.preview-frame')
+    page.wait_for_selector('#editor-live-frame')
     page.wait_for_timeout(800)
     capture(page, out / 'editor.png', full_page=False)
     cells = page.locator('#cells-editor')

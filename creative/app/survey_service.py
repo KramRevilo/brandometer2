@@ -150,8 +150,8 @@ _RESPONSE_SELECT = """
           {test_filter}
     """
 _EMPTY_COUNTS_COLUMNS = [
-    'ID', 'Segmentation', 'max_date', 'days_since_response', 'response_count',
-    'n_q1', 'k_q1_a',
+    'ID', 'Segmentation', 'Type', 'max_date', 'days_since_response',
+    'response_count', 'n_q1', 'k_q1_a',
 ]
 _COUNTS_INT_COLUMNS = (
     'days_since_response', 'response_count', 'n_q1', 'k_q1_a')
@@ -316,6 +316,18 @@ _SEGMENT_SHORT = {
     'expose': 'E',
     'exposed': 'E',
 }
+_COUNT_ABBREV_TIPS = {
+    'C': 'C: control (live)',
+    'E': 'E: exposed (live)',
+    'CT': 'CT: control test (Type=test)',
+    'ET': 'ET: expose test (Type=test)',
+    'T': 'T: test responses (Type=test)',
+}
+
+
+def is_test_type(value):
+  """True when a BigQuery Type column is a preview test row."""
+  return str(value or '').strip().lower() == 'test'
 
 
 def short_segment_label(name):
@@ -336,38 +348,154 @@ def short_segment_label(name):
   return token[:1].upper()
 
 
-def compact_count(item):
-  """One-line count cell: {'text', 'title'}.
+def _seg_count(seg):
+  raw = (seg or {}).get('response_count')
+  try:
+    return int(raw)
+  except (TypeError, ValueError):
+    return 0
 
-  Brand Lift control/expose becomes 'C 40 · E 42'. A single generic segment
-  (survey / unnamed / default) is just the number. Full labels stay in title.
-  """
-  empty = {'text': '', 'title': ''}
-  if not item:
-    return empty
-  segs = item.get('stats') if isinstance(item, dict) else None
+
+def _live_count_parts(segs):
+  """Format live segments the way compact_count used to."""
   if not segs:
-    return empty
+    return [], []
   full = []
   shorts = []
   for seg in segs:
     name = (seg.get('Segmentation') or '').strip()
     label = name or 'Unnamed'
-    raw = seg.get('response_count')
-    try:
-      count = int(raw)
-    except (TypeError, ValueError):
-      count = raw
+    count = _seg_count(seg)
     full.append('%s: %s' % (label, count))
     shorts.append((short_segment_label(name), count, name.lower()))
-  title = ' · '.join(full)
   if len(shorts) == 1:
     short, count, key = shorts[0]
     if key in _GENERIC_SEGMENTS:
-      return {'text': str(count), 'title': title}
-    return {'text': '%s %s' % (short, count), 'title': title}
-  text = ' · '.join('%s %s' % (short, count) for short, count, _ in shorts)
-  return {'text': text, 'title': title}
+      return [str(count)], full
+    return ['%s %s' % (short, count)], full
+  text_parts = ['%s %s' % (short, count) for short, count, _ in shorts]
+  return text_parts, full
+
+
+def _test_count_parts(segs):
+  """CT/ET for lift arms (omit zeros); T for Brand Track / leftover segs."""
+  if not segs:
+    return [], []
+  control = expose = other = 0
+  has_lift_arm = False
+  full = []
+  for seg in segs:
+    name = (seg.get('Segmentation') or '').strip()
+    count = _seg_count(seg)
+    if count <= 0:
+      continue
+    label = name or 'Unnamed'
+    full.append('%s test: %s' % (label, count))
+    role = reporting.segment_role(name, None)
+    if role == 'control':
+      control += count
+      has_lift_arm = True
+    elif role == 'expose':
+      expose += count
+      has_lift_arm = True
+    else:
+      other += count
+  parts = []
+  if has_lift_arm:
+    if control:
+      parts.append('CT %s' % control)
+    if expose:
+      parts.append('ET %s' % expose)
+    if other:
+      parts.append('T %s' % other)
+  elif other or control or expose:
+    total = control + expose + other
+    parts.append('T %s' % total)
+  return parts, full
+
+
+def compact_count(item):
+  """One-line count cell: {'text', 'title'}.
+
+  Brand Lift control/expose becomes 'C 40 · E 42'. A single generic segment
+  (survey / unnamed / default) is just the number. When Include test is on,
+  test arms append as CT/ET (lift) or T (track), omitted when zero. Live
+  counts never mix Type=test rows. Full labels and CT/ET/T tips stay in title.
+  """
+  empty = {'text': '', 'title': ''}
+  if not item:
+    return empty
+  live = item.get('stats') if isinstance(item, dict) else None
+  test = item.get('test_stats') if isinstance(item, dict) else None
+  live_parts, live_full = _live_count_parts(live or [])
+  test_parts, test_full = _test_count_parts(test or [])
+  parts = live_parts + test_parts
+  if not parts:
+    return empty
+  tips = []
+  joined = ' · '.join(parts)
+  if 'CT ' in joined:
+    tips.append(_COUNT_ABBREV_TIPS['CT'])
+  if 'ET ' in joined:
+    tips.append(_COUNT_ABBREV_TIPS['ET'])
+  if any(p.startswith('T ') for p in test_parts):
+    tips.append(_COUNT_ABBREV_TIPS['T'])
+  title = ' · '.join([piece for piece in (tips + live_full + test_full) if piece])
+  return {'text': joined, 'title': title}
+
+
+def report_count_summary(report):
+  """Report-header count line matching homepage C/E · CT/ET (or n · T)."""
+  empty = {'text': '', 'title': '', 'source': 'live'}
+  if not report:
+    return empty
+  source = report.get('lift_source') or 'live'
+  is_lift = bool(report.get('is_lift'))
+  n_total = _coerce_int(report.get('n_total'))
+  n_c = _coerce_int(report.get('control_n'))
+  n_e = _coerce_int(report.get('expose_n'))
+  n_ct = _coerce_int(report.get('n_control_test'))
+  n_et = _coerce_int(report.get('n_expose_test'))
+  n_test = _coerce_int(report.get('n_test'))
+  parts = []
+  tips = []
+  has_test = bool(n_ct or n_et or n_test)
+  if source == 'test':
+    if is_lift:
+      if n_c:
+        parts.append('CT %s' % n_c)
+        tips.append(_COUNT_ABBREV_TIPS['CT'])
+      if n_e:
+        parts.append('ET %s' % n_e)
+        tips.append(_COUNT_ABBREV_TIPS['ET'])
+      if not parts and n_total:
+        parts.append('T %s' % n_total)
+        tips.append(_COUNT_ABBREV_TIPS['T'])
+    else:
+      parts.append('T %s' % n_total)
+      tips.append(_COUNT_ABBREV_TIPS['T'])
+  elif is_lift and has_test:
+    parts.append('C %s' % n_c)
+    parts.append('E %s' % n_e)
+    tips.extend([_COUNT_ABBREV_TIPS['C'], _COUNT_ABBREV_TIPS['E']])
+    if n_ct:
+      parts.append('CT %s' % n_ct)
+      tips.append(_COUNT_ABBREV_TIPS['CT'])
+    if n_et:
+      parts.append('ET %s' % n_et)
+      tips.append(_COUNT_ABBREV_TIPS['ET'])
+  elif n_test:
+    parts.append(str(n_total))
+    parts.append('T %s' % n_test)
+    tips.append(_COUNT_ABBREV_TIPS['T'])
+  else:
+    noun = 'respondent' if n_total == 1 else 'respondents'
+    parts.append('%s %s' % (n_total, noun))
+  return {
+      'text': ' · '.join(parts),
+      'title': ' · '.join(tips),
+      'source': source,
+  }
 
 
 def sizes_compact(keys):
@@ -791,6 +919,7 @@ def unavailable_stat_array(survey_ids):
   return [{
       'id': sid,
       'stats': [],
+      'test_stats': [],
       'unavailable': True,
       'last_change': '',
       'last_title': STATS_UNAVAILABLE_TITLE,
@@ -1035,10 +1164,34 @@ def compute_progress_result(item, survey=None):
 
 
 def attach_progress_result(stat_array, surveys=None):
-  """Fill progress/result on each stats item. Missing survey → — cells."""
+  """Fill progress/result on each stats item. Missing survey → — cells.
+
+  Status / Progress / Result always use live Type=survey rows. When a survey
+  has only Type=test rows, lift is computed on those rows and labelled test.
+  """
   by_id = _surveys_by_id(surveys)
   for item in stat_array or []:
-    item.update(compute_progress_result(item, by_id.get(item.get('id'))))
+    survey = by_id.get(item.get('id'))
+    live = item.get('stats') or []
+    test = item.get('test_stats') or []
+    source = 'live'
+    compute_item = item
+    if not live and test:
+      compute_item = dict(item)
+      compute_item['stats'] = test
+      source = 'test'
+    item.update(compute_progress_result(compute_item, survey))
+    item['result_source'] = source
+    if source == 'test' and item.get('result_text'):
+      if '(test)' not in item['result_text']:
+        item['result_text'] = '%s (test)' % item['result_text']
+      prefix = 'Computed on Type=test rows only. '
+      title = item.get('result_title') or ''
+      if prefix not in title:
+        item['result_title'] = prefix + title
+      progress_title = item.get('progress_title') or ''
+      if progress_title and prefix not in progress_title:
+        item['progress_title'] = prefix + progress_title
   return stat_array
 
 
@@ -1096,6 +1249,8 @@ def build_stat_array(survey_ids, counts_df=None, surveys=None,
     most_recent_change = _MRC_INIT
     last_at = ''
     segs = []
+    test_segs = []
+    type_col = segmentation_rows.get('Type') or {}
     for x in segmentation_rows.get('ID', {}):
       days = _coerce_days(segmentation_rows['days_since_response'][x])
       max_date = None
@@ -1108,16 +1263,24 @@ def build_stat_array(survey_ids, counts_df=None, surveys=None,
       if 'k_q1_a' in segmentation_rows:
         k_q1_a = _coerce_int(segmentation_rows['k_q1_a'][x])
       response_count = segmentation_rows['response_count'][x]
-      segs.append({
+      row = {
           'Segmentation': segmentation_rows['Segmentation'][x],
           'response_count': response_count,
           'days_since_response': days,
           'n_q1': n_q1 if n_q1 is not None else _coerce_int(response_count),
           'k_q1_a': k_q1_a,
-      })
+          'max_date': max_date,
+      }
+      if is_test_type(type_col.get(x)):
+        test_segs.append(row)
+      else:
+        segs.append(row)
+    recency_rows = segs if segs else test_segs
+    for row in recency_rows:
+      days = row.get('days_since_response')
       if days is not None and days < most_recent_change:
         most_recent_change = days
-        last_at = max_date
+        last_at = row.get('max_date')
     if most_recent_change == _MRC_INIT:
       days_since = None
       last_change_display = ''
@@ -1128,6 +1291,7 @@ def build_stat_array(survey_ids, counts_df=None, surveys=None,
     item = {
         'id': survey_id,
         'stats': segs,
+        'test_stats': test_segs,
         'unavailable': False,
         'last_change': last_change_display,
         'last_title': last_received_title(days_since, last_at),
@@ -1561,8 +1725,53 @@ def get_compare_studies(survey_ids, client=None):
   return studies
 
 
+def _split_live_and_test(df):
+  """Split a responses frame into live vs Type=test. Missing Type is live."""
+  empty = _empty_frame(_EMPTY_RESPONSES_COLUMNS)
+  if df is None or getattr(df, 'empty', True):
+    return empty, empty
+  if 'Type' not in getattr(df, 'columns', []):
+    return df, empty
+  types = df['Type'].map(lambda value: str(value or '').strip().lower())
+  test_mask = types == 'test'
+  live = df.loc[~test_mask]
+  test = df.loc[test_mask]
+  if live is None or live.empty:
+    live = empty
+  if test is None or test.empty:
+    test = empty
+  return live, test
+
+
+def _test_arm_counts(df, survey_info):
+  """Consolidated Type=test n plus control/expose split for the report header."""
+  out = {'n_test': 0, 'n_control_test': 0, 'n_expose_test': 0}
+  if df is None or getattr(df, 'empty', True):
+    return out
+  work = reporting.consolidate_frame(df)
+  if work is None or work.empty:
+    return out
+  cells = (survey_info or {}).get('cells')
+  n_ct = n_et = 0
+  for seg in work['Segmentation'].tolist():
+    role = reporting.segment_role(seg, cells)
+    if role == 'control':
+      n_ct += 1
+    elif role == 'expose':
+      n_et += 1
+  out['n_test'] = int(len(work))
+  out['n_control_test'] = n_ct
+  out['n_expose_test'] = n_et
+  return out
+
+
 def get_report(surveyid, client=None, include_test=False):
-  """Honest in-app report: consolidated respondents, distributions, optional lift."""
+  """Honest in-app report: consolidated respondents, distributions, optional lift.
+
+  Lift / Status math uses live Type=survey rows. Type=test is counted
+  separately (CT/ET or T) when include_test is true. A survey that has only
+  test rows uses those for lift and is labelled test.
+  """
   survey_doc = get_doc_by_id(surveyid)
   survey_info = {}
   is_lift = False
@@ -1571,7 +1780,24 @@ def get_report(surveyid, client=None, include_test=False):
     is_lift = is_brand_lift(survey_info)
   df = fetch_survey_response_rows(
       surveyid, client=client, include_test=include_test)
-  return reporting.build_report(df, survey_info, is_lift=is_lift)
+  lift_source = 'live'
+  test_counts = {'n_test': 0, 'n_control_test': 0, 'n_expose_test': 0}
+  if include_test:
+    live, test = _split_live_and_test(df)
+    test_counts = _test_arm_counts(test, survey_info)
+    if live is not None and not getattr(live, 'empty', True):
+      report = reporting.build_report(live, survey_info, is_lift=is_lift)
+    elif test is not None and not getattr(test, 'empty', True):
+      report = reporting.build_report(test, survey_info, is_lift=is_lift)
+      lift_source = 'test'
+    else:
+      report = reporting.build_report(live, survey_info, is_lift=is_lift)
+  else:
+    report = reporting.build_report(df, survey_info, is_lift=is_lift)
+  report['lift_source'] = lift_source
+  report.update(test_counts)
+  report['count_summary'] = report_count_summary(report)
+  return report
 
 
 def get_brand_lift_results(surveyid):
@@ -1726,7 +1952,12 @@ def _counts_frame_from_rows(rows):
   frame = pd.DataFrame(list(rows))
   for col in _EMPTY_COUNTS_COLUMNS:
     if col not in frame.columns:
-      frame[col] = '' if col in ('ID', 'Segmentation', 'max_date') else 0
+      if col == 'Type':
+        frame[col] = 'survey'
+      elif col in ('ID', 'Segmentation', 'max_date'):
+        frame[col] = ''
+      else:
+        frame[col] = 0
   return frame[_EMPTY_COUNTS_COLUMNS]
 
 
@@ -1748,9 +1979,13 @@ def _counts_rows_from_frame(frame, survey_id):
     seg = rec.get('Segmentation')
     if seg is None or (isinstance(seg, float) and math.isnan(seg)):
       seg = ''
+    type_val = rec.get('Type')
+    if type_val is None or (isinstance(type_val, float) and math.isnan(type_val)):
+      type_val = 'survey'
     row = {
         'ID': str(rec.get('ID') or survey_id or ''),
         'Segmentation': str(seg),
+        'Type': 'test' if is_test_type(type_val) else 'survey',
         'max_date': max_text,
     }
     for col in _COUNTS_INT_COLUMNS:
@@ -1815,6 +2050,8 @@ def _fetch_all_response_counts(survey_ids=None, include_test=False):
   CAST(CreatedAt AS TIMESTAMP) works for DATETIME or TIMESTAMP columns.
   Blank RespondentID/BomID are kept (synthetic row:id keys) — they are not
   dropped. Type=test preview rows are excluded unless include_test is true.
+  When include_test is true, Type is grouped separately so Count can show
+  live C/E (or n) beside CT/ET (or T) without mixing them.
   """
   ids = [sid for sid in (survey_ids or []) if sid]
   if not ids:
@@ -1834,6 +2071,7 @@ def _fetch_all_response_counts(survey_ids=None, include_test=False):
       SELECT
         ID,
         Segmentation,
+        IFNULL(Type, 'survey') AS Type,
         CreatedAt,
         Response,
         BomID,
@@ -1865,14 +2103,15 @@ def _fetch_all_response_counts(survey_ids=None, include_test=False):
     SELECT
       ID,
       Segmentation,
+      Type,
       EXTRACT(DATE FROM MAX(CreatedAt)) AS max_date,
       DATE_DIFF(CURRENT_DATE(), EXTRACT(DATE FROM MAX(CreatedAt)), DAY) AS days_since_response,
       COUNT(*) AS response_count,
       COUNTIF(REGEXP_CONTAINS(IFNULL(Response, ''), r'(?:^|\\|)1:[^|]+')) AS n_q1,
       COUNTIF(REGEXP_EXTRACT(IFNULL(Response, ''), r'(?:^|\\|)1:([^|]*)') = 'A') AS k_q1_a
     FROM best
-    GROUP BY 1, 2
-    ORDER BY 1, 2
+    GROUP BY 1, 2, 3
+    ORDER BY 1, 2, 3
     """
   params = [
       bigquery.ArrayQueryParameter('survey_ids', 'STRING', ids),

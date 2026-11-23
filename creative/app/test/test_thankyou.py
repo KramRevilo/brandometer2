@@ -475,20 +475,20 @@ class ThankyouBrowserTest(unittest.TestCase):
           browser = playwright.chromium.launch(headless=True)
           page = browser.new_page()
           page.goto('http://127.0.0.1:%s/survey/create' % port)
-          page.wait_for_selector('iframe.preview-frame')
+          page.wait_for_selector('#editor-live-frame')
           page.wait_for_timeout(400)
           rgb = page.evaluate("""() => {
-            const iframe = document.querySelector('iframe.preview-frame');
+            const iframe = document.getElementById('editor-live-frame');
             const doc = iframe && iframe.contentDocument;
             const el = doc && doc.getElementById('master_container');
             return el ? getComputedStyle(el).backgroundColor : '';
           }""")
           self.assertEqual(rgb, 'rgb(0, 128, 0)')
           srcdoc = page.evaluate(
-              "document.querySelector('iframe.preview-frame').srcdoc || ''")
+              "document.getElementById('editor-live-frame').srcdoc || ''")
           self.assertIn('--bv2-bg', srcdoc)
           self.assertIn('BV2_THEME_START', srcdoc)
-          frame = page.locator('iframe.preview-frame')
+          frame = page.locator('#editor-live-frame')
           frame.scroll_into_view_if_needed()
           frame.screenshot(path=os.path.join(
               artifacts, 'theme-editor-live-preview.png'))

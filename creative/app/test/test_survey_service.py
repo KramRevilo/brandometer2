@@ -402,6 +402,8 @@ class TestSurveyService(unittest.TestCase):
     sql = client.query.call_args[0][0]
     self.assertNotIn("IFNULL(Type, 'survey') != 'test'", sql)
     self.assertIn('ID IN UNNEST(@survey_ids)', sql)
+    self.assertIn('IFNULL(Type, \'survey\') AS Type', sql)
+    self.assertIn('GROUP BY 1, 2, 3', sql)
 
   @mock.patch.object(survey_service, '_get_bq_client')
   def test_homepage_counts_sql_can_disable_partition_filter(
@@ -472,7 +474,7 @@ class TestSurveyService(unittest.TestCase):
     self.assertTrue(df.empty)
     self.assertEqual(
         list(df.columns),
-        ['ID', 'Segmentation', 'max_date', 'days_since_response',
+        ['ID', 'Segmentation', 'Type', 'max_date', 'days_since_response',
          'response_count', 'n_q1', 'k_q1_a'])
 
   def _missing_survey_doc(self):
@@ -1454,6 +1456,110 @@ class TestSurveyService(unittest.TestCase):
         'stats': [{'Segmentation': 'default_control', 'response_count': 2}],
     })
     self.assertEqual(live_test['text'], 'C 2')
+    split_lift = survey_service.compact_count({
+        'stats': [
+            {'Segmentation': 'default_control', 'response_count': 136},
+            {'Segmentation': 'default_expose', 'response_count': 140},
+        ],
+        'test_stats': [
+            {'Segmentation': 'default_control', 'response_count': 3},
+            {'Segmentation': 'default_expose', 'response_count': 5},
+        ],
+    })
+    self.assertEqual(split_lift['text'], 'C 136 · E 140 · CT 3 · ET 5')
+    self.assertEqual(split_lift['title'].count('CT: control test'), 1)
+    self.assertEqual(split_lift['title'].count('ET: expose test'), 1)
+    self.assertIn('CT: control test', split_lift['title'])
+    self.assertIn('ET: expose test', split_lift['title'])
+    omit_zero = survey_service.compact_count({
+        'stats': [
+            {'Segmentation': 'default_control', 'response_count': 136},
+            {'Segmentation': 'default_expose', 'response_count': 140},
+        ],
+        'test_stats': [
+            {'Segmentation': 'default_control', 'response_count': 3},
+        ],
+    })
+    self.assertEqual(omit_zero['text'], 'C 136 · E 140 · CT 3')
+    self.assertNotIn('ET', omit_zero['text'])
+    track_split = survey_service.compact_count({
+        'stats': [{'Segmentation': 'survey', 'response_count': 180}],
+        'test_stats': [{'Segmentation': 'survey', 'response_count': 5}],
+    })
+    self.assertEqual(track_split['text'], '180 · T 5')
+    self.assertIn('T: test responses', track_split['title'])
+    only_test = survey_service.compact_count({
+        'stats': [],
+        'test_stats': [
+            {'Segmentation': 'default_control', 'response_count': 3},
+            {'Segmentation': 'default_expose', 'response_count': 5},
+        ],
+    })
+    self.assertEqual(only_test['text'], 'CT 3 · ET 5')
+
+  def test_build_stat_array_keeps_test_counts_separate(self):
+    sid = 'lift-1'
+    df = pandas.DataFrame({
+        'ID': [sid, sid, sid, sid],
+        'Segmentation': [
+            'default_control', 'default_expose',
+            'default_control', 'default_expose',
+        ],
+        'Type': ['survey', 'survey', 'test', 'test'],
+        'max_date': ['2026-11-22'] * 4,
+        'days_since_response': [1, 1, 0, 0],
+        'response_count': [136, 140, 3, 5],
+        'n_q1': [136, 140, 3, 5],
+        'k_q1_a': [40, 50, 1, 2],
+    })
+    surveys = [mock.Mock()]
+    surveys[0].id = sid
+    surveys[0].to_dict.return_value = {
+        'surveytype': 'brand_lift',
+        'cells': [
+            {'id': 'default_control', 'label': 'Control', 'role': 'control'},
+            {'id': 'default_expose', 'label': 'Exposed', 'role': 'expose'},
+        ],
+        'sample_plan': {'n_control': 200, 'n_expose': 200},
+    }
+    rows = survey_service.build_stat_array(
+        [sid], counts_df=df, surveys=surveys)
+    item = rows[0]
+    self.assertEqual(survey_service.compact_count(item)['text'],
+                     'C 136 · E 140 · CT 3 · ET 5')
+    self.assertEqual(item['result_source'], 'live')
+    self.assertNotIn('(test)', item['result_text'])
+    self.assertEqual(item['status'], 'Active')
+    self.assertEqual(item['last_change'], 1)
+
+  def test_build_stat_array_only_test_rows_labelled_test(self):
+    sid = 'lift-test-only'
+    df = pandas.DataFrame({
+        'ID': [sid, sid],
+        'Segmentation': ['default_control', 'default_expose'],
+        'Type': ['test', 'test'],
+        'max_date': ['2026-11-22', '2026-11-22'],
+        'days_since_response': [0, 0],
+        'response_count': [40, 40],
+        'n_q1': [40, 40],
+        'k_q1_a': [10, 20],
+    })
+    surveys = [mock.Mock()]
+    surveys[0].id = sid
+    surveys[0].to_dict.return_value = {
+        'surveytype': 'brand_lift',
+        'cells': [
+            {'id': 'default_control', 'label': 'Control', 'role': 'control'},
+            {'id': 'default_expose', 'label': 'Exposed', 'role': 'expose'},
+        ],
+    }
+    rows = survey_service.build_stat_array(
+        [sid], counts_df=df, surveys=surveys)
+    item = rows[0]
+    self.assertEqual(survey_service.compact_count(item)['text'], 'CT 40 · ET 40')
+    self.assertEqual(item['result_source'], 'test')
+    self.assertIn('(test)', item['result_text'])
+    self.assertIn('Type=test', item['result_title'])
 
   def test_counts_for_survey_coerces_id_and_keeps_blank_keys(self):
     sid = 'L0hng8nGp4Bl6JjRMTrO'
@@ -1518,6 +1624,60 @@ class TestSurveyService(unittest.TestCase):
     self.assertTrue(report['has_control'])
     self.assertFalse(report['has_expose'])
     self.assertEqual(report['empty_reason'], 'no_expose')
+    self.assertNotEqual(report['empty_reason'], 'no_data')
+    self.assertEqual(report['lift_source'], 'test')
+    self.assertEqual(report['n_test'], 3)
+    self.assertEqual(report['count_summary']['source'], 'test')
+    self.assertIn('CT 3', report['count_summary']['text'])
+
+  @mock.patch.object(survey_service, 'get_doc_by_id')
+  @mock.patch.object(survey_service, 'get_survey_responses')
+  def test_get_report_mixed_live_and_test_keeps_lift_on_live(
+      self, responses_mock, doc_mock):
+    now = datetime.datetime(2026, 11, 22, 12, 0, 0)
+    doc = mock.Mock()
+    doc.exists = True
+    doc.to_dict.return_value = {
+        'surveyname': 'Mixed',
+        'surveytype': 'brand_lift',
+        'question1': 'Q1?',
+        'answer1a': 'Yes',
+        'answer1b': 'No',
+        'cells': [
+            {'id': 'default_control', 'label': 'Control', 'role': 'control'},
+            {'id': 'default_expose', 'label': 'Exposed', 'role': 'expose'},
+        ],
+    }
+    doc_mock.return_value = doc
+    responses_mock.return_value = pandas.DataFrame({
+        'CreatedAt': [now] * 6,
+        'Segmentation': [
+            'default_control', 'default_control',
+            'default_expose', 'default_expose',
+            'default_control', 'default_expose',
+        ],
+        'Response': ['1:A'] * 6,
+        'BomID': ['live_c1', 'live_c2', 'live_e1', 'live_e2', 'test_c', 'test_e'],
+        'RespondentID': [
+            'live_c1', 'live_c2', 'live_e1', 'live_e2', 'test_c', 'test_e'],
+        'Type': ['survey', 'survey', 'survey', 'survey', 'test', 'test'],
+        'CampaignID': [''] * 6,
+        'PlacementID': [''] * 6,
+        'SiteID': [''] * 6,
+        'AdCreativeID': [''] * 6,
+        'CreativeSize': ['300x250'] * 6,
+        'CreativeVersion': [None] * 6,
+        'RespondentIDSource': [''] * 6,
+    })
+    report = survey_service.get_report('sid', include_test=True)
+    self.assertEqual(report['lift_source'], 'live')
+    self.assertEqual(report['n_total'], 4)
+    self.assertEqual(report['control_n'], 2)
+    self.assertEqual(report['expose_n'], 2)
+    self.assertEqual(report['n_test'], 2)
+    self.assertEqual(report['n_control_test'], 1)
+    self.assertEqual(report['n_expose_test'], 1)
+    self.assertEqual(report['count_summary']['text'], 'C 2 · E 2 · CT 1 · ET 1')
     self.assertNotEqual(report['empty_reason'], 'no_data')
 
   def test_build_stat_array_zero_days_is_active_with_date_title(self):

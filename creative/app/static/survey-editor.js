@@ -186,6 +186,9 @@
       extraCss: boot.extra || '',
       previewSrcdoc: '',
       previewSize: '',
+      testMode: false,
+      testFrameSrc: '',
+      testCell: '',
       bgPattern: theme.bg_pattern || 'none',
       panel: theme.panel || 'rgba(0, 0, 0, 0.35)',
       accent: theme.accent || '#ffc800',
@@ -208,9 +211,31 @@
         this.prevFilled = this.filledQuestionMap();
         var keys = this.selectedSizeKeys();
         this.previewSize = keys[0] || '300x250';
+        this.testCell = (this.cells[0] && this.cells[0].id) || '';
         this.trimAnswersToMax();
         this.syncCss();
         this.editorReady = true;
+        var statusEl = document.getElementById('editor-test-status');
+        if (window.bv2PreviewTest && statusEl) {
+          window.bv2PreviewTest.bindPixelToast(statusEl);
+        }
+      },
+
+      toggleTestMode: function () {
+        if (!boot.surveyId) return;
+        this.testMode = !this.testMode;
+        if (this.testMode) this.reloadTestFrame();
+      },
+
+      reloadTestFrame: function () {
+        if (!boot.surveyId || !window.bv2PreviewTest) return;
+        var cell = this.testCell || (this.cells[0] && this.cells[0].id) || '';
+        this.testFrameSrc = window.bv2PreviewTest.testFrameUrl(
+            boot.surveyId, this.currentSize().key, cell) + '&cb=' + Date.now();
+        var statusEl = document.getElementById('editor-test-status');
+        if (window.bv2PreviewTest.clearStatus) {
+          window.bv2PreviewTest.clearStatus(statusEl);
+        }
       },
 
       defaultCells: function (surveyType) {

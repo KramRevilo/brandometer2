@@ -82,38 +82,18 @@
 </div>
 {% endblock %}
 {% block scripts %}
+<script src="{{ url_for('static', filename='preview-test.js') }}"></script>
 <script>
 (function () {
+  var helpers = window.bv2PreviewTest;
   var frame = document.getElementById('preview-test-frame');
   var statusEl = document.getElementById('preview-test-status');
   var reset = document.getElementById('preview-reset');
-  if (!frame) return;
-
-  function showStatus(ok, text) {
-    if (!statusEl) return;
-    statusEl.textContent = text;
-    statusEl.className = 'alert py-2 mb-3 alert-' + (ok ? 'success' : 'danger');
-  }
-
-  window.addEventListener('message', function (evt) {
-    var data = evt.data || {};
-    if (evt.origin !== window.location.origin) return;
-    if (data.source !== 'brandometer2' || data.kind !== 'pixel_result') return;
-    var status = data.status;
-    var ok = status >= 200 && status < 300;
-    showStatus(ok, 'Receiver HTTP ' + status + (ok ? ' — test response saved.' : ' — not saved.'));
-  });
-
+  if (!frame || !helpers) return;
+  helpers.bindPixelToast(statusEl);
   if (reset) {
     reset.addEventListener('click', function () {
-      var url = frame.getAttribute('src') || '';
-      url = url.replace(/([?&])cb=[^&]*/, '$1').replace(/[?&]$/, '');
-      var sep = url.indexOf('?') >= 0 ? '&' : '?';
-      frame.src = url + sep + 'cb=' + Date.now();
-      if (statusEl) {
-        statusEl.textContent = '';
-        statusEl.className = 'alert py-2 mb-3';
-      }
+      helpers.reloadFrame(frame, statusEl);
     });
   }
 })();

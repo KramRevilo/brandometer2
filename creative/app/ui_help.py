@@ -218,10 +218,12 @@ ENTRIES = {
     'report.no_data': {
         'title': 'No responses yet',
         'body': (
-            'The homepage modal does not write to BigQuery. Editors taking '
-            'the survey on the standalone preview write Type=test rows. Turn '
-            'on Include test responses to see those rows, or wait for live '
-            'creatives.'
+            'The homepage preview’s Test survey toggle (and the editor live '
+            'preview) write Type=test rows when an editor completes the '
+            'survey. Turn on Include test responses to see those counts '
+            'separately (CT/ET on Brand Lift, T on Brand Track), or wait for '
+            'live creatives. Status and lift stay on live data unless a '
+            'survey has only test rows.'
         ),
     },
     'plan.baseline': {

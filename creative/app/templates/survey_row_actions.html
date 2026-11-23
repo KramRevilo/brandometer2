@@ -3,13 +3,15 @@
 {% set preview_href = url_for('preview', survey_id=survey.id, size=sizes[0]) if sizes|length > 1 else url_for('preview', survey_id=survey.id) %}
 {% set stats_label = 'View Brand Lift Stats' if survey|is_brand_lift else 'View survey stats' %}
 {% set preview_label = survey | survey_label %}
+{% set preview_cells = survey | preview_cells %}
 <div class="survey-actions btn-group btn-group-sm" role="group" aria-label="Survey actions">
   <a class="btn btn-info js-preview-open" href="{{ preview_href }}"
      title="View Survey" aria-label="View Survey"
      data-preview-id="{{ survey.id }}"
      data-preview-sizes="{{ sizes|join(',') }}"
      data-preview-size="{{ sizes[0] if sizes else '' }}"
-     data-preview-label="{{ preview_label }}">
+     data-preview-label="{{ preview_label }}"
+     data-preview-cells="{{ preview_cells|tojson }}">
     <i class="bi bi-eye" aria-hidden="true"></i>
   </a>
   <a class="btn btn-warning" href="{{ url_for('reporting', survey_id=survey.id) }}"
@@ -37,10 +39,16 @@
          data-preview-id="{{ survey.id }}"
          data-preview-sizes="{{ sizes|join(',') }}"
          data-preview-size="{{ key }}"
-         data-preview-label="{{ preview_label }}">{{ key.replace('x', '×') }}</a>
+         data-preview-label="{{ preview_label }}"
+         data-preview-cells="{{ preview_cells|tojson }}">{{ key.replace('x', '×') }}</a>
     </li>
     {% endfor %}
     <li><hr class="dropdown-divider"></li>
+    {% endif %}
+    {% if can_edit %}
+    <li>
+      <a class="dropdown-item" href="{{ preview_href }}" title="Test survey">Test survey</a>
+    </li>
     {% endif %}
     <li>
       <a class="dropdown-item" href="{{ url_for('sample_size_planner', survey_id=survey.id) }}"

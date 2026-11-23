@@ -900,6 +900,12 @@ def compact_count_filter(item):
   return survey_service.compact_count(item)
 
 
+@app.template_filter('preview_cells')
+def preview_cells_filter(survey):
+  data = survey.to_dict() if hasattr(survey, 'to_dict') else (survey or {})
+  return cells_mod.preview_cells(data)
+
+
 @app.template_filter('sizes_compact')
 def sizes_compact_filter(keys):
   return survey_service.sizes_compact(keys)

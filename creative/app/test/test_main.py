@@ -527,6 +527,9 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('/index/stats-partial?ids=s1"', html)
     self.assertNotIn('include_test=1', html)
     self.assertNotIn('incl. test', html)
+    self.assertIn('id="previewModalTest"', html)
+    self.assertIn('Test survey', html)
+    self.assertNotIn('target="_blank"', html.split('id="previewModalOpen"', 1)[1][:200])
     counts_mock.assert_not_called()
 
     included = self.client.get('/index?include_test=1')
@@ -543,7 +546,7 @@ class MainRoutesTest(unittest.TestCase):
     self.assertEqual(calls[-1].kwargs.get('include_test'), True)
 
     badge = self.client.get('/index/stats-partial?ids=s1&include_test=1')
-    self.assertIn(b'incl. test', badge.data)
+    self.assertNotIn(b'incl. test', badge.data)
     none = self.client.get('/index/stats-partial?ids=s1')
     self.assertNotIn(b'incl. test', none.data)
 
@@ -912,6 +915,8 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn(b'html5_qa.txt', response.data)
     self.assertIn(b'<iframe', response.data)
     self.assertIn(b':srcdoc="previewSrcdoc"', response.data)
+    self.assertIn(b'Test survey', response.data)
+    self.assertIn(b'Save the survey first', response.data)
     csp = response.headers.get('Content-Security-Policy', '')
     self.assertIn("script-src 'self' 'unsafe-inline' 'unsafe-eval'", csp)
     self.assertIn('https://*.googleusercontent.com', csp)
@@ -1108,6 +1113,8 @@ class MainRoutesTest(unittest.TestCase):
 
     self.assertEqual(response.status_code, 200)
     self.assertIn(b'No responses yet', response.data)
+    self.assertIn(b'Test survey', response.data)
+    self.assertNotIn(b'target="_blank">Test survey', response.data)
     self.assertNotIn(b'Open in Data Studio', response.data)
 
   @mock.patch.object(survey_service, 'get_survey_responses')
@@ -1335,6 +1342,9 @@ class MainRoutesTest(unittest.TestCase):
     self.assertIn('id="previewModal"', html)
     self.assertIn('id="previewModalFrame"', html)
     self.assertIn('id="previewModalSizes"', html)
+    self.assertIn('id="previewModalTest"', html)
+    self.assertIn('preview-test.js', html)
+    self.assertNotIn('target="_blank"', html)
     self.assertIn('home.js', html)
     self.assertIn('js-preview-open', html)
     self.assertIn('data-preview-id="s1"', html)
